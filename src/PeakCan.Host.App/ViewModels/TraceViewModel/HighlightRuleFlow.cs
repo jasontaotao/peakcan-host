@@ -18,14 +18,27 @@ public sealed partial class TraceViewModel
     [ObservableProperty]
     private string _highlightSummaryText = "0 条规则生效";
 
-    /// <summary>新加一条规则行。</summary>
+    /// <summary>新加一条规则行（默认空规则 + 色索引 0）。</summary>
     [RelayCommand]
-    private void AddHighlightRule()
+    private void AddHighlightRule() => AddHighlightRuleCore("", 0);
+
+    /// <summary>
+    /// 追加/插入一条规则行并订阅属性变更。工具栏"+ 添加"（空规则）与行右键
+    /// "高亮这个 ID"（预填 ID）共用；命名 handler 订阅保证 Remove 能退订。
+    /// <paramref name="insertAt"/> &lt; 0 或越界时追加到末尾。
+    /// </summary>
+    private void AddHighlightRuleCore(string idListText, int colorIndex, int insertAt = -1)
     {
-        var row = new HighlightRuleRowViewModel();
-        // 用命名 handler 订阅，RemoveHighlightRule 才能正确退订（lambda 退订不匹配）。
+        var row = new HighlightRuleRowViewModel
+        {
+            IdListText = idListText,
+            ColorIndex = colorIndex,
+        };
         row.PropertyChanged += OnHighlightRuleRowChanged;
-        HighlightRules.Add(row);
+        if (insertAt < 0 || insertAt > HighlightRules.Count)
+            HighlightRules.Add(row);
+        else
+            HighlightRules.Insert(insertAt, row);
         RecomputeAllHighlights();
     }
 

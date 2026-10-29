@@ -213,6 +213,41 @@ public class TraceFilterSpecTests
         spec.Matches(Standard(0x100)).Should().BeFalse();
     }
 
+    // —— 8b. ExcludedIds（行右键绝对排除）——
+
+    [Fact]
+    public void ExcludedIds_Hides_Only_That_Id()
+    {
+        var spec = new TraceFilterSpec { ExcludedIds = new HashSet<uint> { 0x123 } };
+        spec.Matches(Standard(0x123)).Should().BeFalse();
+        spec.Matches(Standard(0x124)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ExcludedIds_Takes_Precedence_Over_Exclude_Inversion()
+    {
+        var spec = new TraceFilterSpec
+        {
+            IdAllowList = new HashSet<uint> { 0x123, 0x124 },
+            ExcludedIds = new HashSet<uint> { 0x123 },
+            Exclude = true,
+        };
+        // 绝对排除优先：即使整体取反也不能把排除行放出来。
+        spec.Matches(Standard(0x123)).Should().BeFalse();
+        // 0x124 命中 allow-list → core true → 取反 false。
+        spec.Matches(Standard(0x124)).Should().BeFalse();
+        // 0x125 不命中 allow-list → core false → 取反 true。
+        spec.Matches(Standard(0x125)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ExcludedIds_Alone_Makes_Spec_NonEmpty()
+    {
+        // 必须纳入 IsEmpty：否则只排除时 EntriesView.Filter 被置 null，排除静默失效。
+        new TraceFilterSpec { ExcludedIds = new HashSet<uint> { 0x123 } }
+            .IsEmpty.Should().BeFalse();
+    }
+
     // —— AND 组合 ——
 
     [Fact]

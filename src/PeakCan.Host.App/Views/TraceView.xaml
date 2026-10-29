@@ -47,6 +47,9 @@
             <CheckBox Content="暂停" IsChecked="{Binding IsPaused}" VerticalAlignment="Center" Margin="8,0,0,0" />
 
             <Button Content="清除过滤" Command="{Binding ClearFiltersCommand}" Padding="8,2" Margin="8,0,0,0" />
+            <!-- P0-2：清除行右键产生的 ID 排除（不影响其他过滤条件）。 -->
+            <Button Content="清除排除" Command="{Binding ClearExcludedIdsCommand}" Padding="8,2" Margin="4,0,0,0"
+                    ToolTip="清除右键“排除这个 ID”产生的排除集合" />
         </StackPanel>
 
         <!-- 工具栏1 第二行：payload 模式过滤 + 错误/状态文本 -->
@@ -67,6 +70,98 @@
             <TextBox Text="{Binding MaxRowsText, UpdateSourceTrigger=PropertyChanged}" Width="50" VerticalAlignment="Center" ToolTip="MaxRows [100, 50000]" />
             <TextBlock Text="行" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" />
         </StackPanel>
+
+        <!-- P0-3：过滤条件 chip 条 —— 已生效条件可见、可单条移除（批量条件不再难追踪） -->
+        <Border DockPanel.Dock="Top" Margin="4,0,4,6" Padding="6,4"
+                Background="{StaticResource CanvasBg}"
+                BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1" CornerRadius="3">
+            <!-- DockPanel 给 ItemsControl 有限宽度，WrapPanel 才会真正换行
+                 （横向 StackPanel 会给子元素无限宽度，chip 永不折行）。 -->
+            <DockPanel>
+                <!-- 提示放前面并 Dock=Left：DockPanel 的 LastChildFill 会填满最后一个
+                     子元素，因此 ItemsControl 必须是最后一个（获得剩余有限宽度）。 -->
+                <!-- M1：过滤文本非法时 chip 只是"文本投影"，_activeSpec 冻结在上一有效值；
+                     显式标注"未生效"，避免用户以为删 chip 会改变表格。 -->
+                <TextBlock DockPanel.Dock="Left"
+                           Text="过滤未生效（存在非法输入）"
+                           Foreground="{StaticResource Error}" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Margin="4,0,10,0"
+                           Visibility="{Binding FilterErrorText, Converter={StaticResource NullToVisibilityConverter}}" />
+                <TextBlock DockPanel.Dock="Left"
+                           Text="无过滤条件 —— 右键表格行可快速只看 / 排除 / 高亮"
+                           FontStyle="Italic" VerticalAlignment="Center" Margin="4,0,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding FilterChips.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="64">
+                <ItemsControl ItemsSource="{Binding FilterChips}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="0,0,6,2" Padding="8,2,2,2" CornerRadius="10">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="{StaticResource RowAlternate}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtle}" />
+                                        <Setter Property="BorderThickness" Value="1" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:FilterChipKinds.ExcludeMode}">
+                                                <Setter Property="BorderBrush" Value="{StaticResource Error}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:FilterChipKinds.ExcludedId}">
+                                                <Setter Property="BorderBrush" Value="{StaticResource Error}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:FilterChipKinds.ErrorsOnly}">
+                                                <Setter Property="Background" Value="{StaticResource WarnBg}" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource WarnBorder}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Label}" FontSize="12" VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:FilterChipKinds.ExcludeMode}">
+                                                        <Setter Property="Foreground" Value="{StaticResource Error}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:FilterChipKinds.ExcludedId}">
+                                                        <Setter Property="Foreground" Value="{StaticResource Error}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Kind}" Value="{x:Static vm:FilterChipKinds.ErrorsOnly}">
+                                                        <Setter Property="Foreground" Value="{StaticResource WarnText}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <Button Command="{Binding RemoveCommand}" Content="✕"
+                                            Padding="6,0" Margin="6,0,0,0"
+                                            Background="Transparent" BorderThickness="0"
+                                            ToolTip="移除该过滤条件"
+                                            AutomationProperties.Name="{Binding Label, StringFormat='移除 {0}'}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
 
         <!-- 工具栏2：高亮（spec §6） -->
         <StackPanel DockPanel.Dock="Top" Margin="4,0,4,4">
@@ -139,12 +234,20 @@
               ScrollViewer.CanContentScroll="True"
               ScrollViewer.ScrollChanged="OnScrollChanged"
               RowHeight="20"
-              AlternatingRowBackground="{StaticResource RowAlternate}">
+              AlternatingRowBackground="{StaticResource RowAlternate}"
+              PreviewMouseRightButtonDown="OnGridPreviewMouseRightButtonDown"
+              ContextMenuOpening="OnGridContextMenuOpening">
         <DataGrid.RowStyle>
             <Style TargetType="DataGridRow">
+                <!-- P0-1：所有行统一预留 3px 左边框（透明），错误行只换颜色，
+                     避免逐行改动 BorderThickness 造成内容位移。 -->
+                <Setter Property="BorderThickness" Value="3,0,0,0" />
+                <Setter Property="BorderBrush" Value="Transparent" />
                 <Style.Triggers>
                     <DataTrigger Binding="{Binding IsError}" Value="True">
                         <Setter Property="Background" Value="{StaticResource FrameBgError}" />
+                        <!-- P0-1：高亮触发器只改 Background，红条不可被覆盖。 -->
+                        <Setter Property="BorderBrush" Value="{StaticResource Error}" />
                     </DataTrigger>
                     <DataTrigger Binding="{Binding IsFd}" Value="True">
                         <Setter Property="Background" Value="{StaticResource FrameBgFd}" />
@@ -177,6 +280,23 @@
                 </Style.Triggers>
             </Style>
         </DataGrid.RowStyle>
+        <!-- P0-2：行右键菜单。ContextMenu 不在 DataGrid 可视树内，命令与参数
+             一律经 PlacementTarget 取；右键先由 code-behind 选中指针下的行。 -->
+        <DataGrid.ContextMenu>
+            <ContextMenu>
+                <MenuItem Header="只看这个 ID"
+                          Command="{Binding PlacementTarget.DataContext.ShowOnlyThisIdCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                <MenuItem Header="排除这个 ID"
+                          Command="{Binding PlacementTarget.DataContext.ExcludeThisIdCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                <MenuItem Header="高亮这个 ID"
+                          Command="{Binding PlacementTarget.DataContext.HighlightThisIdCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                <Separator />
+                <MenuItem Header="复制 ID / 数据" Click="OnCopyIdAndData" />
+            </ContextMenu>
+        </DataGrid.ContextMenu>
         <DataGrid.Columns>
             <DataGridTextColumn Header="时间" Binding="{Binding Timestamp}" Width="120" />
             <DataGridTextColumn Header="通道" Binding="{Binding Channel}" Width="60" />

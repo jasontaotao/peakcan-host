@@ -101,6 +101,8 @@ public sealed partial class ReplayViewModel
             ScrubberMaxValue = TotalDuration;
             CurrentTimestamp = 0.0;
             IsLoaded = true;
+            // P0：加载成功后重建时间轴热力条。
+            RebuildTimelineHeat();
             // v1.5.1 PATCH Task 2 (Decision 5): clear the range filter
             // after a successful load. A new file's timestamps are
             // unlikely to match the prior bounds (e.g. old End=60 on
@@ -122,6 +124,8 @@ public sealed partial class ReplayViewModel
             LoadedFilePath = null;
             TotalDuration = 0.0;
             ScrubberMaxValue = 0.0;
+            // 失败时服务可能仍持有上一次的帧——热力条必须清空，避免误导。
+            TimelineHeat.Clear();
         }
         catch (ReplayException ex)
         {
@@ -131,6 +135,7 @@ public sealed partial class ReplayViewModel
             LoadedFilePath = null;
             TotalDuration = 0.0;
             ScrubberMaxValue = 0.0;
+            TimelineHeat.Clear();
         }
     }
 
@@ -281,6 +286,8 @@ public sealed partial class ReplayViewModel
         }
         IsPlaying = false;
         IsPaused = false;
+        // 成功分支重建；missing>0 时服务已 Reset（帧为空）→ 自动清空。
+        RebuildTimelineHeat();
         return missing;
     }
 

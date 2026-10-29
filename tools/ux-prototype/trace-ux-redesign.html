@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PeakCan Trace 页 UX 重构原型 · 当前 vs 建议</title>
+<style>
+  /* ============================================================
+     DESIGN TOKENS — 从 WPF 现有主题抽出的语义色，非凭空创造
+     来源：AppShell.xaml 里引用的 Accent/Ok/Error/WarnBg/TextSecondary…
+     ============================================================ */
+  :root{
+    /* 基底色：工程工具该有的"仪表盘深灰"，不是 SaaS 浅灰 */
+    --canvas:        #1b1d21;
+    --panel:         #23262b;
+    --panel-raise:   #2a2e34;
+    --border-subtle: #363b42;
+    --border-strong: #4a5058;
+
+    /* 文本 */
+    --text-primary:   #e6e8eb;
+    --text-secondary: #9aa1a9;
+    --text-disabled:  #5c636b;
+    --text-on-accent: #0b0c0e;
+
+    /* 语义色 —— 严格对齐 WPF 资源名 */
+    --accent:        #3d9dff;   /* Accent */
+    --accent-hover:  #63b3ff;
+    --accent-pressed:#2a7fd4;
+    --ok:            #4ec98a;   /* Ok */
+    --error:         #f2555a;   /* Error / FrameBgError 文字侧 */
+    --warn-bg:       #3a2f1a;   /* WarnBg */
+    --warn-border:   #8a6d2f;   /* WarnBorder */
+    --warn-text:     #e8b34b;   /* WarnText */
+
+    /* 帧底色 —— 对应 FrameBgError / FrameBgFd / FrameBgSim / 高亮 1-6 */
+    --frame-bg-error:   rgba(242,85,90,.14);
+    --frame-bg-fd:      rgba(61,157,255,.10);
+    --frame-bg-sim:     rgba(154,161,169,.08);
+    --hl-0:  rgba(232,179,75,.22);
+    --hl-1:  rgba(61,157,255,.22);
+    --hl-2:  rgba(78,201,138,.22);
+    --hl-3:  rgba(186,104,200,.22);
+    --hl-4:  rgba(232,125,90,.22);
+    --hl-5:  rgba(94,196,190,.22);
+
+    /* 字体：UI 用 Segoe 系（Windows 原生），数据用等宽 —— 工程工具的"可读性第一" */
+    --font-ui:   "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    --font-mono: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+
+    /* 尺寸阶梯 */
+    --row-h-compact: 20px;   /* 现状 */
+    --row-h-comfort: 28px;   /* 建议：触屏/手套场景 */
+    --chip-h:        22px;
+
+    --radius-sm: 3px;
+    --radius-md: 6px;
+    --focus-ring: 0 0 0 2px var(--accent);
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html{ -webkit-font-smoothing:antialiased; }
+  body{
+    font-family:var(--font-ui);
+    background:var(--canvas);
+    color:var(--text-primary);
+    font-size:13px;
+    line-height:1.5;
+    padding:24px;
+    min-height:100vh;
+  }
+  button{ font:inherit; color:inherit; background:none; border:none; cursor:pointer; }
+  :focus-visible{ outline:none; box-shadow:var(--focus-ring); border-radius:var(--radius-sm); }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+
+  /* ============================================================
+     PAGE HEADER —— 原型说明，一句话说清在做什么
+     ============================================================ */
+  .page-head{
+    max-width:1560px; margin:0 auto 20px;
+    display:flex; align-items:baseline; gap:16px; flex-wrap:wrap;
+  }
+  .page-head h1{ font-size:20px; font-weight:600; letter-spacing:.01em; }
+  .page-head h1 .sub{ color:var(--text-secondary); font-weight:400; font-size:13px; margin-left:10px; }
+  .page-head .legend{ margin-left:auto; display:flex; gap:14px; font-size:12px; color:var(--text-secondary); }
+  .legend-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:1px; }
+
+  /* ============================================================
+     COMPARISON LAYOUT —— 左右并排，中间一条缝
+     ============================================================ */
+  .compare{
+    max-width:1560px; margin:0 auto;
+    display:grid; grid-template-columns:1fr 1fr; gap:20px;
+  }
+  @media (max-width:1100px){ .compare{ grid-template-columns:1fr; } }
+
+  .pane{ background:var(--panel); border:1px solid var(--border-subtle); border-radius:var(--radius-md); overflow:hidden; display:flex; flex-direction:column; }
+  .pane-head{
+    padding:10px 14px; border-bottom:1px solid var(--border-subtle);
+    display:flex; align-items:center; gap:10px;
+    background:var(--panel-raise);
+  }
+  .pane-head .tag{
+    font-size:11px; font-weight:600; padding:2px 8px; border-radius:99px; letter-spacing:.04em;
+  }
+  .tag-current{ background:rgba(242,85,90,.15); color:var(--error); }
+  .tag-proposed{ background:rgba(78,201,138,.15); color:var(--ok); }
+  .pane-head h2{ font-size:14px; font-weight:600; }
+  .pane-head .why{ margin-left:auto; font-size:11.5px; color:var(--text-secondary); }
+
+  .pane-body{ padding:12px 14px; display:flex; flex-direction:column; gap:10px; flex:1; }
+
+  /* ============================================================
+     SHARED WIDGETS
+     ============================================================ */
+  .toolbar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .btn{
+    padding:4px 12px; border-radius:var(--radius-sm);
+    background:var(--panel-raise); border:1px solid var(--border-subtle);
+    color:var(--text-primary); font-size:12.5px;
+    transition:background .12s;
+  }
+  .btn:hover{ background:var(--border-subtle); }
+  .btn.primary{ background:var(--accent); border-color:transparent; color:var(--text-on-accent); font-weight:600; }
+  .btn.primary:hover{ background:var(--accent-hover); }
+  .btn.danger-ghost{ color:var(--error); }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn.icon{ padding:4px 8px; }
+
+  .field{ display:flex; align-items:center; gap:4px; }
+  .field label{ font-size:12px; color:var(--text-secondary); white-space:nowrap; }
+  .input{
+    background:var(--canvas); border:1px solid var(--border-subtle);
+    color:var(--text-primary); border-radius:var(--radius-sm);
+    padding:3px 7px; font-size:12.5px; font-family:var(--font-mono);
+    min-width:0;
+  }
+  .input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  .input.invalid{ border-color:var(--error); }
+  select.input{ font-family:var(--font-ui); }
+
+  .checkbox{ display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--text-primary); cursor:pointer; user-select:none; }
+  .checkbox input{ accent-color:var(--accent); }
+
+  /* ============================================================
+     CURRENT PANE —— 忠实还原 TraceView.xaml 的"裸文本框两行"
+     ============================================================ */
+  .current .toolbar{ gap:8px; }
+  .current .row-sep{ border-top:1px dashed var(--border-subtle); margin:2px 0; }
+  .current .err-text{ color:var(--error); font-size:12px; }
+  .current .status-text{ color:var(--text-secondary); font-size:12px; }
+
+  /* ============================================================
+     FRAME GRID —— 两栏共用的 DataGrid 模拟
+     ============================================================ */
+  .grid-wrap{
+    border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+    overflow:hidden; background:var(--canvas);
+  }
+  .grid-head, .grid-row{
+    display:grid;
+    grid-template-columns: 86px 52px 92px 44px 40px 78px 1fr 150px;
+    align-items:center;
+  }
+  .grid-head{
+    background:var(--panel-raise); font-size:11.5px; color:var(--text-secondary);
+    border-bottom:1px solid var(--border-subtle);
+  }
+  .grid-head > div{ padding:5px 8px; font-weight:600; }
+  .grid-body{ max-height:300px; overflow-y:auto; }
+  .grid-row{
+    height:var(--row-h-compact);
+    border-bottom:1px solid rgba(255,255,255,.03);
+    font-family:var(--font-mono); font-size:12px;
+    cursor:default; position:relative;
+    transition:background .08s;
+  }
+  .grid-row > div{ padding:0 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .grid-row:hover{ background:rgba(255,255,255,.04); }
+  .grid-row.selected{ box-shadow:inset 2px 0 0 var(--accent); background:rgba(61,157,255,.08); }
+
+  /* 帧类型底色 —— 与 WPF DataTrigger 一一对应 */
+  .grid-row.is-error{ background:var(--frame-bg-error); }
+  .grid-row.is-fd{ background:var(--frame-bg-fd); }
+  .grid-row.is-sim{ background:var(--frame-bg-sim); font-style:italic; color:var(--text-secondary); }
+  .grid-row.hl-0{ background:var(--hl-0); }
+  .grid-row.hl-1{ background:var(--hl-1); }
+  .grid-row.hl-2{ background:var(--hl-2); }
+  .grid-row.hl-3{ background:var(--hl-3); }
+
+  /* —— P0 关键改动：错误帧的不可覆盖标记 —— */
+  .grid-row.is-error-guarded{ background:var(--frame-bg-error); }
+  .grid-row.is-error-guarded::before{
+    content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+    background:var(--error);
+  }
+  /* 高亮盖过错误时，错误条仍可见（当前设计：高亮直接盖住，丢失错误信息） */
+  .grid-row.is-error.hl-1{ background:var(--hl-1); } /* 现状：错误被吃掉 */
+
+  .secoc-ok{ color:var(--ok); font-weight:600; }
+  .secoc-bad{ color:var(--error); font-weight:600; }
+  .secoc-none{ color:var(--text-secondary); }
+
+  /* ============================================================
+     CONTEXT MENU —— P0: 行右键菜单
+     ============================================================ */
+  .ctx-menu{
+    position:fixed; z-index:1000; min-width:220px;
+    background:var(--panel-raise); border:1px solid var(--border-strong);
+    border-radius:var(--radius-md); padding:5px;
+    box-shadow:0 10px 32px rgba(0,0,0,.5);
+    opacity:0; transform:scale(.97) translateY(-4px); pointer-events:none;
+    transition:opacity .12s, transform .12s;
+  }
+  .ctx-menu.open{ opacity:1; transform:none; pointer-events:auto; }
+  .ctx-item{
+    display:flex; align-items:center; gap:10px; width:100%;
+    padding:6px 10px; border-radius:var(--radius-sm); font-size:12.5px;
+    color:var(--text-primary); text-align:left;
+  }
+  .ctx-item:hover{ background:var(--accent); color:var(--text-on-accent); }
+  .ctx-item .ico{ width:16px; text-align:center; opacity:.85; }
+  .ctx-sep{ height:1px; background:var(--border-subtle); margin:5px 4px; }
+  .ctx-title{ padding:5px 10px 3px; font-size:11px; color:var(--text-secondary); font-family:var(--font-mono); }
+
+  /* ============================================================
+     FILTER CHIP BAR —— P0: 过滤条件可视化
+     ============================================================ */
+  .chip-bar{
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+    padding:7px 10px; background:var(--canvas);
+    border:1px solid var(--border-subtle); border-radius:var(--radius-sm);
+    min-height:38px;
+  }
+  .chip-bar .chip-placeholder{ color:var(--text-disabled); font-size:12.5px; font-style:italic; }
+  .chip{
+    display:inline-flex; align-items:center; gap:6px;
+    height:var(--chip-h); padding:0 4px 0 9px;
+    background:var(--hl-1); border:1px solid rgba(61,157,255,.4);
+    border-radius:99px; font-size:12px; font-family:var(--font-mono);
+    animation:chip-in .18s ease-out;
+  }
+  @keyframes chip-in{ from{ transform:scale(.85); opacity:0; } }
+  .chip.kind-exclude{ background:rgba(242,85,90,.15); border-color:rgba(242,85,90,.4); }
+  .chip.kind-highlight{ background:var(--hl-0); border-color:rgba(232,179,75,.45); }
+  .chip .x{
+    width:16px; height:16px; border-radius:50%;
+    display:grid; place-items:center; font-size:11px; line-height:1;
+    color:var(--text-secondary); font-family:var(--font-ui);
+  }
+  .chip .x:hover{ background:rgba(0,0,0,.3); color:#fff; }
+  .chip .swatch{ width:9px; height:9px; border-radius:2px; }
+  .chip-bar .clear-all{ margin-left:auto; font-size:12px; color:var(--text-secondary); }
+  .chip-bar .clear-all:hover{ color:var(--error); }
+
+  /* ============================================================
+     EXPRESSION BUILDER —— P1: 结构化过滤输入（替代裸文本框）
+     ============================================================ */
+  .expr-builder{
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+    padding:8px 10px; background:var(--panel-raise);
+    border:1px dashed var(--border-strong); border-radius:var(--radius-sm);
+  }
+  .expr-builder .lbl{ font-size:12px; color:var(--text-secondary); }
+  .expr-builder select, .expr-builder input{ height:26px; }
+  .expr-builder .add-btn{ color:var(--accent); font-weight:600; }
+  .expr-preview{ font-family:var(--font-mono); font-size:11.5px; color:var(--text-secondary); width:100%; margin-top:2px; }
+  .expr-preview .valid{ color:var(--ok); }
+  .expr-preview .invalid{ color:var(--error); }
+
+  /* ============================================================
+     ANNOTATION —— 原型上的"改动点"标注
+     ============================================================ */
+  .anno{
+    display:inline-grid; place-items:center;
+    width:16px; height:16px; border-radius:50%;
+    background:var(--accent); color:var(--text-on-accent);
+    font-size:10.5px; font-weight:700; cursor:help;
+    position:relative; flex:none;
+  }
+  .anno[data-n]{ }
+  .anno-tip{
+    position:fixed; z-index:2000; max-width:320px;
+    background:var(--panel-raise); border:1px solid var(--accent);
+    border-radius:var(--radius-md); padding:10px 12px;
+    font-size:12px; line-height:1.55; color:var(--text-primary);
+    box-shadow:0 12px 32px rgba(0,0,0,.55);
+    opacity:0; pointer-events:none; transition:opacity .12s;
+  }
+  .anno-tip.show{ opacity:1; }
+  .anno-tip .t-code{ font-family:var(--font-mono); font-size:11px; color:var(--accent-hover); display:block; margin-top:6px; }
+
+  /* ============================================================
+     MAPPING TABLE —— 底部落地映射
+     ============================================================ */
+  .mapping{
+    max-width:1560px; margin:20px auto 0;
+    background:var(--panel); border:1px solid var(--border-subtle);
+    border-radius:var(--radius-md); overflow:hidden;
+  }
+  .mapping summary{
+    padding:12px 16px; cursor:pointer; font-weight:600; font-size:13.5px;
+    list-style:none; display:flex; align-items:center; gap:8px;
+  }
+  .mapping summary::-webkit-details-marker{ display:none; }
+  .mapping summary::before{ content:"▸"; transition:transform .15s; color:var(--text-secondary); }
+  .mapping[open] summary::before{ transform:rotate(90deg); }
+  .mapping table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  .mapping th{ text-align:left; padding:8px 16px; background:var(--panel-raise); color:var(--text-secondary); font-weight:600; border-top:1px solid var(--border-subtle); }
+  .mapping td{ padding:8px 16px; border-top:1px solid var(--border-subtle); vertical-align:top; }
+  .mapping td code{ font-family:var(--font-mono); font-size:11.5px; color:var(--accent-hover); }
+  .mapping td .prio{ font-weight:700; font-size:11px; padding:1px 6px; border-radius:99px; }
+  .prio-p0{ background:rgba(242,85,90,.15); color:var(--error); }
+  .prio-p1{ background:rgba(232,179,75,.15); color:var(--warn-text); }
+
+  .footnote{ max-width:1560px; margin:14px auto 0; color:var(--text-disabled); font-size:11.5px; }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>Trace 页 UX 重构原型<span class="sub">peakcan-host · 当前 vs 建议（可交互——右键右侧表格的行试试）</span></h1>
+  <div class="legend">
+    <span><i class="legend-dot" style="background:var(--error)"></i>错误帧</span>
+    <span><i class="legend-dot" style="background:var(--accent)"></i>CAN FD</span>
+    <span><i class="legend-dot" style="background:var(--warn-text)"></i>高亮规则</span>
+    <span><i class="legend-dot" style="background:var(--ok)"></i>SecOC ✓</span>
+  </div>
+</header>
+
+<div class="compare">
+
+  <!-- ═══════════════════════ 当前设计 ═══════════════════════ -->
+  <section class="pane current" aria-label="当前设计">
+    <div class="pane-head">
+      <span class="tag tag-current">当前</span>
+      <h2>裸文本框 × 13，错误靠红字</h2>
+      <span class="why">TraceView.xaml 现状</span>
+    </div>
+    <div class="pane-body">
+
+      <!-- 工具栏第 1 行 -->
+      <div class="toolbar">
+        <button class="btn">清空帧</button>
+        <button class="btn">导出 CSV</button>
+        <button class="btn">导出全部</button>
+        <span class="field"><label>ID列表</label><input class="input" style="width:88px" placeholder="0x18FF50E5" id="cur-idlist"></span>
+        <span class="field"><label>PGN(hex)</label><input class="input" style="width:64px"></span>
+        <span class="field"><label>SA</label><input class="input" style="width:36px"></span>
+        <span class="field"><label>DA</label><input class="input" style="width:36px"></span>
+        <span class="field"><label>DBC消息</label><input class="input" style="width:100px"></span>
+        <span class="field"><label>通道</label>
+          <select class="input"><option>全部</option><option>USB1</option><option>USBCAN 0</option></select>
+        </span>
+        <label class="checkbox"><input type="checkbox">仅错误帧</label>
+        <label class="checkbox"><input type="checkbox" id="cur-exclude">排除</label>
+        <label class="checkbox"><input type="checkbox">暂停</label>
+        <button class="btn">清除过滤</button>
+      </div>
+
+      <!-- 工具栏第 2 行 -->
+      <div class="toolbar">
+        <span class="field"><label>Payload offset</label><input class="input" style="width:38px"></span>
+        <span class="field"><label>mask(hex)</label><input class="input" style="width:38px"></span>
+        <span class="field"><label>value(hex)</label><input class="input" style="width:38px"></span>
+        <span class="err-text" id="cur-err"></span>
+        <span class="status-text" style="margin-left:auto">共 12,847 帧 · 过滤后 312</span>
+        <span class="field"><label>上限</label><input class="input" style="width:48px" value="5000"></span>
+      </div>
+
+      <!-- 帧表格（当前：错误帧可被高亮覆盖） -->
+      <div class="grid-wrap">
+        <div class="grid-head">
+          <div>时间</div><div>通道</div><div>ID</div><div>类型</div><div>DLC</div><div>SecOC</div><div>数据</div><div>解码</div>
+        </div>
+        <div class="grid-body" id="cur-grid"></div>
+      </div>
+
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.7">
+        <b style="color:var(--error)">问题：</b>
+        ① 过滤条件藏在 6 个框里，搞不清当前叠了哪些；
+        ② 右键一行没有菜单，"只看这个 ID" 要手动抄 hex；
+        ③ 第 4 行——错误帧被高亮规则 1（蓝）盖住，<b>看不出它是错误帧</b>；
+        ④ payload offset/mask/value 三元组 90% 用户不会用，却占了整行。
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 建议设计 ═══════════════════════ -->
+  <section class="pane proposed" aria-label="建议设计">
+    <div class="pane-head">
+      <span class="tag tag-proposed">建议</span>
+      <h2>chip 过滤条 + 行右键 + 错误不可覆盖</h2>
+      <span class="why">P0 三项改动</span>
+    </div>
+    <div class="pane-body">
+
+      <!-- 顶部：主操作 + 表达式构建器入口 -->
+      <div class="toolbar">
+        <button class="btn">清空帧</button>
+        <button class="btn">导出 CSV</button>
+        <span style="flex:1"></span>
+        <label class="checkbox"><input type="checkbox">暂停</label>
+        <label class="checkbox"><input type="checkbox" id="prop-erronly">仅错误帧</label>
+        <button class="btn icon" id="toggle-builder" title="添加过滤条件">＋ 过滤 <span class="anno" data-n="1">1</span></button>
+      </div>
+
+      <!-- 表达式构建器（点 "＋过滤" 展开） -->
+      <div class="expr-builder" id="expr-builder" hidden>
+        <span class="lbl">字段</span>
+        <select class="input" id="eb-field">
+          <option value="id">CAN ID</option><option value="pgn">PGN</option>
+          <option value="sa">源地址 SA</option><option value="da">目标地址 DA</option>
+          <option value="payload">Payload 字节</option><option value="channel">通道</option>
+        </select>
+        <span class="lbl">条件</span>
+        <select class="input" id="eb-op"><option>=</option><option>≠（排除）</option><option>高亮</option></select>
+        <input class="input" id="eb-value" style="width:110px" placeholder="0x18FF50E5">
+        <button class="btn add-btn" id="eb-add">添加 →</button>
+        <div class="expr-preview" id="eb-preview">输入即时校验，合法才允许添加</div>
+      </div>
+
+      <!-- chip 过滤条 -->
+      <div class="chip-bar" id="chip-bar">
+        <span class="chip-placeholder" id="chip-empty">无过滤条件 —— 右键表格行快速添加，或点 "＋ 过滤"</span>
+        <button class="clear-all" id="chip-clear" hidden>清除全部</button>
+      </div>
+
+      <!-- 帧表格（建议：错误帧左侧红条不可覆盖） -->
+      <div class="grid-wrap">
+        <div class="grid-head">
+          <div>时间</div><div>通道</div><div>ID</div><div>类型</div><div>DLC</div><div>SecOC</div><div>数据</div><div>解码</div>
+        </div>
+        <div class="grid-body" id="prop-grid"></div>
+      </div>
+
+      <!-- 状态条：错误帧计数 + 丢弃计数 + 帧率 -->
+      <div class="toolbar" style="font-size:12px; color:var(--text-secondary)">
+        <span>共 <b style="color:var(--text-primary)">12,847</b> 帧</span>
+        <span>·</span>
+        <span>显示 <b style="color:var(--text-primary)" id="prop-shown">12,847</b></span>
+        <span>·</span>
+        <span style="color:var(--error)">错误 3 <span class="anno" data-n="3">3</span></span>
+        <span style="flex:1"></span>
+        <span title="TraceService 通道满丢弃计数（当前只在 Debug.WriteLine）">丢弃 0 <span class="anno" data-n="4">4</span></span>
+      </div>
+
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.7">
+        <b style="color:var(--ok)">改动：</b>
+        ① 过滤条件全部 chip 化，一眼看清、单条可删 <span class="anno" data-n="1">1</span>；
+        ② <b>右键任意行</b> → 只看/排除/高亮此 ID <span class="anno" data-n="2">2</span>；
+        ③ 错误帧左侧红条，高亮再盖也看得出 <span class="anno" data-n="3">3</span>；
+        ④ payload 三元组收进 "＋过滤" 构建器，不再常驻。
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- 行右键菜单 -->
+<div class="ctx-menu" id="ctx-menu" role="menu">
+  <div class="ctx-title" id="ctx-title">0x18FF50E5</div>
+  <button class="ctx-item" data-act="only"><span class="ico">◎</span>只看这个 ID</button>
+  <button class="ctx-item" data-act="exclude"><span class="ico">⊘</span>排除这个 ID</button>
+  <button class="ctx-item" data-act="highlight"><span class="ico">◆</span>高亮这个 ID…</button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" data-act="copy"><span class="ico">⧉</span>复制 ID / 数据 hex</button>
+  <button class="ctx-item" data-act="replay"><span class="ico">▶</span>从此帧开始回放</button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" data-act="erronly"><span class="ico">⚠</span>只看所有错误帧</button>
+</div>
+
+<!-- 标注气泡 -->
+<div class="anno-tip" id="anno-tip"></div>
+
+<!-- ═══════════════════════ 落地映射 ═══════════════════════ -->
+<details class="mapping" open>
+  <summary>落地映射：每项改动对应 WPF 代码的哪里</summary>
+  <table>
+    <thead><tr><th style="width:60px">优先级</th><th style="width:220px">改动</th><th>对应文件 / 机制</th><th style="width:300px">工作量与风险</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="prio prio-p0">P0</span></td>
+        <td>行右键菜单</td>
+        <td><code>TraceView.xaml</code> DataGrid 加 <code>ContextMenu</code>；命令走 <code>TraceViewModel</code> 的 <code>[RelayCommand]</code>，复用现有 <code>SetFilterToIdCommand</code> / 高亮规则添加逻辑</td>
+        <td>半天 · 零风险，纯 View 层 + 已有 VM 命令</td>
+      </tr>
+      <tr>
+        <td><span class="prio prio-p0">P0</span></td>
+        <td>过滤 chip 条</td>
+        <td>新增 <code>FilterChipViewModel</code>（ObservableCollection），把 <code>IdListText/PgnText/SaText/DaText/ChannelFilter/ExcludeMatch</code> 聚合成 chip；原 6 个文本框保留为"高级"折叠区，双向同步</td>
+        <td>1-2 天 · 中风险——需保证 chip 与文本框状态一致，建议 chip 为唯一入口后逐步废弃文本框</td>
+      </tr>
+      <tr>
+        <td><span class="prio prio-p0">P0</span></td>
+        <td>错误帧不可覆盖标记</td>
+        <td><code>TraceView.xaml</code> RowStyle：<code>IsError</code> 触发器从设置 Background 改为设置 <code>BorderBrush</code> + 左侧 3px Border，让高亮 Background 与错误标记共存</td>
+        <td>2 小时 · 零风险，纯样式</td>
+      </tr>
+      <tr>
+        <td><span class="prio prio-p1">P1</span></td>
+        <td>丢弃计数上状态栏</td>
+        <td><code>TraceService._droppedOnFullChannel</code> 已有计数（现仅 Debug.WriteLine），暴露为属性 → AppShell StatusBar 绑定</td>
+        <td>2 小时 · 零风险，把已有数据接出来</td>
+      </tr>
+      <tr>
+        <td><span class="prio prio-p1">P1</span></td>
+        <td>表达式构建器控件</td>
+        <td>新增 <code>FilterExpressionBuilder</code> UserControl（字段/操作符/值三段），Trace/Replay/J1939 三处复用；解析逻辑已有（<code>TraceViewModel</code> 各 TryParse），只是换 UI 壳</td>
+        <td>2-3 天 · 中风险——复用面越广收益越大，建议先在 Trace 落地验证</td>
+      </tr>
+    </tbody>
+  </table>
+</details>
+
+<p class="footnote">
+  原型数据为伪造样本。设计语言（深灰仪表盘底 / Segoe + Cascadia Mono / 语义色）直接取自 App 现有 WPF 资源字典，确保落地时无色差。
+  此原型可直接作为 code-review 与排期依据。
+</p>
+
+<script>
+/* ============================================================
+   数据 —— 伪造一屏 CAN 帧，覆盖各种类型
+   ============================================================ */
+const FRAMES = [
+  { t:"12.340", ch:"USB1", id:"0x18FF50E5", type:"FD",  dlc:16, secoc:"✓",  data:"01 2A F4 0C 88 13 00 21", dec:"EngSpeed 2100 rpm", cls:"is-fd",  secocCls:"secoc-ok" },
+  { t:"12.358", ch:"USB1", id:"0x18FF51E5", type:"STD", dlc:8,  secoc:"—",  data:"00 00 7D 00 00 00 00 00", dec:"VehSpeed 12.5 km/h", cls:"",      secocCls:"secoc-none" },
+  { t:"12.401", ch:"USBCAN0", id:"0x0000007F", type:"ERR", dlc:0, secoc:"—", data:"—", dec:"Bus-off recovery", cls:"is-error", secocCls:"secoc-none", isErr:true },
+  { t:"12.412", ch:"USB1", id:"0x18FF50E5", type:"FD",  dlc:16, secoc:"✓",  data:"01 2B F4 0C 88 13 00 21", dec:"EngSpeed 2101 rpm", cls:"is-error hl-1", secocCls:"secoc-ok", isErr:true, hlCur:true, note:"错误帧被高亮盖住(现状)" },
+  { t:"12.455", ch:"USB1", id:"0x0CFF02D0", type:"STD", dlc:8,  secoc:"✗ 重放", data:"DE AD BE EF 00 00 00 00", dec:"SecOC 验签失败", cls:"is-error", secocCls:"secoc-bad", isErr:true },
+  { t:"12.512", ch:"sim", id:"0x18FF50E5", type:"FD",  dlc:16, secoc:"—",  data:"01 2C F4 0C 88 13 00 21", dec:"EngSpeed 2102 rpm (sim)", cls:"is-sim", secocCls:"secoc-none" },
+  { t:"12.640", ch:"USB1", id:"0x18EAFF00", type:"STD", dlc:3,  secoc:"—",  data:"00 EA 00", dec:"J1939 Request PGN 0xEA00", cls:"", secocCls:"secoc-none" },
+  { t:"12.655", ch:"USB1", id:"0x18EBFF00", type:"STD", dlc:8,  secoc:"—",  data:"20 0E 00 02 FF 00 EA 00", dec:"J1939 TP.BAM 14 bytes", cls:"hl-0", secocCls:"secoc-none" },
+];
+
+const $ = s => document.querySelector(s);
+
+/* 渲染表格 */
+function renderRows(tbody, guarded){
+  tbody.innerHTML = FRAMES.map(f=>{
+    let cls = f.cls;
+    if(guarded && f.isErr) cls = cls.replace("is-error","is-error-guarded").replace(/hl-\d/,"") ; // 建议侧：错误用红条，不被高亮吃
+    return `<div class="grid-row ${cls}" data-id="${f.id}">
+      <div>${f.t}</div><div>${f.ch}</div><div>${f.id}</div><div>${f.type}</div><div>${f.dlc}</div>
+      <div class="${f.secocCls}">${f.secoc}</div><div>${f.data}</div><div style="font-family:var(--font-ui); font-size:11.5px; color:var(--text-secondary)">${f.dec}${f.note?` <span style="color:var(--error)">⚠${f.note}</span>`:""}</div>
+    </div>`;
+  }).join("");
+}
+renderRows($("#cur-grid"), false);
+renderRows($("#prop-grid"), true);
+
+/* ============================================================
+   当前侧：演示"错误文本提示"
+   ============================================================ */
+$("#cur-idlist").addEventListener("input", e=>{
+  const v = e.target.value.trim();
+  const ok = v==="" || /^(0x[0-9a-fA-F]+|\d+)([,\s]+(0x[0-9a-fA-F]+|\d+))*$/.test(v);
+  e.target.classList.toggle("invalid", !ok);
+  $("#cur-err").textContent = ok ? "" : "ID 列表语法错误：十六进制需 0x 前缀，多个用逗号分隔";
+});
+
+/* ============================================================
+   建议侧：chip 系统 + 右键菜单 + 表达式构建器
+   ============================================================ */
+const chips = []; // {kind, label, id}
+const chipBar = $("#chip-bar");
+
+function renderChips(){
+  chipBar.querySelectorAll(".chip").forEach(c=>c.remove());
+  $("#chip-empty").style.display = chips.length ? "none" : "";
+  $("#chip-clear").hidden = !chips.length;
+  chips.forEach((c,i)=>{
+    const el = document.createElement("span");
+    el.className = "chip" + (c.kind==="exclude"?" kind-exclude":c.kind==="highlight"?" kind-highlight":"");
+    el.innerHTML = `${c.kind==="highlight"?'<span class="swatch" style="background:var(--warn-text)"></span>':""}${c.label}<button class="x" aria-label="移除">×</button>`;
+    el.querySelector(".x").onclick = ()=>{ chips.splice(i,1); renderChips(); };
+    chipBar.insertBefore(el, $("#chip-clear"));
+  });
+  $("#prop-shown").textContent = chips.length ? "312" : "12,847";
+}
+$("#chip-clear").onclick = ()=>{ chips.length=0; renderChips(); };
+
+function addChip(kind, label){
+  chips.push({kind, label}); renderChips();
+}
+
+/* 右键菜单 */
+const ctx = $("#ctx-menu");
+let ctxId = "";
+$("#prop-grid").addEventListener("contextmenu", e=>{
+  const row = e.target.closest(".grid-row"); if(!row) return;
+  e.preventDefault();
+  ctxId = row.dataset.id;
+  $("#ctx-title").textContent = ctxId;
+  ctx.style.left = Math.min(e.clientX, innerWidth-240)+"px";
+  ctx.style.top  = Math.min(e.clientY, innerHeight-260)+"px";
+  ctx.classList.add("open");
+});
+document.addEventListener("click", e=>{ if(!ctx.contains(e.target)) ctx.classList.remove("open"); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") ctx.classList.remove("open"); });
+
+ctx.addEventListener("click", e=>{
+  const item = e.target.closest(".ctx-item"); if(!item) return;
+  const act = item.dataset.act;
+  if(act==="only")      addChip("filter", `ID = ${ctxId}`);
+  if(act==="exclude")   addChip("exclude", `ID ≠ ${ctxId}`);
+  if(act==="highlight") addChip("highlight", `高亮 ${ctxId}`);
+  if(act==="erronly")   addChip("filter", `仅错误帧`);
+  if(act==="copy")      navigator.clipboard?.writeText(ctxId).catch(()=>{});
+  if(act==="replay")    addChip("filter", `回放自 ${ctxId}`); // 原型里用 chip 示意联动
+  ctx.classList.remove("open");
+});
+
+/* 表达式构建器 */
+$("#toggle-builder").onclick = ()=>{
+  const b = $("#expr-builder"); b.hidden = !b.hidden;
+  if(!b.hidden) $("#eb-value").focus();
+};
+const FIELD_PLACEHOLDER = { id:"0x18FF50E5", pgn:"0xEA00", sa:"0xF9", da:"0xFF", payload:"offset 0, mask FF, value 2A", channel:"USB1" };
+$("#eb-field").onchange = e=>{ $("#eb-value").placeholder = FIELD_PLACEHOLDER[e.target.value]; };
+$("#eb-value").addEventListener("input", e=>{
+  const v = e.target.value.trim();
+  const field = $("#eb-field").value;
+  let ok = v!=="" , msg = "";
+  if(field==="id" || field==="pgn" || field==="sa" || field==="da"){
+    ok = /^(0x[0-9a-fA-F]+|\d+)$/.test(v);
+    msg = ok ? `✓ 将添加：${field.toUpperCase()} = ${v}` : "✗ 需为 0x 前缀 hex 或十进制";
+  } else if(field==="payload"){
+    ok = /^\d+\s*,/.test(v);
+    msg = ok ? "✓ 将添加 payload 掩码条件" : "✗ 格式：offset, mask(hex), value(hex)";
+  } else { msg = `✓ 将添加：通道 = ${v}`; }
+  $("#eb-preview").innerHTML = `<span class="${ok?'valid':'invalid'}">${msg}</span>`;
+  $("#eb-add").disabled = !ok;
+});
+$("#eb-add").onclick = ()=>{
+  const f = $("#eb-field").value, v = $("#eb-value").value.trim(), op = $("#eb-op").value;
+  const kind = op.includes("≠") ? "exclude" : op==="高亮" ? "highlight" : "filter";
+  addChip(kind, `${f.toUpperCase()} ${op==="="?"=":op.includes("≠")?"≠":"◆"} ${v}`);
+  $("#eb-value").value=""; $("#eb-preview").textContent="输入即时校验，合法才允许添加"; $("#eb-add").disabled=true;
+};
+
+/* 仅错误帧 toggle → chip */
+$("#prop-erronly").addEventListener("change", e=>{
+  const i = chips.findIndex(c=>c.label==="仅错误帧");
+  if(e.target.checked && i<0) addChip("filter","仅错误帧");
+  if(!e.target.checked && i>=0){ chips.splice(i,1); renderChips(); }
+});
+
+/* ============================================================
+   标注气泡
+   ============================================================ */
+const TIPS = {
+  "1":{ t:"过滤 chip 条", d:"把所有过滤条件（ID/PGN/SA/DA/通道/排除/高亮）收敛为一条可点 × 移除的标签流。用户随时看清当前叠了哪些条件，单条删除而不是'清除过滤'一键全清。", c:"新增 FilterChipViewModel；TraceView.xaml 顶部 ItemsControl" },
+  "2":{ t:"行右键菜单", d:"最高频动作：盯到一行异常 → 右键 → 只看/排除/高亮此 ID。当前要手动抄 hex 到 ID列表 文本框，现场戴手套几乎不可用。", c:"DataGrid.ContextMenu + 复用 SetFilterToIdCommand" },
+  "3":{ t:"错误帧不可覆盖标记", d:"当前 IsError 与 HighlightColorIndex 都改 Background，高亮盖过错误帧后看不出它是错误帧。改为错误帧左侧 3px 红条 + 高亮背景共存。", c:"RowStyle DataTrigger：IsError 改设 BorderBrush 而非 Background" },
+  "4":{ t:"丢弃计数可见", d:"TraceService._droppedOnFullChannel 已有计数（1Mbps 总线打满时会丢帧），但只 Debug.WriteLine——Release 用户完全无感。接到状态栏，>0 时变黄。", c:"TraceService 暴露属性 → AppShell StatusBar 绑定" },
+};
+const tip = $("#anno-tip");
+document.addEventListener("mouseover", e=>{
+  const a = e.target.closest(".anno"); if(!a) return;
+  const d = TIPS[a.dataset.n]; if(!d) return;
+  tip.innerHTML = `<b>${d.t}</b><br>${d.d}<span class="t-code">${d.c}</span>`;
+  const r = a.getBoundingClientRect();
+  tip.style.left = Math.min(r.left, innerWidth-340)+"px";
+  tip.style.top  = (r.bottom+8)+"px";
+  tip.classList.add("show");
+});
+document.addEventListener("mouseout", e=>{ if(e.target.closest(".anno")) tip.classList.remove("show"); });
+
+renderChips();
+</script>
+</body>
+</html>

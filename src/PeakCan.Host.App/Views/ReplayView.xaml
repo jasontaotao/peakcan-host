@@ -135,11 +135,15 @@
         </StackPanel>
 
         <Grid Grid.Row="2" Margin="0,0,0,10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Grid Grid.Column="0">
+            <Grid Grid.Column="0" Grid.Row="0">
                 <!-- v3.9.0 MINOR P3: Slider visual markers. The Slider
                      stays native (preserves v3.9.0 P2 click-to-seek via
                      IsMoveToPointEnabled + v3.8.0 keyboard arrow bindings
@@ -158,7 +162,7 @@
                         IsHitTestVisible="False"
                         Panel.ZIndex="1"/>
             </Grid>
-            <ComboBox Grid.Column="1"
+            <ComboBox Grid.Column="1" Grid.Row="0"
                       SelectedItem="{Binding Speed, Mode=TwoWay}"
                       Margin="10,0,0,0"
                       Width="80">
@@ -168,6 +172,54 @@
                 <sys:Double>2.0</sys:Double>
                 <sys:Double>4.0</sys:Double>
             </ComboBox>
+            <!-- P0：时间轴热力条。每格 = 时间段；不透明度 = 相对帧密度；
+                 红格 = 含错误帧（比密度更醒目）；点击格 = 跳到该时间段起点。 -->
+            <!-- 与拖条同列（Column 0），否则热力条会比拖条宽出倍速框的约 90px，
+                 播放头与"当前时刻"对应的格子永远对不上。 -->
+            <ItemsControl Grid.Row="1" Grid.Column="0"
+                          ItemsSource="{Binding TimelineHeat}"
+                          Height="16" Margin="0,2,0,0">
+                <ItemsControl.Style>
+                    <Style TargetType="ItemsControl">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <!-- 未加载 / 空文件不占 16px 空白带。 -->
+                            <DataTrigger Binding="{Binding TimelineHeat.Count}" Value="0">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ItemsControl.Style>
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Rows="1"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="0.5,0,0.5,0" ToolTip="{Binding ToolTipText}">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{StaticResource Accent}"/>
+                                    <Setter Property="Opacity" Value="{Binding Intensity}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasError}" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource Error}"/>
+                                            <Setter Property="Opacity" Value="1"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Border.InputBindings>
+                                <MouseBinding MouseAction="LeftClick"
+                                              Command="{Binding DataContext.SeekToCommand,
+                                                                RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              CommandParameter="{Binding Start}"/>
+                            </Border.InputBindings>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </Grid>
 
         <!-- v1.5.0 MINOR Task 5: Loop CheckBox + CAN ID filter TextBox + inline error.
