@@ -64,7 +64,12 @@ public sealed partial class AppShellViewModel
         // - Closing the window clears the cache so the next Show opens fresh.
         // - Closing AppShell cascade-closes the UDS window via the Owner
         //   assignment below (mirrors ShowTraceViewer at line 681).
-        var win = _windowHost.Show(WindowKey.Uds, () => new UdsWindow { DataContext = _udsViewModel });
+        // P1 防事故：把 shell 的弹窗通道交给窗口，关窗时若正在刷写要能发确认。
+        var win = _windowHost.Show(WindowKey.Uds, () => new UdsWindow
+        {
+            DataContext = _udsViewModel,
+            Prompt = _messageBoxPrompt,
+        });
         if (win is null) return; // factory produced an already-closed window
 
         if (!win.IsVisible)

@@ -58,10 +58,7 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     {
         if (TesterPresentActive)
         {
-            _testerPresentCts?.Cancel();
-            _testerPresentCts?.Dispose();
-            _testerPresentCts = null;
-            TesterPresentActive = false;
+            StopTesterPresentLoop();
             AppendLog("Info", "TesterPresent stopped");
             return;
         }
@@ -162,6 +159,37 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
 
     private void AppendLog(string level, string message)
         => _log?.Add(new UdsLogLine($"{DateTime.Now:HH:mm:ss.fff}", level, message));
+
+    /// <summary>
+    /// 停掉保活循环（cancel + dispose + 复位标志）。幂等：没在跑时调用是安全的，
+    /// 只是什么都不做——TesterPresentActive 本来就已经是 false。
+    /// </summary>
+    private void StopTesterPresentLoop()
+    {
+        _testerPresentCts?.Cancel();
+        _testerPresentCts?.Dispose();
+        _testerPresentCts = null;
+        TesterPresentActive = false;
+    }
+
+    /// <summary>
+    /// P1 防事故：刷写开始，立刻停保活循环。
+    /// <para>
+    /// TesterPresent 每 2 秒往诊断 CAN-ID 发 <c>3E 00</c>，刷写用的是编程会话——
+    /// 两者抢同一个 ECU，轻则刷写失败重则 ECU 停在半截。禁用按钮管不住已经在跑的循环，
+    /// 所以这里必须真停。
+    /// </para>
+    /// <para>
+    /// **刻意不自动恢复**：刷写收尾常跟着 ECU 复位/擦除后处理，这时注入 3E 会打断收尾。
+    /// 宁可让用户刷完再明确点一次，也不替他做这个决定。
+    /// </para>
+    /// </summary>
+    public void SuspendForFlash()
+    {
+        if (!TesterPresentActive) return;
+        StopTesterPresentLoop();
+        AppendLog("Warn", "TesterPresent 已因刷写暂停（刷写结束后不会自动恢复，需要时请重新开启）");
+    }
 
     [LoggerMessage(EventId = 1000, Level = LogLevel.Warning,
         Message = "SecurityAccess key algorithm not configured for level 0x{Level:X2}")]

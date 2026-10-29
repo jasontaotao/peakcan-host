@@ -140,6 +140,10 @@ public partial class AppHostBuilder
         // v0.7.0: file dialog abstraction for testability.
         builder.Services.AddSingleton<PeakCan.HIL.Core.IFileDialogService,
                                        PeakCan.Host.App.Services.WpfFileDialogService>();
+        // P1 防事故：DBC 加载失败后的「打开目录 / 查看日志」走这个接缝，
+        // 测试注入替身即可断言，不必真的弹资源管理器。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.IShellLauncher,
+                                       PeakCan.Host.App.Services.ExplorerShellLauncher>();
         // M11: DBC lookup + signal decode runs off the SDK read thread on
         // its own worker. Registered as both a singleton (so SinkWiringService
         // gets the same instance the host starts) and a hosted service

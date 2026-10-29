@@ -70,6 +70,17 @@ public interface IMessageBoxPrompt
         string title,
         string message,
         Window? owner);
+
+    /// <summary>
+    /// 同步 Yes/No 确认，<c>true</c> = 用户点「是」。
+    /// <para>
+    /// 专供 <see cref="Window.Closing"/> 这类**不能 await** 的取消型事件：
+    /// 在 UI 线程上对 <see cref="ShowAsync"/> 阻塞等待会和 dispatcher 的
+    /// InvokeAsync 互相等死（前者占着线程，后者排不进去）。实现必须是
+    /// 真同步的 MessageBox，而不是把异步方法包一层。
+    /// </para>
+    /// </summary>
+    bool Confirm(string title, string message, Window? owner);
 }
 
 /// <summary>

@@ -64,8 +64,32 @@ public partial class AppShell : Window
         RestoreLayout();
     }
 
+    /// <summary>
+    /// 主窗口正在关闭（退出级联）。二级窗口据此跳过"关窗会中断任务"的确认：
+    /// 应用退出本来就会取消在跑的任务，弹一个「否」也保不住它，只会给出假承诺。
+    /// <para>
+    /// 刻意做成**实例状态**而不是进程级静态：静态闩锁一旦置位就没有复位点，
+    /// 万一某次关闭被取消（有订阅者 <c>e.Cancel = true</c>），整个进程的关窗拦截
+    /// 就永久失效了。
+    /// </para>
+    /// <para>
+    /// 复位**不能**放在 <c>OnActivated</c>：级联关子窗口时焦点可能回到本窗口并触发
+    /// Activated，那会在子窗口的 Closing 之前把标记抹掉，拦截当场失效。改为把复位
+    /// 排到消息队列末尾——那时级联已经跑完，窗口还可见就说明关闭被取消了。
+    /// </para>
+    /// </summary>
+    internal bool IsClosing { get; set; }
+
     private void OnClosing(object? sender, CancelEventArgs e)
     {
+        // 退出级联会接着关闭二级窗口；先置位，让它们跳过"关窗会中断刷写"的确认
+        // （那时候点「否」也救不回刷写，只会给用户一个假的选择）。
+        IsClosing = true;
+        // 幂等自愈：级联结束、本次关闭被取消 → 窗口还在 → 撤销标记。
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (IsVisible) IsClosing = false;
+        }), System.Windows.Threading.DispatcherPriority.Background);
         if (WindowStateStore is not null)
         {
             WindowHostService.SaveState(this, WindowKey.AppShell, WindowStateStore);

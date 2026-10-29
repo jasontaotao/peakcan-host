@@ -79,6 +79,29 @@ public sealed class WpfMessageBoxPrompt : IMessageBoxPrompt
             () => ShowInformationInternal(title, message, owner)).Task;
     }
 
+    /// <inheritdoc />
+    public bool Confirm(string title, string message, Window? owner)
+    {
+        // 必须是同步的：本方法只给 Window.Closing 这类事件用，那里不能 await，
+        // 也不能在 UI 线程上等一个 InvokeAsync 排队的 Task（会死锁）。
+        // 默认按钮 No —— 关机/关窗这种不可逆动作不能靠"顺手回车"通过。
+        var result = owner is not null
+            ? MessageBox.Show(
+                owner,
+                message,
+                title,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No)
+            : MessageBox.Show(
+                message,
+                title,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+        return result == MessageBoxResult.Yes;
+    }
+
     private static MessageBoxResult ShowInformationInternal(
         string title,
         string message,

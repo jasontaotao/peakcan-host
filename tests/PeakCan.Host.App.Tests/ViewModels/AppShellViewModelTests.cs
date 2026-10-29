@@ -111,10 +111,14 @@ public class AppShellViewModelTests
     /// </summary>
     internal static AppShellViewModel NewVm(
         PeakCan.Host.Core.IChannelProbe? probe = null,
-        TraceViewModel? traceVm = null)
+        TraceViewModel? traceVm = null,
+        // P1 防事故：断开确认测试需要先摆好"危险任务"（刷写中 / 录制中）和
+        // 可断言的弹窗通道，因此允许注入这三个单例。默认仍自建，
+        // 既有调用点一行不用改。
+        UdsViewModel? udsVm = null,
+        RecordViewModel? recordVm = null,
+        PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? prompt = null)
     {
-        var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
-        var udsClient = new UdsClient(isoTp);
         // v3.6.0 MINOR T3: RecentSessionsService + IFileDialogService
         // added to AppShellViewModel ctor. Both have no on-disk side
         // effects when the test does not exercise OpenSessionCommand /
@@ -141,13 +145,9 @@ public class AppShellViewModelTests
             new StatsViewModel(),
             new ScriptViewModel(NullLogger<ScriptViewModel>.Instance,
                                 new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null)),
-            new UdsViewModel(
-                new SessionPanelViewModel(udsClient, NullLogger<SessionPanelViewModel>.Instance),
-                new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
-                new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
-                new DtcPanelViewModel(udsClient)),
+            udsVm ?? NewUdsVmForTests(),
                 // v3.50.1 PATCH-A: RecordViewModel arg restored.
-                new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
+                recordVm ?? new RecordViewModel(new RecordService(NullLogger<RecordService>.Instance), NullLogger<RecordViewModel>.Instance),
                 new ReplayViewModel(
                     Substitute.For<IReplayService>(),
                     Substitute.For<IFileDialogService>(),
@@ -164,10 +164,27 @@ public class AppShellViewModelTests
                 Substitute.For<IFileDialogService>(),
                 // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
                 // (the 2 missing-.asc call sites route through this).
-                Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
+                prompt ?? Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
                 // Phase 4: HilViewModel ctor arg
                 new HilViewModel(Substitute.For<IHilRunnerService>(), NullLogger<HilViewModel>.Instance, Substitute.For<IFileDialogService>(), Substitute.For<IHilAnalysisService>(), Substitute.For<IHilReportService>()),
                 new EcuScriptEditorViewModel(Substitute.For<IFileDialogService>(), Substitute.For<IMessageBoxPrompt>(), NullLogger<EcuScriptEditorViewModel>.Instance));
+    }
+
+    /// <summary>
+    /// 单一口径的 UDS 面板装配（Session/DID/Routine/DTC + NoOp 刷写面板）。
+    /// <see cref="NewVm"/> 与防事故测试共用一份，避免"测试装配和产品不一样"。
+    /// </summary>
+    internal static UdsViewModel NewUdsVmForTests()
+    {
+        // 四个面板共享同一个 UdsClient（产品里它是 DI 单例，见 AppHostBuilder）：
+        // 每面板各造一个会让"跨面板请求串行化/状态共享"这部分装配与产品不一致。
+        var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
+        var udsClient = new UdsClient(isoTp);
+        return new(
+            new SessionPanelViewModel(udsClient, NullLogger<SessionPanelViewModel>.Instance),
+            new DidPanelViewModel(udsClient, new DidDatabase(NullLogger<DidDatabase>.Instance)),
+            new RoutinePanelViewModel(udsClient, new RoutineDatabase(NullLogger<RoutineDatabase>.Instance)),
+            new DtcPanelViewModel(udsClient));
     }
 
     /// <summary>

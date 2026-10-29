@@ -18,11 +18,16 @@
         <!-- HexConverter 注册在 Window 级别, 所有 tab (Session/DIDs/Flashing) 都能引用.
              App.xaml 也有全局注册, 但测试不加载 App.xaml, 所以这里也要注册. -->
         <conv:HexConverter x:Key="HexConverter"/>
+        <!-- 同上：刷写横幅要用布尔→可见性，测试环境没有 App.xaml 的 BoolToVis。 -->
+        <conv:BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
 
     <DockPanel>
-        <!-- Top: Session header strip -->
-        <Border DockPanel.Dock="Top" Padding="8" Background="{StaticResource SurfaceSubtle}">
+        <!-- Top: Session header strip.
+             P1 防事故：刷写期间整条诊断通道（会话切换/SecurityAccess/TesterPresent/
+             Load ODX）锁死——刷写走编程会话，此时任何诊断请求都会抢 ECU。 -->
+        <Border DockPanel.Dock="Top" Padding="8" Background="{StaticResource SurfaceSubtle}"
+                IsEnabled="{Binding IsDiagnosticsEnabled}">
             <StackPanel Orientation="Horizontal">
                 <Button Content="Default"     Command="{Binding Session.SetDefaultSessionCommand}"   Padding="6,2" Margin="0,0,4,0"/>
                 <Button Content="Extended"    Command="{Binding Session.SetExtendedSessionCommand}"  Padding="6,2" Margin="0,0,4,0"/>
@@ -47,6 +52,15 @@
                 <TextBlock Text="{Binding Session.SecurityLevel, StringFormat='Level: 0x{0:X2}', TargetNullValue='(not authenticated)'}"
                            VerticalAlignment="Center"/>
             </StackPanel>
+        </Border>
+
+        <!-- P1 防事故：刷写锁定横幅。只禁用不说明，用户会以为界面卡了。 -->
+        <Border DockPanel.Dock="Top" Padding="8,4"
+                Background="{StaticResource WarnBg}"
+                BorderBrush="{StaticResource WarnBorder}" BorderThickness="0,0,0,1"
+                Visibility="{Binding Flash.IsFlashing, Converter={StaticResource BoolToVis}}">
+            <TextBlock Foreground="{StaticResource WarnText}" TextWrapping="Wrap"
+                       Text="⚠ 刷写进行中 — 诊断面板（会话 / DIDs / Routines / DTCs）已锁定，刷写结束后自动恢复。" />
         </Border>
 
         <!-- 通信参数 (只读): 诊断栈 + Flash 副栈当前生效的时序参数及其来源.
@@ -103,7 +117,8 @@
 
         <!-- Middle: TabControl (DIDs / Routines / DTCs) -->
         <TabControl>
-            <TabItem Header="DIDs">
+            <TabItem Header="DIDs"
+                     IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*"/>
@@ -161,7 +176,8 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Routines">
+            <TabItem Header="Routines"
+                     IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <DockPanel>
                     <!-- v2.0.6 PATCH Bug-4: see UdsView.xaml history. Reorder: button row docks to Top. -->
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8">
@@ -183,7 +199,8 @@
                 </DockPanel>
             </TabItem>
 
-            <TabItem Header="DTCs">
+            <TabItem Header="DTCs"
+                     IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8">
                         <Button Content="Read DTCs"  Command="{Binding Dtc.ReadDtcsCommand}" Padding="6,2"/>

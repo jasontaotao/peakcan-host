@@ -258,6 +258,155 @@ public class UdsWindowTests
         });
     }
 
+    // ---- P1 防事故：刷写中关窗拦截的**接线**（判定本体见 UdsCloseGuardTests）----
+
+    /// <summary>
+    /// 触发真实的 <see cref="Window.Closing"/> 处理器。WPF 的 Closing 不是 RoutedEvent，
+    /// 没法 RaiseEvent；这里直接反射调私有处理器——要钉的正是"接线还在"，
+    /// 所以不能只测 ShouldCancelClose。
+    /// </summary>
+    private static void InvokeClosing(UdsWindow win, System.ComponentModel.CancelEventArgs args)
+    {
+        // 按签名取：Window 自带 protected OnClosing(CancelEventArgs)，只按名字会
+        // 报 AmbiguousMatchException。
+        var method = typeof(UdsWindow).GetMethod(
+            "OnClosing",
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types: new[] { typeof(object), typeof(System.ComponentModel.CancelEventArgs) },
+            modifiers: null);
+        method.Should().NotBeNull("UdsWindow.OnClosing 被删掉/改了签名就等于关窗拦截失效");
+        method!.Invoke(win, new object?[] { win, args });
+    }
+
+    [Fact]
+    public void Closing_During_Flash_Is_Cancelled_When_User_Declines()
+    {
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            vm.ShowUdsCommand.Execute(null);
+            var win = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
+            win.Should().NotBeNull();
+
+            var prompt = Substitute.For<IMessageBoxPrompt>();
+            prompt.Confirm(default!, default!, default).ReturnsForAnyArgs(false);
+            win!.Prompt = prompt;
+            vm.UdsViewModelField().Flash.IsFlashing = true;
+
+            var args = new System.ComponentModel.CancelEventArgs();
+            InvokeClosing(win, args);
+
+            args.Cancel.Should().BeTrue("刷写中用户选「否」，窗口必须关不掉");
+            prompt.Received(1).Confirm(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Window?>());
+        });
+    }
+
+    [Fact]
+    public void Closing_During_Flash_Is_Allowed_When_User_Confirms()
+    {
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            vm.ShowUdsCommand.Execute(null);
+            var win = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
+            var prompt = Substitute.For<IMessageBoxPrompt>();
+            prompt.Confirm(default!, default!, default).ReturnsForAnyArgs(true);
+            win!.Prompt = prompt;
+            vm.UdsViewModelField().Flash.IsFlashing = true;
+
+            var args = new System.ComponentModel.CancelEventArgs();
+            InvokeClosing(win, args);
+
+            args.Cancel.Should().BeFalse();
+        });
+    }
+
+    [Fact]
+    public void Closing_When_Idle_Does_Not_Prompt()
+    {
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            vm.ShowUdsCommand.Execute(null);
+            var win = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
+            var prompt = Substitute.For<IMessageBoxPrompt>();
+            win!.Prompt = prompt;
+
+            var args = new System.ComponentModel.CancelEventArgs();
+            InvokeClosing(win, args);
+
+            args.Cancel.Should().BeFalse();
+            prompt.DidNotReceiveWithAnyArgs().Confirm(default!, default!, default);
+        });
+    }
+
+    [Fact]
+    public void Real_Close_During_Flash_Is_Prevented_When_User_Declines()
+    {
+        // 走真正的 Window.Close()：这样连构造函数里的 `Closing += OnClosing`
+        // 一起盖住——只反射调私有处理器的话，删掉那句订阅测试仍然全绿。
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            var shell = new AppShell { DataContext = vm };
+            Application.Current!.MainWindow = shell;
+            shell.Show();
+
+            vm.ShowUdsCommand.Execute(null);
+            var win = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
+            win.Should().NotBeNull();
+
+            var prompt = Substitute.For<IMessageBoxPrompt>();
+            prompt.Confirm(default!, default!, default).ReturnsForAnyArgs(false);
+            win!.Prompt = prompt;
+            vm.UdsViewModelField().Flash.IsFlashing = true;
+            win.Show();
+
+            win.Close();
+
+            win.IsVisible.Should().BeTrue("用户选「否」，真实的关窗必须被取消");
+
+            // 收尾：解除刷写状态再关一次，别把窗口留给后面的测试。
+            vm.UdsViewModelField().Flash.IsFlashing = false;
+            win.Close();
+            shell.Close();
+        });
+    }
+
+    [Fact]
+    public void Closing_During_App_Shutdown_Skips_The_Confirmation()
+    {
+        // 主窗口正在关 → 本窗口是被级联关掉的：这时点「否」也保不住刷写
+        // （App.OnExit 会取消它），所以不该弹一个假选择。
+        RunSta(() =>
+        {
+            var vm = NewVm();
+            var shell = new AppShell { DataContext = vm };
+            Application.Current!.MainWindow = shell;
+            shell.Show();
+
+            vm.ShowUdsCommand.Execute(null);
+            var win = (UdsWindow?)vm.WindowHost.GetCached(WindowKey.Uds);
+            var prompt = Substitute.For<IMessageBoxPrompt>();
+            prompt.Confirm(default!, default!, default).ReturnsForAnyArgs(false);
+            win!.Prompt = prompt;
+            vm.UdsViewModelField().Flash.IsFlashing = true;
+
+            shell.IsClosing = true;
+            var args = new System.ComponentModel.CancelEventArgs();
+            InvokeClosing(win, args);
+
+            args.Cancel.Should().BeFalse("退出级联里不该给用户一个救不回刷写的「否」");
+            prompt.DidNotReceiveWithAnyArgs().Confirm(default!, default!, default);
+
+            shell.IsClosing = false;
+            vm.UdsViewModelField().Flash.IsFlashing = false;
+            win.Close();
+            shell.Close();
+        });
+    }
+
     [Fact]
     public void Reopen_UdsWindow_Reuse_Keeps_Flash_Startable()
     {

@@ -1,8 +1,10 @@
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
+using PeakCan.Host.App.Services.Trace;
 using PeakCan.Host.App.ViewModels.Uds;
 
 namespace PeakCan.Host.App.Windows;
@@ -32,11 +34,57 @@ public partial class UdsWindow : Window
         return brush;
     }
 
+    /// <summary>
+    /// 关窗确认通道。默认真 WPF 实现，**永不为 null**——宁可弹出真实模态，
+    /// 也不能因为"忘记注入"就把刷写中的关窗拦截静默跳过。宿主
+    /// （AppShellViewModel.ViewSwitchFlow）会注入同一个 DI 单例，便于测试替换。
+    /// </summary>
+    public IMessageBoxPrompt Prompt { get; set; } = new WpfMessageBoxPrompt();
+
     public UdsWindow()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        Closing += OnClosing;
         Unloaded += (_, _) => OnWindowUnloaded();
+    }
+
+    /// <summary>
+    /// P1 防事故：刷写中关窗 = 取消刷写（<see cref="OnWindowUnloaded"/> 会
+    /// <c>Flash.StopForWindowClose()</c>）。必须让用户先确认，否则一个误点 ✕
+    /// 就把擦写中的 ECU 扔在编程会话里。
+    /// </summary>
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        // 主窗口正在关 → 本窗口是被级联关掉的。此时确认框给的是假选择：
+        // 点「否」也保不住刷写（App.OnExit 会取消它），所以静默放行。
+        if (ShouldSkipCloseConfirm(Owner)) return;
+        if (DataContext is not UdsViewModel vm) return;
+        if (ShouldCancelClose(Prompt, vm.Flash.IsFlashing, this)) e.Cancel = true;
+    }
+
+    /// <summary>
+    /// 退出级联期间跳过确认。判定依赖 **owner 实例**的状态（不是进程级静态闩锁）：
+    /// 静态闩锁没有复位点，一次被取消的关闭就能让整个进程的拦截永久失效。
+    /// </summary>
+    internal static bool ShouldSkipCloseConfirm(Window? owner)
+        => owner is AppShell { IsClosing: true };
+
+    /// <summary>
+    /// 关窗拦截的判定本体（静态，便于脱离 WPF 单测：不需要实例化 Window，
+    /// <paramref name="owner"/> 传 null 即可）。
+    /// </summary>
+    /// <returns><c>true</c> = 用户否掉，应取消关闭。</returns>
+    internal static bool ShouldCancelClose(IMessageBoxPrompt prompt, bool isFlashing, Window? owner)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        if (!isFlashing) return false;
+        return !prompt.Confirm(
+            "刷写进行中",
+            "关闭诊断窗口会立即中止正在进行的刷写。\n" +
+            "ECU 可能停留在编程会话，严重时需要重新刷写才能恢复。\n\n" +
+            "仍要关闭吗？",
+            owner);
     }
 
     /// <summary>

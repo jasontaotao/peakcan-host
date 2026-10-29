@@ -16,6 +16,26 @@
             <TextBlock Text="  信号数: " FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0" />
             <TextBlock Text="{Binding TotalSignals}" VerticalAlignment="Center" />
         </StackPanel>
+        <!-- P1 防事故：加载失败不再是死路。错误条给出三个出口——
+             重试同一个文件、去看日志、在资源管理器里定位这个 DBC。
+             失败时显示的是一条可操作的路径，而不是一行 FAIL 文字。 -->
+        <Border DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8,6"
+                Background="{StaticResource ErrorBg}"
+                BorderBrush="{StaticResource Error}" BorderThickness="1" CornerRadius="4"
+                Visibility="{Binding LoadError, Converter={StaticResource NullToVisibilityConverter}}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="重试" Command="{Binding RetryLoadCommand}" Padding="10,2" Margin="6,0,0,0" />
+                    <Button Content="查看日志" Command="{Binding OpenLogFolderCommand}" Padding="10,2" Margin="6,0,0,0" />
+                    <Button Content="打开目录" Command="{Binding RevealDbcFileCommand}" Padding="10,2" Margin="6,0,0,0" />
+                </StackPanel>
+                <TextBlock Text="{Binding LoadError}"
+                           Foreground="{StaticResource Error}"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+
         <!-- Search bar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
             <TextBlock Text="搜索:" VerticalAlignment="Center" Margin="0,0,4,0" />
