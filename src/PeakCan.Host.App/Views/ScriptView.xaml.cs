@@ -107,6 +107,14 @@ public partial class ScriptView : UserControl
 
         // Add JavaScript-to-C# bridge for script text synchronization.
         EditorWebView.CoreWebView2.AddHostObjectToScript("scriptBridge", new ScriptBridge(this));
+
+        // 注意（2026-10-29 核查）：同步链是断的，且断在"没人调用"这一环——
+        // 桥方法（本行注册的 scriptBridge、页面里的 getScriptText/setScriptText）
+        // 都在，但没有任何一边去调它们，C# 也从不 ExecuteScriptAsync 回灌。
+        // 结果 ScriptText 恒为空串，RunAsync 第一行就 return。
+        // 因此**不要**在这里接 Ctrl+Enter → RunCommand，也不要保留一个
+        // postMessage('run') 却没人接收的监听：那只是给"空转"多开一个入口，
+        // 让人误以为按键没反应是快捷键的问题。先修同步链，再接键。
     }
 
     /// <summary>
@@ -160,16 +168,10 @@ public partial class ScriptView : UserControl
                 editor.appendChild(textarea);
 
                 // Expose getText/setText for C# bridge.
+                // NOTE: nothing calls these yet — C# never round-trips the editor text
+                // into ScriptViewModel.ScriptText (see ScriptView.xaml.cs remarks).
                 window.getScriptText = () => textarea.value;
                 window.setScriptText = (text) => { textarea.value = text; };
-
-                // Ctrl+Enter to run.
-                textarea.addEventListener('keydown', (e) => {
-                    if (e.ctrlKey && e.key === 'Enter') {
-                        // Notify C# to run the script.
-                        window.chrome?.webview?.postMessage('run');
-                    }
-                });
             </script>
         </body>
         </html>

@@ -30,11 +30,12 @@ public sealed partial class AppShellViewModel
     //
     // [RelayCommand] attributes MUST travel with their methods.
 
+    // 主区域索引用 AppShellViewModel.cs 里的常量（与快捷键共用同一份定义）。
     [RelayCommand]
-    private void ShowTrace() => SelectedMainTabIndex = 0;
+    private void ShowTrace() => SelectedMainTabIndex = TraceTabIndex;
 
     [RelayCommand]
-    private void ShowDbc() => SelectedMainTabIndex = 1;
+    private void ShowDbc() => SelectedMainTabIndex = DbcTabIndex;
 
     [RelayCommand]
     private void ShowSend() => SelectedRightTabIndex = 0;
@@ -80,7 +81,7 @@ public sealed partial class AppShellViewModel
     }
 
     [RelayCommand]
-    private void ShowReplay() => SelectedMainTabIndex = 2;
+    private void ShowReplay() => SelectedMainTabIndex = ReplayTabIndex;
 
     [RelayCommand]
     private void OpenMultiFrame()

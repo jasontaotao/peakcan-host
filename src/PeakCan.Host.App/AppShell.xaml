@@ -8,6 +8,44 @@
         xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
         mc:Ignorable="d"
         Title="{Binding WindowTitle}" Height="720" Width="1280">
+    <!--
+        P1 全局快捷键（唯一注册点）。
+        作用域规则：导航类永远可用；页面动作类（Ctrl+L/P/E、Ctrl+←/→、Ctrl+B）
+        由 AppShellViewModel/ShortcutFlow.cs 的 CanExecute + 命令体内守卫收窄到
+        "目标页面激活时"。注意 CanExecute 为 false **不会**让按键穿透：
+        KeyBinding 命中手势即吞键，所以这里一律用带修饰键的组合，不用裸方向键。
+        Ctrl+O / Ctrl+S 此前只有菜单的 InputGestureText（纯文字，按下去没反应），
+        这次补上真正的绑定——宣称可用就必须真的可用。
+    -->
+    <Window.InputBindings>
+        <!-- 主区域导航：追踪 / DBC / 回放 / 脚本 / XCP -->
+        <KeyBinding Key="D1" Modifiers="Control" Command="{Binding ShowTraceCommand}" />
+        <KeyBinding Key="D2" Modifiers="Control" Command="{Binding ShowDbcCommand}" />
+        <KeyBinding Key="D3" Modifiers="Control" Command="{Binding ShowReplayCommand}" />
+        <KeyBinding Key="D4" Modifiers="Control" Command="{Binding ShowScriptCommand}" />
+        <KeyBinding Key="D5" Modifiers="Control" Command="{Binding ShowXcpCommand}" />
+        <!-- 右侧常驻面板导航：发送 / 信号 / 统计 -->
+        <KeyBinding Key="D1" Modifiers="Control+Shift" Command="{Binding ShowSendCommand}" />
+        <KeyBinding Key="D2" Modifiers="Control+Shift" Command="{Binding ShowSignalsCommand}" />
+        <KeyBinding Key="D3" Modifiers="Control+Shift" Command="{Binding ShowStatsCommand}" />
+        <!-- 追踪页动作（仅追踪 tab） -->
+        <KeyBinding Key="L" Modifiers="Control" Command="{Binding ClearTraceFramesCommand}" />
+        <KeyBinding Key="P" Modifiers="Control" Command="{Binding ToggleTracePauseCommand}" />
+        <KeyBinding Key="E" Modifiers="Control" Command="{Binding ExportTraceCsvCommand}" />
+        <!-- 全局动作 -->
+        <KeyBinding Key="R" Modifiers="Control" Command="{Binding ToggleRecordingPanelCommand}" />
+        <KeyBinding Key="O" Modifiers="Control" Command="{Binding OpenSessionCommand}" />
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveSessionCommand}" />
+        <!-- 回放页动作（仅回放 tab）。
+             走帧刻意用 Ctrl+方向键而不是裸方向键：WPF 的 KeyBinding 只要手势匹配
+             就把按键标记为已处理，**即使 CanExecute 为 false**——裸 ←/→ 挂在窗口上
+             会把全应用的焦点方向导航吞掉（实测：焦点在按钮上按 ← 不再移动焦点）。
+             Ctrl+←/→ 不与这些默认行为冲突，且编辑器/表格里由控件自身消费方向键。
+             回放页内部仍保留裸 ←/→（见 ReplayView.xaml）。 -->
+        <KeyBinding Key="Left" Modifiers="Control" Command="{Binding ReplayPrevFrameCommand}" />
+        <KeyBinding Key="Right" Modifiers="Control" Command="{Binding ReplayNextFrameCommand}" />
+        <KeyBinding Key="B" Modifiers="Control" Command="{Binding ReplayAddBookmarkCommand}" />
+    </Window.InputBindings>
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="文件(_F)">
@@ -30,14 +68,19 @@
                 <MenuItem Header="退出(_X)" Click="OnExit" />
             </MenuItem>
             <MenuItem Header="视图(_V)">
-                <MenuItem Header="追踪(_T)" Command="{Binding ShowTraceCommand}" />
-                <MenuItem Header="DBC" Command="{Binding ShowDbcCommand}" />
-                <MenuItem Header="发送(_S)" Command="{Binding ShowSendCommand}" />
-                <MenuItem Header="信号(_G)" Command="{Binding ShowSignalsCommand}" />
-                <MenuItem Header="统计(_A)" Command="{Binding ShowStatsCommand}" />
+                <!-- InputGestureText 与 Window.InputBindings 一一对应：
+                     显示出来的手势必须真的能按（此前 Ctrl+O / Ctrl+S 就是只显示不生效）。 -->
+                <MenuItem Header="追踪(_T)" Command="{Binding ShowTraceCommand}" InputGestureText="Ctrl+1" />
+                <MenuItem Header="DBC" Command="{Binding ShowDbcCommand}" InputGestureText="Ctrl+2" />
+                <MenuItem Header="发送(_S)" Command="{Binding ShowSendCommand}" InputGestureText="Ctrl+Shift+1" />
+                <MenuItem Header="信号(_G)" Command="{Binding ShowSignalsCommand}" InputGestureText="Ctrl+Shift+2" />
+                <MenuItem Header="统计(_A)" Command="{Binding ShowStatsCommand}" InputGestureText="Ctrl+Shift+3" />
                 <MenuItem Header="UDS 诊断(_U)" Command="{Binding ShowUdsCommand}" />
                 <MenuItem Header="HIL 测试(_I)" Command="{Binding ShowHilCommand}" />
-                <MenuItem Header="回放(_P)" Command="{Binding ShowReplayCommand}" />
+                <MenuItem Header="回放(_P)" Command="{Binding ShowReplayCommand}" InputGestureText="Ctrl+3" />
+                <!-- 脚本与 XCP 此前只能点标签页，菜单里没有任何入口。 -->
+                <MenuItem Header="脚本(_C)" Command="{Binding ShowScriptCommand}" InputGestureText="Ctrl+4" />
+                <MenuItem Header="XCP(_X)" Command="{Binding ShowXcpCommand}" InputGestureText="Ctrl+5" />
                 <MenuItem Header="追踪查看器(_V)…" Command="{Binding ShowTraceViewerCommand}" />
                 <MenuItem Header="ECU 脚本编辑器(_E)" Command="{Binding ShowEcuScriptEditorCommand}" />
                 <MenuItem Header="批量发送(_M)..." Command="{Binding OpenMultiFrameCommand}" />

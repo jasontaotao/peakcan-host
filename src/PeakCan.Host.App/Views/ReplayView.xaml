@@ -9,20 +9,18 @@
              xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
              mc:Ignorable="d">
     <!--
-        v3.8.0 MINOR chunk 3: InputBindings for frame stepping. The
-        KeyBinding element style is preferred over KeyDown handlers
-        because (a) the gesture + Command data-bind cleanly together,
-        (b) the Slider focused-state keeps arrow-key behavior for
-        scrubbing (Slider consumes the gesture; user taps the trace
-        canvas to use frame-step), and (c) the pattern matches the
-        existing Command="{Binding XxxCommand}" buttons. Ctrl+B for
-        AddBookmark is added in chunk 5.
+        回放页内的裸 ←/→（走帧）。这两个键**故意留在视图层**：
+        WPF 的 KeyBinding 只要手势匹配就把按键标记为已处理（与 CanExecute 无关），
+        裸方向键挂到 Window 上会吞掉全应用的焦点方向导航；而挂在视图上，
+        只会影响焦点在本视图内、且当前控件不消费方向键的情况——
+        焦点在 DataGrid / Slider / TextBox 上时仍由控件自己处理（表格单元格导航、
+        拖动、光标移动），这是期望行为，不是 bug。
+        需要"焦点不在回放页也能走帧"时用窗口级的 Ctrl+←/Ctrl+→（见 AppShell.xaml）。
+        Ctrl+B（加书签）只注册在窗口级，避免同一个键两处定义。
     -->
     <UserControl.InputBindings>
         <KeyBinding Key="Right" Command="{Binding NextFrameCommand}" />
         <KeyBinding Key="Left" Command="{Binding PrevFrameCommand}" />
-        <!-- v3.8.0 MINOR chunk 5: Ctrl+B captures a bookmark at the current cursor. -->
-        <KeyBinding Key="B" Modifiers="Control" Command="{Binding AddBookmarkCommand}" />
     </UserControl.InputBindings>
 
     <!--

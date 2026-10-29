@@ -12,10 +12,13 @@
         <!-- 工具栏：只留高频动作。过滤条件统一走下面的条件条（+ 条件 / 行右键），
              批量输入仍在「高级过滤」里（默认折叠）。 -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,4,4">
-            <Button Content="清空帧" Command="{Binding ClearCommand}" Padding="8,2" Margin="0,0,4,0" />
-            <Button Content="导出 CSV" Command="{Binding ExportCsvCommand}" Padding="8,2" Margin="0,0,4,0" />
+            <Button Content="清空帧" Command="{Binding ClearCommand}" Padding="8,2" Margin="0,0,4,0"
+                    ToolTip="清空已采集的帧 (Ctrl+L)" />
+            <Button Content="导出 CSV" Command="{Binding ExportCsvCommand}" Padding="8,2" Margin="0,0,4,0"
+                    ToolTip="导出当前可见行 (Ctrl+E)" />
             <Button Content="导出全部" Command="{Binding ExportAllCsvCommand}" Padding="8,2" Margin="0,0,12,0" />
-            <CheckBox Content="暂停" IsChecked="{Binding IsPaused}" VerticalAlignment="Center" Margin="0,0,12,0" />
+            <CheckBox Content="暂停" IsChecked="{Binding IsPaused}" VerticalAlignment="Center" Margin="0,0,12,0"
+                      ToolTip="暂停 / 继续采集 (Ctrl+P)" />
             <CheckBox Content="仅错误帧" IsChecked="{Binding ShowErrorsOnly}" VerticalAlignment="Center" Margin="0,0,12,0" />
             <Button Content="清除过滤" Command="{Binding ClearFiltersCommand}" Padding="8,2" Margin="0,0,4,0" />
             <!-- P0-2：清除行右键/条件构建器产生的 ID 排除（不影响其他过滤条件）。 -->

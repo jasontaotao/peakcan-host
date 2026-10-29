@@ -604,6 +604,16 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     public IReadOnlyList<TabSpec> MainTabs { get; }
     public IReadOnlyList<TabSpec> RightTabs { get; }
 
+    // 主区域 tab 的固定索引（与 ctor 里 MainTabs 的构造顺序一一对应）。
+    // **单点定义**：ViewSwitchFlow 的 Show* 命令、SessionFlow 的 OpenDbc、
+    // ShortcutFlow 的快捷键都从这里取。否则哪天在 DBC 与回放之间插一个 tab，
+    // "菜单写着 Ctrl+1 是追踪、按下去却切到别的页"这种错位会同时出现在两处。
+    internal const int TraceTabIndex = 0;
+    internal const int DbcTabIndex = 1;
+    internal const int ReplayTabIndex = 2;
+    internal const int ScriptTabIndex = 3;
+    internal const int XcpTabIndex = 4;
+
     [ObservableProperty]
     private bool _isRecordingPanelOpen;
 

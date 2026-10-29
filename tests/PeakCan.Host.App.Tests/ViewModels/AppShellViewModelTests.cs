@@ -100,7 +100,18 @@ public class AppShellViewModelTests
             => new(false, "fake probe failed");
     }
 
-    private static AppShellViewModel NewVm(PeakCan.Host.Core.IChannelProbe? probe = null)
+    /// <summary>
+    /// 共享的 AppShellViewModel 构造点。
+    /// <para>
+    /// <c>internal</c> + 可选注入：<see cref="AppShellShortcutTests"/> 需要持有
+    /// <see cref="TraceViewModel"/> 来驱动状态（否则只能通过 WPF 控件间接触达，
+    /// 那是 STA 的活）。复制一份 40 行的构造在别处是更差的选择——两处一漂，
+    /// 快捷键测试就会测到一个和产品不一样的装配。
+    /// </para>
+    /// </summary>
+    internal static AppShellViewModel NewVm(
+        PeakCan.Host.Core.IChannelProbe? probe = null,
+        TraceViewModel? traceVm = null)
     {
         var isoTp = new IsoTpLayer(new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 }, _ => { });
         var udsClient = new UdsClient(isoTp);
@@ -118,7 +129,7 @@ public class AppShellViewModelTests
         return new AppShellViewModel(
             new ChannelRouter(),
             NullLogger<AppShellViewModel>.Instance,
-            new TraceViewModel(),
+            traceVm ?? new TraceViewModel(),
             new SendService(NullLogger<SendService>.Instance),
             probe ?? new FakeChannelProbe(),
             new FakeChannelFactory(),
