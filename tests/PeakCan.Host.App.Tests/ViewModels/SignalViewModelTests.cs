@@ -172,6 +172,28 @@ public class SignalViewModelTests
     }
 
     [Fact]
+    public void Reset_Clears_FilteredSignals_And_Raises_Empty_State_Flags()
+    {
+        // 换 DBC 会走 Reset：表格绑的是 FilteredSignals，只清 Latest 会留下
+        // 上一份 DBC 的行；空态判据也必须重新通知，否则"还没有解码出信号"
+        // 面板在换 DBC 后永远不出现。
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
+        vm.FilteredSignals.Should().HaveCount(2);
+
+        var changed = new List<string>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? "");
+
+        vm.Reset();
+
+        vm.FilteredSignals.Should().BeEmpty("换 DBC 后表格不得残留上一份 DBC 的行");
+        vm.IsSignalEmpty.Should().BeTrue();
+        changed.Should().Contain(nameof(SignalViewModel.IsSignalEmpty));
+        changed.Should().Contain(nameof(SignalViewModel.IsSignalFilteredEmpty));
+    }
+
+    [Fact]
     public void ApplyFrame_Does_Not_Throw()
     {
         // The contract: ApplyFrame must not throw regardless of thread
@@ -485,6 +507,54 @@ public class SignalViewModelTests
     }
 
     // --- v1.2.3 dispatcher-starvation hardening (P1) ---
+
+    [Fact]
+    public void Empty_State_Flags_Track_Latest_And_Search()
+    {
+        // P0 空态：没有信号 vs 搜索把信号全过滤掉，必须是两个不同判据；
+        // 并且状态变化要发通知（XAML 的 DataTrigger 只认属性通知）。
+        var vm = new SignalViewModel();
+        vm.IsSignalEmpty.Should().BeTrue();
+        vm.IsSignalFilteredEmpty.Should().BeFalse();
+
+        var changed = new List<string>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? "");
+
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
+
+        vm.IsSignalEmpty.Should().BeFalse();
+        vm.IsSignalFilteredEmpty.Should().BeFalse();
+        changed.Should().Contain(nameof(SignalViewModel.IsSignalEmpty));
+
+        vm.SearchText = "NoSuchSignal";
+        vm.IsSignalEmpty.Should().BeFalse("信号确实解码出来了");
+        vm.IsSignalFilteredEmpty.Should().BeTrue();
+        changed.Should().Contain(nameof(SignalViewModel.IsSignalFilteredEmpty));
+
+        vm.ClearSearchCommand.Execute(null);
+        vm.IsSignalFilteredEmpty.Should().BeFalse("清除搜索后信号全部回来");
+        vm.FilteredSignals.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void ClearSearchCommand_Resets_Filter_And_Restores_All_Signals()
+    {
+        // P0 空态里的 [清除搜索] 按钮：用户搜出"没有匹配的信号"后，
+        // 必须有一键回到全量的出路，而不是只能手删文本框。
+        var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"), Sig("Temp"));
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); DrainPending_ForTest(vm);
+
+        vm.SearchText = "Rpm";
+        ApplyFilter_ForTest(vm);
+        vm.FilteredSignals.Should().HaveCount(1);
+
+        vm.ClearSearchCommand.Execute(null);
+
+        vm.SearchText.Should().BeEmpty();
+        vm.FilteredSignals.Should().HaveCount(3, "清空搜索后应恢复全部信号");
+    }
 
     [Fact]
     public void ApplyFilter_Empty_SearchText_Rebuilds_FilteredSignals_To_Match_Latest()

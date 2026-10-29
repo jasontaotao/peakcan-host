@@ -1,3 +1,5 @@
+using CommunityToolkit.Mvvm.Input;
+
 namespace PeakCan.Host.App.ViewModels;
 
 public sealed partial class SignalViewModel
@@ -17,6 +19,14 @@ public sealed partial class SignalViewModel
     /// <see cref="FilteredSignals"/> collection.
     /// </summary>
     partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    /// <summary>
+    /// P0 空态里的 [清除搜索]：用户搜出"没有匹配的信号"后一键回到全量。
+    /// 只清 <see cref="SearchText"/>，重建统一由 <see cref="OnSearchTextChanged"/>
+    /// 触发——不另开一条直接改 <see cref="FilteredSignals"/> 的路径。
+    /// </summary>
+    [RelayCommand]
+    private void ClearSearch() => SearchText = "";
 
     private void ApplyFilter()
     {
@@ -50,5 +60,25 @@ public sealed partial class SignalViewModel
                 FilteredSignals.Add(e);
             }
         }
+
+        // P0 空态判据：每次真正的重建后补发（计数变化不经过属性通知）。
+        // 被节流跳过的调用不会改变两个判据：跳过条件已要求计数未变。
+        NotifyEmptyStateChanged();
+    }
+
+    /// <summary>一条信号都还没解码出来（未加载 DBC / 未连接 / 帧不匹配）。</summary>
+    public bool IsSignalEmpty => Latest.Count == 0;
+
+    /// <summary>有信号，但搜索把它们全过滤掉了。</summary>
+    public bool IsSignalFilteredEmpty => Latest.Count > 0 && FilteredSignals.Count == 0;
+
+    /// <summary>
+    /// 空态判据变了就补发通知。<see cref="Latest"/> / <see cref="FilteredSignals"/>
+    /// 的计数变化本身不经过属性通知，而 XAML 的 DataTrigger 只认通知。
+    /// </summary>
+    private void NotifyEmptyStateChanged()
+    {
+        OnPropertyChanged(nameof(IsSignalEmpty));
+        OnPropertyChanged(nameof(IsSignalFilteredEmpty));
     }
 }

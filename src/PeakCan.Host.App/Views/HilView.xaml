@@ -4,6 +4,7 @@
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
              xmlns:core="clr-namespace:PeakCan.HIL.Core.HIL;assembly=PeakCan.HIL.Core"
              xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
+             xmlns:controls="clr-namespace:PeakCan.Host.App.Views.Controls"
              xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf">
     <UserControl.Resources>
         <ObjectDataProvider x:Key="HilModeValues" MethodName="GetValues" ObjectType="{x:Type core:HilMode}">
@@ -230,14 +231,54 @@
                         <TextBlock Text="{Binding AvailableCases.Count, StringFormat='已加载 {0} 个用例'}"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
-                    <DataGrid ItemsSource="{Binding FilteredCases}" AutoGenerateColumns="False"
-                              CanUserAddRows="False" CanUserDeleteRows="False">
-                        <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header="Run" Binding="{Binding IsSelected}" Width="50" />
-                            <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="120" IsReadOnly="True" />
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" IsReadOnly="True" />
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <!-- 外层 Grid 只用于叠放空态面板（面板在表格之后 → 画在上层）。 -->
+                    <Grid>
+                        <DataGrid ItemsSource="{Binding FilteredCases}" AutoGenerateColumns="False"
+                                  CanUserAddRows="False" CanUserDeleteRows="False">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Run" Binding="{Binding IsSelected}" Width="50" />
+                                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="120" IsReadOnly="True" />
+                                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" IsReadOnly="True" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <!-- P0 空态：套件没加载 → 直接给"浏览测试套件"这个出路。 -->
+                        <controls:EmptyStatePanel Title="还没有加载测试用例"
+                                                  Description="在顶部「浏览...」选择一个 .hil 测试套件 JSON 文件，用例会列在这里。"
+                                                  ActionText="浏览测试套件"
+                                                  ActionCommand="{Binding BrowseSuiteCommand}"
+                                                  AutomationProperties.Name="空态：还没有加载测试用例">
+                            <controls:EmptyStatePanel.Style>
+                                <Style TargetType="controls:EmptyStatePanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCasesEmpty}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyStatePanel.Style>
+                        </controls:EmptyStatePanel>
+
+                        <!-- P0 空态：用例已加载，但筛选文本把它们全挡掉了 → 一键清除筛选。
+                             这是三个页面里唯一自带筛选框的表格，只做"没数据"会漏掉这一半。 -->
+                        <controls:EmptyStatePanel Title="没有匹配的用例"
+                                                  Description="{Binding CaseFilter, StringFormat='没有名称包含「{0}」的用例。'}"
+                                                  ActionText="清除筛选"
+                                                  ActionCommand="{Binding ClearCaseFilterCommand}"
+                                                  AutomationProperties.Name="空态：没有匹配的用例">
+                            <controls:EmptyStatePanel.Style>
+                                <Style TargetType="controls:EmptyStatePanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCasesFilteredEmpty}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyStatePanel.Style>
+                        </controls:EmptyStatePanel>
+                    </Grid>
                 </DockPanel>
             </TabItem>
             <TabItem Header="结果">

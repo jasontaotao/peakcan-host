@@ -237,5 +237,8 @@ public sealed partial class TraceViewModel
             : $"｜已排除 {_excludedIds.Count} 个 ID";
         StatusText =
             $"显示 {EntriesView.Count} / 共 {Entries.Count}（上限 {MaxRows}）｜总收 {TotalFrameCount}{excludedSuffix}";
+
+        // 空态判据走同一汇合点（每次入列/过滤/清空都会经过这里）。
+        NotifyEmptyStateChanged();
     }
 }

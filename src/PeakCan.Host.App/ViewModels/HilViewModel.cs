@@ -145,7 +145,13 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
     partial void OnMatrixPathChanged(string value) => QueuePreflight();
     partial void OnCaptureCaseLogsChanged(bool value) => QueuePreflight();
     partial void OnCaseLogDirectoryChanged(string value) => QueuePreflight();
-    partial void OnCaseFilterChanged(string value) => QueueCaseFilterRefresh();
+    partial void OnCaseFilterChanged(string value)
+    {
+        QueueCaseFilterRefresh();
+        // 表格与空态面板各自读值：表格走防抖后的 FilteredCases.Refresh，
+        // 面板判据直接看 CaseFilter，所以这里必须立刻补发通知。
+        NotifyCaseEmptyState();
+    }
 
 
     private void StartSuiteWatcher(string path)
@@ -419,7 +425,12 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
             _declaredChannelsValid = false;
             StatusMessage = $"套件文件解析失败: {ex.Message}";
         }
-        RunCommand.NotifyCanExecuteChanged();
+        finally
+        {
+            // 早退（缺 cases 字段）也要刷新空态判据 —— finally 覆盖所有返回路径。
+            NotifyCaseEmptyState();
+            RunCommand.NotifyCanExecuteChanged();
+        }
     }
 
     /// <summary>
@@ -447,9 +458,23 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
     }
 
 
-    private bool FilterCase(object item) =>
-        string.IsNullOrWhiteSpace(CaseFilter)
-        || ((TestCaseSelection)item).Name.Contains(CaseFilter, StringComparison.OrdinalIgnoreCase);
+    private bool FilterCase(object item) => IsCaseVisible((TestCaseSelection)item);
+
+    /// <summary>P0 空态：套件没加载（或加载出 0 条用例）。</summary>
+    public bool IsCasesEmpty => AvailableCases.Count == 0;
+
+    /// <summary>
+    /// P0 空态：用例已加载，但筛选文本一条都不放行。
+    /// 直接用 <see cref="IsCaseVisible"/> 求值而不是读 <c>FilteredCases.IsEmpty</c>——
+    /// 后者经防抖刷新，会与用户刚敲下的筛选文本不同步。
+    /// </summary>
+    public bool IsCasesFilteredEmpty => AvailableCases.Count > 0 && !AvailableCases.Any(IsCaseVisible);
+
+    private void NotifyCaseEmptyState()
+    {
+        OnPropertyChanged(nameof(IsCasesEmpty));
+        OnPropertyChanged(nameof(IsCasesFilteredEmpty));
+    }
 
     private void QueueCaseFilterRefresh()
     {
@@ -650,6 +675,10 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
         foreach (var c in AvailableCases.Where(IsCaseVisible)) c.IsSelected = false;
         RunCommand.NotifyCanExecuteChanged();
     }
+
+    /// <summary>P0 空态里的 [清除筛选]：一键回到全部用例。</summary>
+    [RelayCommand]
+    private void ClearCaseFilter() => CaseFilter = "";
 
     [RelayCommand]
     private void BrowseTrace()

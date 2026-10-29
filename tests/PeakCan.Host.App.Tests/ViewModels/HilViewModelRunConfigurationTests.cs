@@ -67,6 +67,29 @@ public sealed class HilViewModelRunConfigurationTests
     }
 
     [Fact]
+    public void Case_Filter_Empty_State_Flags_And_Clear_Command()
+    {
+        // P0 空态：用例页是三个页面里唯一自带筛选框的，必须区分
+        // "还没加载套件" 和 "筛选把用例全挡掉"，后者要给一键清除筛选。
+        var fresh = NewVm();
+        Assert.True(fresh.IsCasesEmpty, "套件还没加载时是空态");
+        Assert.False(fresh.IsCasesFilteredEmpty);
+
+        var (vm, _) = CreateConfiguredHardwareViewModel(cases: ["Alpha", "Beta"]);
+        Assert.False(vm.IsCasesEmpty);
+        Assert.False(vm.IsCasesFilteredEmpty);
+
+        vm.CaseFilter = "zzz";
+        Assert.False(vm.IsCasesEmpty, "用例确实加载了，不能说「还没有加载」");
+        Assert.True(vm.IsCasesFilteredEmpty);
+
+        vm.ClearCaseFilterCommand.Execute(null);
+        Assert.Empty(vm.CaseFilter);
+        Assert.False(vm.IsCasesFilteredEmpty);
+        Assert.Equal(2, vm.AvailableCases.Count);
+    }
+
+    [Fact]
     public async Task CaseLogDirectory_IsPassedToRequest()
     {
         var runner = Substitute.For<IHilRunnerService>();

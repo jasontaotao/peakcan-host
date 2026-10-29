@@ -167,6 +167,41 @@ public sealed class TraceViewLayoutTests
     }
 
     [Fact]
+    public void TraceGrid_Has_Two_Empty_States_With_Clear_Filters_Action()
+    {
+        var doc = LoadXaml();
+        var grid = doc.Descendants(P + "DataGrid")
+            .Single(e => (string?)e.Attribute(X + "Name") == "TraceGrid");
+        var host = grid.Parent!;
+
+        host.Name.LocalName.Should().Be("Grid", "空态面板必须与表格同格叠放");
+        var panels = host.Elements().Where(e => e.Name.LocalName == "EmptyStatePanel").ToList();
+        panels.Should().HaveCount(2, "无数据 / 被过滤掉 是两种不同空态");
+        host.Elements().Last().Name.LocalName.Should().Be("EmptyStatePanel",
+            "面板必须排在表格之后，否则被表格盖住");
+
+        // 空态一：一帧都没有 —— 只能靠连接通道，没有可在本页执行的逆操作。
+        var noData = panels.Single(p => ((string?)p.Attribute("Title"))?.Contains("还没有收到帧") == true);
+        noData.Attribute("ActionCommand").Should().BeNull();
+        ((string?)noData.Attribute("Description"))!.Should().Contain("连接");
+
+        // 空态二：有帧但被过滤条件全部排除 —— 必须给"清除过滤"这条出路。
+        var filteredOut = panels.Single(p => ((string?)p.Attribute("Title"))?.Contains("过滤") == true);
+        ((string?)filteredOut.Attribute("ActionText")).Should().Be("清除过滤");
+        ((string?)filteredOut.Attribute("ActionCommand"))!.Should().Contain("ClearFiltersCommand");
+
+        // 触发条件走 VM 布尔值（Style 里的 ElementName 解析不可靠，失效时面板会静默不出现）。
+        // 属性元素挂在控件自身的 xmlns 下（controls:EmptyStatePanel.Style），按 LocalName 取。
+        var style = filteredOut.Elements()
+            .SingleOrDefault(e => e.Name.LocalName == "EmptyStatePanel.Style")?
+            .Element(P + "Style");
+        style.Should().NotBeNull();
+        style!.Descendants(P + "DataTrigger").Should().Contain(t =>
+            (string?)t.Attribute("Binding") == "{Binding IsTraceFilteredEmpty}" &&
+            (string?)t.Attribute("Value") == "True");
+    }
+
+    [Fact]
     public void CopyText_Formats_Id_And_Data_Without_Trailing_Space()
     {
         var withData = new TraceEntry
