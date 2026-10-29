@@ -1,18 +1,21 @@
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Web.WebView2.Core;
+using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.ViewModels;
 
 namespace PeakCan.Host.App.Views;
 
 /// <summary>
-/// Code-behind for the Script tab. Hosts a WebView2 control with
-/// CodeMirror 6 for JavaScript editing.
+/// Code-behind for the Script tab. Hosts a WebView2 control that renders the
+/// editor page produced by <see cref="ScriptEditorHtml"/>; editor text flows
+/// back through <see cref="ScriptEditorBridge"/> (postMessage JSON).
 /// </summary>
 public partial class ScriptView : UserControl
 {
     private ScriptViewModel? _viewModel;
+    // 页面 → VM 的解析层；第一次收到消息时创建（_viewModel 在 OnLoaded 才赋值）。
+    private ScriptEditorBridge? _bridge;
     // v1.2.13 PATCH Item 6: guard against post-await side effects after the
     // view is unloaded. WPF may re-fire Loaded after Unloaded during
     // navigation; without this guard the post-await continuation writes
@@ -71,6 +74,8 @@ public partial class ScriptView : UserControl
         _viewModel = DataContext as ScriptViewModel;
         if (_viewModel is null) return;
         _isLoaded = true;
+        // DataContext 可能被换掉（视图实例被复用），桥必须跟着换，不能缓存旧的 VM。
+        _bridge = null;
 
         try
         {
@@ -79,9 +84,9 @@ public partial class ScriptView : UserControl
             // v1.2.13 PATCH Item 6: guard post-await VM writes.
             if (!_isLoaded) return;
 
-            // Load CodeMirror editor from embedded HTML.
-            var editorHtml = GetEditorHtml();
-            EditorWebView.NavigateToString(editorHtml);
+            // 编辑器页面 + 回填草稿。初值直接嵌在 HTML 里而不是导航后再灌：
+            // 每次切回本 tab 都会重新 NavigateToString，嵌入初值才能保住草稿。
+            EditorWebView.NavigateToString(ScriptEditorHtml.Build(_viewModel.ScriptText));
 
             if (!_isLoaded) return;
             _viewModel.IsEditorReady = true;
@@ -105,109 +110,34 @@ public partial class ScriptView : UserControl
     {
         if (!e.IsSuccess) return;
 
-        // Add JavaScript-to-C# bridge for script text synchronization.
-        EditorWebView.CoreWebView2.AddHostObjectToScript("scriptBridge", new ScriptBridge(this));
-
-        // 注意（2026-10-29 核查）：同步链是断的，且断在"没人调用"这一环——
-        // 桥方法（本行注册的 scriptBridge、页面里的 getScriptText/setScriptText）
-        // 都在，但没有任何一边去调它们，C# 也从不 ExecuteScriptAsync 回灌。
-        // 结果 ScriptText 恒为空串，RunAsync 第一行就 return。
-        // 因此**不要**在这里接 Ctrl+Enter → RunCommand，也不要保留一个
-        // postMessage('run') 却没人接收的监听：那只是给"空转"多开一个入口，
-        // 让人误以为按键没反应是快捷键的问题。先修同步链，再接键。
+        // 页面 → C# 的唯一通道：postMessage(JSON)。解析交给 ScriptEditorBridge，
+        // 这里只负责"要不要运行"这一步（见 ScriptEditorHtml 顶部的协议说明）。
+        // WebMessageReceived 在 UI 线程触发，因此直接写 VM 是安全的。
+        // 先退订再订阅：WebView2 若因崩溃/重建再次触发本事件，重复订阅会让
+        // 同一条 run 消息执行两次。
+        EditorWebView.CoreWebView2.WebMessageReceived -= OnEditorWebMessageReceived;
+        EditorWebView.CoreWebView2.WebMessageReceived += OnEditorWebMessageReceived;
     }
 
-    /// <summary>
-    /// Get the CodeMirror 6 editor HTML.
-    /// </summary>
-    private static string GetEditorHtml()
+    private void OnEditorWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
-        // Inline CodeMirror 6 with JavaScript language support.
-        // In production, this would be loaded from an embedded resource.
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                body {
-                    margin: 0;
-                    padding: 0;
-                    overflow: hidden;
-                    background: #1E1E1E;
-                }
-                #editor {
-                    height: 100vh;
-                    width: 100vw;
-                }
-            </style>
-        </head>
-        <body>
-            <div id="editor"></div>
-            <script type="module">
-                // CodeMirror 6 inline bundle (simplified for MVP).
-                // In production, use a bundled version from CDN or embedded resource.
-                const editor = document.getElementById('editor');
+        if (_viewModel is null) return;
 
-                // Create a simple textarea as fallback.
-                const textarea = document.createElement('textarea');
-                textarea.style.cssText = `
-                    width: 100%;
-                    height: 100%;
-                    background: #1E1E1E;
-                    color: #D4D4D4;
-                    font-family: 'Consolas', monospace;
-                    font-size: 14px;
-                    border: none;
-                    outline: none;
-                    resize: none;
-                    padding: 8px;
-                    box-sizing: border-box;
-                `;
-                textarea.placeholder = '// Write your JavaScript script here...\\n// Example: can.onFrame((frame) => { log(frame.id); });';
-                editor.appendChild(textarea);
-
-                // Expose getText/setText for C# bridge.
-                // NOTE: nothing calls these yet — C# never round-trips the editor text
-                // into ScriptViewModel.ScriptText (see ScriptView.xaml.cs remarks).
-                window.getScriptText = () => textarea.value;
-                window.setScriptText = (text) => { textarea.value = text; };
-            </script>
-        </body>
-        </html>
-        """;
-    }
-
-    /// <summary>
-    /// Bridge object exposed to JavaScript for script text synchronization.
-    /// </summary>
-    [System.Runtime.InteropServices.ComVisible(true)]
-    public class ScriptBridge
-    {
-        private readonly ScriptView _view;
-
-        public ScriptBridge(ScriptView view)
+        string? json;
+        try
         {
-            _view = view;
+            json = e.TryGetWebMessageAsString();
+        }
+        catch (ArgumentException)
+        {
+            // 非字符串载荷不属于编辑器的协议，忽略即可。
+            return;
         }
 
-        /// <summary>
-        /// Called from JavaScript when the script text changes.
-        /// </summary>
-        public void SetScriptText(string text)
+        var bridge = _bridge ??= new ScriptEditorBridge(_viewModel);
+        if (bridge.HandleMessage(json) && _viewModel.RunCommand.CanExecute(null))
         {
-            if (_view._viewModel is not null)
-            {
-                _view._viewModel.ScriptText = text;
-            }
-        }
-
-        /// <summary>
-        /// Called from JavaScript to get the current script text.
-        /// </summary>
-        public string GetScriptText()
-        {
-            return _view._viewModel?.ScriptText ?? "";
+            _viewModel.RunCommand.Execute(null);
         }
     }
 }
