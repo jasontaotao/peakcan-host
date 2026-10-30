@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -30,15 +32,25 @@ public partial class XcpView : UserControl
 
     private DispatcherTimer? _flushTimer;
 
+    /// <summary>状态区订阅的集合（Unloaded 时按同一实例退订，避免重复挂钩）。</summary>
+    private ObservableCollection<string>? _connectionStatus;
+    private ObservableCollection<string>? _acquisitionStatus;
+
     public XcpView()
     {
         InitializeComponent();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+        // DataContext 可能晚于 Loaded 才就位（设计时 / tab 工厂时序）：两个时机都尝试挂一次。
+        DataContextChanged += (_, _) => SubscribeToStatusLines();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // 订阅必须放在下面"timer 非空就早退"之前：那个早退是给 Loaded 二次触发
+        // 准备的，订阅跟着被跳过的话自动滚动会永久静默失效且没有任何提示。
+        SubscribeToStatusLines();
+
         if (_flushTimer is not null)
             return;
 
@@ -62,6 +74,57 @@ public partial class XcpView : UserControl
         (DataContext as XcpViewModel)?.Map?.RefreshMaps();
     }
 
+    /// <summary>
+    /// 订阅两块状态区（幂等）：状态区限高后新行会落在折线以下，而结论行
+    ///（"采集已启动" / "对账拒绝启动"）恰恰补在最后，集合一变就滚到底，
+    /// 保证最该被看见的那一行始终在视野里。DataContext 换实例时先退旧再挂新。
+    /// </summary>
+    private void SubscribeToStatusLines()
+    {
+        if (DataContext is not XcpViewModel vm)
+            return;
+        if (ReferenceEquals(_connectionStatus, vm.Connection.StatusLines))
+            return;
+
+        UnsubscribeFromStatusLines();
+        _connectionStatus = vm.Connection.StatusLines;
+        _acquisitionStatus = vm.Acquisition.StatusLines;
+        _connectionStatus.CollectionChanged += OnStatusLinesChanged;
+        _acquisitionStatus.CollectionChanged += OnStatusLinesChanged;
+        // A2L 可能先于本 tab 创建就已加载：挂载时集合里已有内容，先滚一次。
+        ScrollStatusToEnd();
+    }
+
+    private void UnsubscribeFromStatusLines()
+    {
+        if (_connectionStatus is not null)
+            _connectionStatus.CollectionChanged -= OnStatusLinesChanged;
+        if (_acquisitionStatus is not null)
+            _acquisitionStatus.CollectionChanged -= OnStatusLinesChanged;
+        _connectionStatus = null;
+        _acquisitionStatus = null;
+    }
+
+    private void OnStatusLinesChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        ScrollStatusToEnd();
+
+    /// <summary>
+    /// 展开时补滚到底：折叠状态下内容没有测量过，ScrollToEnd 是空操作；
+    /// 用户点开时最新的行才落进视野。
+    /// </summary>
+    private void OnStatusExpanderExpanded(object sender, RoutedEventArgs e) => ScrollStatusToEnd();
+
+    /// <summary>
+    /// 滚到两块状态明细的末尾。集合变化时布局尚未重算，直接 ScrollToEnd 会按旧范围夹取
+    /// ——排到 Loaded 优先级（低于 Render 的布局趟）再滚，此时新行已测量完毕。
+    /// </summary>
+    private void ScrollStatusToEnd() =>
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            ConnectionStatusScroll?.ScrollToEnd();
+            AcquisitionStatusScroll?.ScrollToEnd();
+        }));
+
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         // tab 切走即停拍（singleton VM 状态保留，切回 Loaded 重启）。
@@ -69,6 +132,8 @@ public partial class XcpView : UserControl
         _flushTimer = null;
         if (DataContext is XcpViewModel { Diff: { } diff })
             diff.CardLocateRequested -= OnDiffCardLocateRequested;
+
+        UnsubscribeFromStatusLines();
     }
 
     /// <summary>S6-T5：滚动卡片格到 diff 选中的对象（无该卡片时状态不变化）。</summary>

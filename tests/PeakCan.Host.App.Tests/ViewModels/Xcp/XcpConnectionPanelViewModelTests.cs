@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using A2lEditor.Core;
 using A2lEditor.Core.IfData;
 using A2lEditor.Core.Layout;
@@ -141,8 +142,77 @@ public class XcpConnectionPanelViewModelTests : IDisposable
         vm.LoadedResult.Should().BeSameAs(result);
         vm.StatusLines.Should().Contain(l => l.Contains("cross-check one"));
         vm.StatusLines.Should().Contain(l => l.Contains("cross-check two"));
-        vm.StatusLines.Should().Contain(l =>
-            l.Contains("合同对象") && l.Contains(result.Contracts.All.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        // 结论进常驻行（折叠态也要能看见"加载成功/几个对象"），明细才进折叠区。
+        vm.StatusSummary.Should().Contain("合同对象")
+            .And.Contain(result.Contracts.All.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        vm.HasStatusDetails.Should().BeTrue();
+        vm.StatusDetailHeader.Should().Contain("2", "折叠标题要自报条数");
+        vm.HasStatusSummaryError.Should().BeFalse("加载成功不该是红的");
+    }
+
+    /// <summary>
+    /// 实测样本（S32K148_EB_IarPrj_CANape.a2l：3000 个对象全地址 0x0）会产生
+    /// 3003 条 ValidationNote。逐条上屏时连接区把整个页面挤没了（用户实报
+    /// "界面被占满之后根本无法操作"），所以这里钉两条：上屏行数有硬上限，
+    /// 完整清单仍原样留在 <see cref="XcpConnectionPanelViewModel.ValidationNotes"/>。
+    /// </summary>
+    [Fact]
+    public void LoadA2L_collapses_thousands_of_notes_instead_of_flooding_the_status_area()
+    {
+        var notes = Enumerable.Range(0, 3000)
+            .Select(i => Note($"MEASUREMENT 'm{i}' has ECU_ADDRESS 0x0"))
+            .ToArray();
+        var result = LoadedResultWith(notes);
+        var vm = new XcpConnectionPanelViewModel(loadA2l: DelegateReturning(result));
+        vm.A2lPath = TempA2lFile();
+
+        vm.LoadA2LCommand.Execute(null);
+
+        vm.ValidationNotes.Should().BeSameAs(result.ValidationNotes,
+            "折叠只影响上屏，完整清单必须一条不少地留着");
+        vm.StatusLines.Should().HaveCountLessThan(10,
+            "3000 条逐条上屏会把连接区撑到几万像素");
+        // 摘要行用中文类别名；机读标识（MissingAddress）保留在下面每条样例里。
+        vm.StatusLines[0].Should().Contain("地址缺失").And.Contain("× 3000");
+        vm.StatusLines.Should().Contain(l => l.Contains("MissingAddress"), "样例行仍要能对到检查项标识");
+        vm.StatusLines.Should().Contain(l => l.Contains("2997"),
+            "省略多少条必须写在脸上——不许静默降级");
+        vm.StatusSummary.Should().Contain("合同对象")
+            .And.Contain(result.Contracts.All.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        vm.StatusDetailHeader.Should().Contain("3000", "折叠标题必须自报总量，否则收起后不知道有多少条");
+        vm.HasStatusDetails.Should().BeTrue();
+    }
+
+    [Fact]
+    public void LoadA2L_summarises_repeated_notes_under_a_readable_label()
+    {
+        var result = LoadedResultWith(Note("a"), Note("b"), Note("c"), Note("d"));
+        var vm = new XcpConnectionPanelViewModel(loadA2l: DelegateReturning(result));
+        vm.A2lPath = TempA2lFile();
+
+        vm.LoadA2LCommand.Execute(null);
+
+        // 聚合行用中文类别名：'MissingAddress × 4' 对现场工程师没有信息量。
+        vm.StatusLines[0].Should().Contain("地址缺失").And.Contain("× 4");
+    }
+
+    /// <summary>
+    /// 干净的 A2L（零检查提示）不该留下一个空的折叠箭头——UX 上"无事发生"就什么都不显示，
+    /// 只留结论行。这也防住"Visibility 绑错导致空箭头常年占位"。
+    /// </summary>
+    [Fact]
+    public void A_clean_a2l_leaves_no_expander_but_keeps_the_verdict_line()
+    {
+        var result = LoadedResultWith();
+        var vm = new XcpConnectionPanelViewModel(loadA2l: DelegateReturning(result));
+        vm.A2lPath = TempA2lFile();
+
+        vm.LoadA2LCommand.Execute(null);
+
+        vm.StatusLines.Should().BeEmpty();
+        vm.HasStatusDetails.Should().BeFalse();
+        vm.StatusDetailHeader.Should().BeEmpty();
+        vm.StatusSummary.Should().Contain("合同对象", "没有明细时结论行是唯一的信息出口");
     }
 
     [Fact]
@@ -156,7 +226,7 @@ public class XcpConnectionPanelViewModelTests : IDisposable
         vm.ConnectionState.Should().Be(XcpConnectionState.Loaded);
         // A-11 口径（T2 钉过）：965 MEASUREMENT + 1377 CHARACTERISTIC + 49 AXIS_PTS。
         vm.LoadedResult!.Contracts.All.Should().HaveCount(2391);
-        vm.StatusLines.Should().Contain(l => l.Contains("2391 个合同对象"));
+        vm.StatusSummary.Should().Contain("2391 个合同对象");
     }
 
     // ------------------------------------------------------------------
@@ -176,8 +246,9 @@ public class XcpConnectionPanelViewModelTests : IDisposable
         vm.ConnectionState.Should().Be(XcpConnectionState.Disconnected,
             "失败的加载不得把状态机推到 Loaded");
         vm.LoadedResult.Should().BeNull();
-        vm.StatusLines.Should().Contain(l =>
-            l.Contains("加载失败") && l.Contains("NoXcpIfData") && l.Contains("bad.a2l"));
+        vm.StatusSummary.Should().Contain("加载失败").And.Contain("NoXcpIfData").And.Contain("bad.a2l");
+        vm.HasStatusDetails.Should().BeFalse("失败时不该留着上一次的明细谎报本次结果");
+        vm.HasStatusSummaryError.Should().BeTrue("失败结论必须是红的，否则和普通提示长得一样");
     }
 
     [Fact]
@@ -201,7 +272,7 @@ public class XcpConnectionPanelViewModelTests : IDisposable
         vm.ConnectionState.Should().Be(XcpConnectionState.Loaded,
             "重载失败不清掉已加载的好状态");
         vm.LoadedResult.Should().BeSameAs(loaded);
-        vm.StatusLines.Should().Contain(l => l.Contains("parse boom"));
+        vm.StatusSummary.Should().Contain("parse boom");
     }
 
     // ------------------------------------------------------------------
@@ -225,8 +296,7 @@ public class XcpConnectionPanelViewModelTests : IDisposable
 
         loaderCalled.Should().BeFalse("文件不存在时不得调用 Load（IO 异常裸抛是 T2 评审发现）");
         vm.ConnectionState.Should().Be(XcpConnectionState.Disconnected);
-        vm.StatusLines.Should().Contain(l =>
-            l.Contains("文件不存在") && l.Contains(missing));
+        vm.StatusSummary.Should().Contain("文件不存在").And.Contain(missing);
     }
 
     [Fact]
@@ -241,16 +311,14 @@ public class XcpConnectionPanelViewModelTests : IDisposable
         ioVm.A2lPath = existing;
         ioVm.LoadA2LCommand.Execute(null);
         ioVm.ConnectionState.Should().Be(XcpConnectionState.Disconnected);
-        ioVm.StatusLines.Should().Contain(l =>
-            l.Contains("读取失败") && l.Contains("file locked by INCA"));
+        ioVm.StatusSummary.Should().Contain("读取失败").And.Contain("file locked by INCA");
 
         var unauthorizedVm = new XcpConnectionPanelViewModel(
             loadA2l: DelegateThrowing(new UnauthorizedAccessException("access denied")));
         unauthorizedVm.A2lPath = existing;
         unauthorizedVm.LoadA2LCommand.Execute(null);
         unauthorizedVm.ConnectionState.Should().Be(XcpConnectionState.Disconnected);
-        unauthorizedVm.StatusLines.Should().Contain(l =>
-            l.Contains("读取失败") && l.Contains("access denied"));
+        unauthorizedVm.StatusSummary.Should().Contain("读取失败").And.Contain("access denied");
 
         File.Delete(existing);
     }

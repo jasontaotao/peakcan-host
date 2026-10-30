@@ -91,8 +91,35 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     /// <summary>S5-T4：当前采集会话的协议主站（写回共用同一连接；未采集 null）。</summary>
     public PeakCan.Host.Core.Xcp.Protocol.XcpMaster? ActiveMaster => _session?.Master;
 
-    /// <summary>状态区行（对账明细 / 失败提示 / 停启事件，人读文本）。</summary>
+    /// <summary>
+    /// 状态区明细（默认折叠）：对账告警、探测失败归因。结论（启动/停止/拒绝）
+    /// 一律进 <see cref="StatusSummary"/> 常驻行——折叠区不能把"采集到底起没起"藏起来。
+    /// </summary>
     public ObservableCollection<string> StatusLines { get; } = new();
+
+    /// <summary>常驻结论行（一行，不折叠）：启动成功 / 被拒绝 / 已停止 / 启动失败的原因。</summary>
+    [ObservableProperty]
+    private string _statusSummary = string.Empty;
+
+    /// <summary>折叠区标题（如「检查提示 3003 条」）；空串 = 无明细，折叠区整个隐藏。</summary>
+    [ObservableProperty]
+    private string _statusDetailHeader = string.Empty;
+
+    /// <summary>是否有明细可展开（视图绑定折叠区可见性）。</summary>
+    [ObservableProperty]
+    private bool _hasStatusDetails;
+
+    /// <summary>明细里是否含 Reject 级——视图据此把折叠标题染红。</summary>
+    [ObservableProperty]
+    private bool _hasStatusError;
+
+    /// <summary>
+    /// 结论行是否按"错误"着色。与 <see cref="HasStatusError"/> 分开：
+    /// 后者描述明细的最高级别，前者描述"这次动作是不是失败了"——「无法启动采集」
+    /// 必须是红的，「采集已停止 / 禁止重 Start」不该红。
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasStatusSummaryError;
 
     /// <summary>
     /// 采集覆盖清单（spec D6 / S2 ComputeCoverage）：Covered/PollingCause/MissingCause
@@ -141,21 +168,21 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
 
         if (_connection is not { CanStart: true } || _connection.LoadedResult is not { } loaded)
         {
-            ShowStatus("无法启动采集：A2L 未加载或未选择通道。");
+            ShowStatus("无法启动采集：A2L 未加载或未选择通道。", isError: true);
             return false;
         }
 
         var channel = _connection.SelectedChannel?.Channel;
         if (channel is null)
         {
-            ShowStatus("无法启动采集：选中通道没有底层 ICanChannel 实例。");
+            ShowStatus("无法启动采集：选中通道没有底层 ICanChannel 实例。", isError: true);
             return false;
         }
 
         // XCP_ON_CAN 声明 CAN ID（主站发送 ID 的唯一声明侧来源，不猜）。
         if (loaded.IfData.OnCan.Count == 0)
         {
-            ShowStatus("无法启动采集：A2L 无 XCP_ON_CAN 块，无法确定 CAN ID。");
+            ShowStatus("无法启动采集：A2L 无 XCP_ON_CAN 块，无法确定 CAN ID。", isError: true);
             return false;
         }
         var onCan = loaded.IfData.OnCan[0];
@@ -176,7 +203,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
             // 订阅失败等路径），否则底层 channel 包装泄漏。
             if (transport is not null)
                 await transport.DisposeAsync().ConfigureAwait(true);
-            ShowStatus($"无法启动采集：会话构造失败（{ex.GetType().Name}: {ex.Message}）。");
+            ShowStatus($"无法启动采集：会话构造失败（{ex.GetType().Name}: {ex.Message}）。", isError: true);
             return false;
         }
 
@@ -199,18 +226,29 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
             {
                 // L5（T7 评审）：拒绝路径必须清空旧覆盖清单——残留行会谎报本次采集覆盖面。
                 CoverageEntries.Clear();
-                ShowStatus(report.Findings);
-                AppendQueryFailures(probe.QueryFailures);
-                StatusLines.Add($"对账拒绝启动：{report.Findings.Count(f => f.Severity == XcpCapabilitySeverity.Reject)} 项硬约束不匹配。");
+                SetStatusDetails(
+                    CollapseFindings(report.Findings).Concat(FormatQueryFailures(probe.QueryFailures)),
+                    report.Findings.Count + probe.QueryFailures.Count,
+                    hasError: true);
+                // 结论进常驻行：拒绝理由不能被折叠区吞掉。点名第一条硬约束，
+                // 否则收起态只知道"出事了"，不知道"拒的是哪一项"。
+                var rejects = report.Findings
+                    .Where(f => f.Severity == XcpCapabilitySeverity.Reject)
+                    .ToList();
+                SetStatusSummary(
+                    $"对账拒绝启动：{rejects[0].Code}（共 {rejects.Count} 项硬约束不匹配）。",
+                    isError: true);
                 await DisposeSessionAsync(session, transport);
                 return false;
             }
 
             // 告警明细也要浮出（spec：告警 = 采集仍可启动的事实清单，不得静默）。
-            StatusLines.Clear();
-            foreach (var warning in report.Warnings)
-                StatusLines.Add($"[Warning] {warning.Code}: {warning.Message}");
-            AppendQueryFailures(probe.QueryFailures);
+            // 但按 Code 折叠：对账会把 A2L 的每条 ValidationNote 原样转成一条
+            // A2L_CROSSCHECK（真机样本 3000 条），逐条上屏会把采集区撑爆。
+            SetStatusDetails(
+                CollapseFindings(report.Warnings).Concat(FormatQueryFailures(probe.QueryFailures)),
+                report.Warnings.Count() + probe.QueryFailures.Count,
+                hasError: false);
 
             // ---- ② Plan（纯规划；未翻译地址等 fail-loud 由 planner/轮转负责）----
             var plan = session.Plan(loaded.Contracts, AcquisitionPlan.Build(loaded.Document));
@@ -232,7 +270,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
 
             _connection.MarkConnected();
             IsAcquiring = true;
-            StatusLines.Add(
+            SetStatusSummary(
                 $"采集已启动：DAQ ODT {plan.Odts.Count} 个，轮询降级 {plan.PollingEntries.Count} 条，覆盖 {coverage.Count} 对象。");
             return true;
         }
@@ -240,8 +278,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
         {
             // L5（T7 评审）：失败路径同样清空旧覆盖清单，与对账拒绝口径一致。
             CoverageEntries.Clear();
-            StatusLines.Clear();
-            StatusLines.Add($"无法启动采集：{ex.GetType().Name}: {ex.Message}");
+            ShowStatus($"无法启动采集：{ex.GetType().Name}: {ex.Message}", isError: true);
             CapabilityReport = null;
             MeasuredOptionalCommands = null;
             await DisposeSessionAsync(session, transport);
@@ -290,8 +327,7 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
         await DisposeSessionAsync(session, transport);
 
         _connection?.MarkDisconnected();
-        StatusLines.Clear();
-        StatusLines.Add("采集已停止，会话已释放（可再次 Start）。");
+        ShowStatus("采集已停止，会话已释放（可再次 Start）。");
     }
 
     // ------------------------------------------------------------------
@@ -302,11 +338,8 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     /// L2（T7 评审）：实测链单项查询失败归因出站——XcpCapabilityProber 的归因清单
     /// 原样转成状态区人读行（拒绝/放行两条路径都要浮出，不得静默）。
     /// </summary>
-    private void AppendQueryFailures(IReadOnlyList<XcpCapabilityQueryFailure> failures)
-    {
-        foreach (var failure in failures)
-            StatusLines.Add($"[ProbeFailure] {failure.Command}: {failure.ExceptionType} ({failure.Marker})");
-    }
+    private static IEnumerable<string> FormatQueryFailures(IReadOnlyList<XcpCapabilityQueryFailure> failures) =>
+        failures.Select(f => $"[ProbeFailure] {f.Command}: {f.ExceptionType} ({f.Marker})");
     // ------------------------------------------------------------------
     // 生命周期内部件
     // ------------------------------------------------------------------
@@ -359,19 +392,61 @@ public partial class XcpAcquisitionPanelViewModel : ObservableObject, IDisposabl
     /// </summary>
     internal bool SuppressStatusOutput { get; set; }
 
-    private void ShowStatus(IEnumerable<XcpCapabilityFinding> findings)
+    /// <summary>
+    /// 明细区（默认折叠）：内容 + 折叠标题计数 + 是否含硬约束。
+    /// 折叠标题必须自报条数——否则收起后用户不知道里面是 3 条还是 3000 条，
+    /// 等于把清单藏掉。
+    /// </summary>
+    private void SetStatusDetails(IEnumerable<string> lines, int sourceCount, bool hasError)
     {
         if (SuppressStatusOutput) return;
         StatusLines.Clear();
-        foreach (var finding in findings)
-            StatusLines.Add($"[{finding.Severity}] {finding.Code}: {finding.Message}");
+        foreach (var line in lines)
+            StatusLines.Add(line);
+
+        HasStatusDetails = StatusLines.Count > 0;
+        // 「同类合并」是必要的：标题写 3000 条，展开只有几行（合并 + 样例），
+        // 不说明会让人以为自己没展开全。
+        StatusDetailHeader = HasStatusDetails ? $"检查提示 {sourceCount} 条（同类合并）" : string.Empty;
+        HasStatusError = hasError;
     }
 
-    private void ShowStatus(string line)
+    private void SetStatusSummary(string line, bool isError = false)
     {
         if (SuppressStatusOutput) return;
+        StatusSummary = line;
+        HasStatusSummaryError = isError;
+    }
+
+    /// <summary>清掉明细（旧明细会谎报本次结果），结论行另行写入。</summary>
+    private void ClearStatusDetails()
+    {
+        // 关闭路径是跨线程写的唯一入口（见 SuppressStatusOutput 注释），这里也要守。
+        if (SuppressStatusOutput) return;
         StatusLines.Clear();
-        StatusLines.Add(line);
+        StatusDetailHeader = string.Empty;
+        HasStatusDetails = false;
+        HasStatusError = false;
+    }
+
+    /// <summary>
+    /// 对账发现项按 Code 折叠后上屏（理由见调用点：A2L_CROSSCHECK 一条 note 一条 finding）。
+    /// 单条分组输出与折叠前逐字一致，完整清单仍在 <c>CapabilityReport</c> 里。
+    /// </summary>
+    private static IReadOnlyList<string> CollapseFindings(IEnumerable<XcpCapabilityFinding> findings) =>
+        XcpStatusLineCollapser.Collapse(
+            findings.Select(f => (f.Code, f.Severity.ToString(), $"{f.Code}: {f.Message}")));
+
+    /// <summary>
+    /// 只有结论、没有明细的状态（早退守卫 / 停止 / 启动失败）。
+    /// <paramref name="isError"/> 决定这行是否红色：真失败才红，
+    /// 「禁止重 Start」这类"被拒绝执行"不该和小故障一样刺眼。
+    /// </summary>
+    private void ShowStatus(string line, bool isError = false)
+    {
+        if (SuppressStatusOutput) return;
+        SetStatusSummary(line, isError);
+        ClearStatusDetails();
     }
 
     /// <summary>CAN ID 帧格式（probe FrameFormatOf 同口径：> 0x7FF = 扩展帧）。</summary>

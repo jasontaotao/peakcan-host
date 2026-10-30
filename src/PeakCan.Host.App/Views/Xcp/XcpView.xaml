@@ -79,21 +79,89 @@
                         <Button Content="Stop" Command="{Binding Acquisition.StopCommand}" MinWidth="72" />
                     </StackPanel>
                 </Grid>
-                <!-- 状态区：ValidationNote / 对账明细 / 启停事件（人读文本）。 -->
-                <ItemsControl ItemsSource="{Binding Connection.StatusLines}" Margin="0,6,0,0">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding}" TextWrapping="Wrap" />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <ItemsControl ItemsSource="{Binding Acquisition.StatusLines}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding}" TextWrapping="Wrap" />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <!-- 状态区分两层（UX）：
+                     ① 结论行常驻可见——回答"加载成没成、采集起没起"。结论不能进折叠区，
+                        否则「对账拒绝启动」会被一个收起的箭头吞掉。
+                     ② 明细默认收起——3003 条检查项没人天天看；折叠标题自报条数
+                        （空态整个箭头消失，不常年占位），条数决定用户要不要点开。
+                     展开后仍限高滚动，内容已在 VM 侧按类别折叠（XcpStatusLineCollapser）。 -->
+                <TextBlock Text="{Binding Connection.StatusSummary}" Margin="0,6,0,0" TextWrapping="Wrap">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Connection.HasStatusSummaryError}" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource Error}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Expander Margin="0,2,0,0"
+                          Header="{Binding Connection.StatusDetailHeader}"
+                          Visibility="{Binding Connection.HasStatusDetails, Converter={StaticResource BoolToVisibility}}"
+                          Expanded="OnStatusExpanderExpanded">
+                    <Expander.Style>
+                        <Style TargetType="Expander">
+                            <Setter Property="Foreground" Value="{StaticResource WarnText}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Connection.HasStatusError}" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource Error}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Expander.Style>
+                    <ScrollViewer x:Name="ConnectionStatusScroll" MaxHeight="120"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding Connection.StatusLines}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Expander>
+
+                <TextBlock Text="{Binding Acquisition.StatusSummary}" Margin="0,2,0,0" TextWrapping="Wrap">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Acquisition.HasStatusSummaryError}" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource Error}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Expander Margin="0,2,0,0"
+                          Header="{Binding Acquisition.StatusDetailHeader}"
+                          Visibility="{Binding Acquisition.HasStatusDetails, Converter={StaticResource BoolToVisibility}}"
+                          Expanded="OnStatusExpanderExpanded">
+                    <Expander.Style>
+                        <Style TargetType="Expander">
+                            <Setter Property="Foreground" Value="{StaticResource WarnText}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Acquisition.HasStatusError}" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource Error}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Expander.Style>
+                    <ScrollViewer x:Name="AcquisitionStatusScroll" MaxHeight="120"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding Acquisition.StatusLines}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Expander>
             </StackPanel>
         </GroupBox>
 

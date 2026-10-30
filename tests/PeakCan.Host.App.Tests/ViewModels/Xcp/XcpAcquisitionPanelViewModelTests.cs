@@ -520,7 +520,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
 
         second.Should().BeFalse("IsAcquiring 门禁：运行中禁止重 Start（S2 并发契约是调用侧义务）");
         vm.IsAcquiring.Should().BeTrue("第一次会话不受影响");
-        vm.StatusLines.Should().Contain(l => l.Contains("禁止重 Start"));
+        vm.StatusSummary.Should().Contain("禁止重 Start");
         transport.SentPids.Count.Should().Be(pidsBefore, "重 Start 被拦，不得与在途会话并发打帧");
 
         await vm.StopAsync();
@@ -548,7 +548,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
 
         second.Should().BeFalse("H1：启动中（占位被持有）并发第二个 StartAsync 立即拒绝");
         vm.IsAcquiring.Should().BeFalse("第一次尚未完成启动，IsAcquiring 尚未置位——占位门禁独立生效");
-        vm.StatusLines.Should().Contain(l => l.Contains("并发启动被拒绝"));
+        vm.StatusSummary.Should().Contain("并发启动被拒绝");
 
         transport.WriteGate!.SetResult();
         (await first).Should().BeTrue("两并发 StartAsync 恰一个成功");
@@ -589,7 +589,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         var vm = NewVm(connection, transport);
 
         (await vm.StartAsync()).Should().BeFalse();
-        vm.StatusLines.Should().Contain(l => l.Contains("会话构造失败"));
+        vm.StatusSummary.Should().Contain("会话构造失败");
         transport.Disposed.Should().BeTrue("M3：会话构造失败也必须释放已构造的 transport");
         vm.IsAcquiring.Should().BeFalse();
     }
@@ -625,7 +625,9 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         var vm = new XcpAcquisitionPanelViewModel();
 
         (await vm.StartAsync()).Should().BeFalse("无连接面板时不得启动");
-        vm.StatusLines.Should().Contain(l => l.Contains("A2L 未加载"));
+        vm.StatusSummary.Should().Contain("A2L 未加载");
+        vm.HasStatusSummaryError.Should().BeTrue("启动失败必须是红的");
+        vm.HasStatusDetails.Should().BeFalse("没有明细时不该留一个空折叠箭头");
         vm.IsAcquiring.Should().BeFalse();
     }
 
@@ -646,7 +648,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
             transportFactory: _ => { factoryCalled = true; return new ScriptedTransport(); });
 
         (await vm.StartAsync()).Should().BeFalse();
-        vm.StatusLines.Should().Contain(l => l.Contains("A2L 未加载"));
+        vm.StatusSummary.Should().Contain("A2L 未加载");
         factoryCalled.Should().BeFalse("前置门禁未过不得构造 transport");
         vm.IsAcquiring.Should().BeFalse();
     }
@@ -660,7 +662,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         var vm = NewVm(connection, new ScriptedTransport());
 
         (await vm.StartAsync()).Should().BeFalse();
-        vm.StatusLines.Should().Contain(l => l.Contains("未选择通道"));
+        vm.StatusSummary.Should().Contain("未选择通道");
     }
 
     [Fact]
@@ -679,7 +681,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         var vm = new XcpAcquisitionPanelViewModel(connection: connection, transportFactory: _ => new ScriptedTransport());
 
         (await vm.StartAsync()).Should().BeFalse();
-        vm.StatusLines.Should().Contain(l => l.Contains("ICanChannel"));
+        vm.StatusSummary.Should().Contain("ICanChannel");
     }
 
     [Fact]
@@ -700,7 +702,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         var vm = new XcpAcquisitionPanelViewModel(connection: connection, transportFactory: _ => transport);
 
         (await vm.StartAsync()).Should().BeFalse("CAN ID 无声明侧来源，按声明值走不猜");
-        vm.StatusLines.Should().Contain(l => l.Contains("XCP_ON_CAN"));
+        vm.StatusSummary.Should().Contain("XCP_ON_CAN");
         transport.SentPids.Should().BeEmpty("未进对账就拒绝，不得打任何帧");
         vm.CapabilityReport.Should().BeNull("未到对账步骤，不得留下误导性报告");
     }
@@ -713,7 +715,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         var vm = NewVm(connection, transport);
 
         (await vm.StartAsync()).Should().BeFalse();
-        vm.StatusLines.Should().Contain(l => l.Contains("无法启动采集"));
+        vm.StatusSummary.Should().Contain("无法启动采集");
         transport.Disposed.Should().BeTrue("失败路径必须释放已构造的 transport");
         vm.CapabilityReport.Should().BeNull("CONNECT 都发不出去，无对账报告可言");
         vm.IsAcquiring.Should().BeFalse();
@@ -728,7 +730,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
             transportFactory: _ => throw new InvalidOperationException("factory broken"));
 
         (await vm.StartAsync()).Should().BeFalse();
-        vm.StatusLines.Should().Contain(l => l.Contains("会话构造失败"));
+        vm.StatusSummary.Should().Contain("会话构造失败");
         vm.IsAcquiring.Should().BeFalse();
     }
 
@@ -754,7 +756,7 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         var vm = new XcpAcquisitionPanelViewModel(connection: connection, transportFactory: _ => transport);
 
         (await vm.StartAsync()).Should().BeFalse("规划失败必须拒绝启动，不准静默降级");
-        vm.StatusLines.Should().Contain(l => l.Contains("无法启动采集"));
+        vm.StatusSummary.Should().Contain("无法启动采集");
         vm.CoverageEntries.Should().BeEmpty("未 Plan 成功不得展示覆盖清单");
         transport.Disposed.Should().BeTrue();
         vm.IsAcquiring.Should().BeFalse();
@@ -848,6 +850,76 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
         await vm.StopAsync();
     }
 
+    /// <summary>
+    /// 对账把每条 ValidationNote 原样转成 A2L_CROSSCHECK finding，所以 A2L 加载阶段
+    /// 的 3000 条「地址缺失」会在 Start 时再灌一遍进采集状态区。这里钉住上屏行数有界，
+    /// 完整清单仍留在 <c>CapabilityReport</c>。
+    /// </summary>
+    [Fact]
+    public async Task Thousands_of_reconciliation_warnings_collapse_instead_of_flooding_the_status_area()
+    {
+        var notes = Enumerable.Range(0, 3000)
+            .Select(i => new ValidationNote(
+                CrossCheckKind.MissingAddress, $"fixture warning {i}", NoteLines, ErrorSeverity.Warning))
+            .ToArray();
+        var connection = ConnectionPanelWithLoaded(DefaultLoaded(notes: notes), out _);
+        var transport = new ScriptedTransport();
+        var vm = NewVm(connection, transport, FastPollingOptions());
+
+        (await vm.StartAsync()).Should().BeTrue("告警不阻断启动");
+
+        vm.StatusLines.Should().HaveCountLessThan(30,
+            "3003 条告警逐条上屏会把采集区撑爆");
+        vm.StatusLines.Should().Contain(l => l.Contains("A2L_CROSSCHECK") && l.Contains("× 3000"),
+            "同类聚合后仍要能看出总量");
+        vm.CapabilityReport!.Findings.Should().HaveCountGreaterThan(3000,
+            "折叠只影响上屏，报告里一条不少");
+        // 结论行常驻：明细默认收起时，"采集到底起没起"必须有地方看见。
+        vm.StatusSummary.Should().Contain("采集已启动");
+        vm.StatusDetailHeader.Should().MatchRegex(@"检查提示 3\d{3} 条", "折叠标题自报总量（含对账额外告警）");
+
+        await vm.StopAsync();
+    }
+
+    /// <summary>
+    /// 拒绝路径是另一个「逐条上屏」的高危入口（<c>ShowStatus(report.Findings)</c>）：
+    /// 它先铺全部 finding，再补结论行。洪水下同样要保持有界，且拒绝理由不能被淹没。
+    /// </summary>
+    [Fact]
+    public async Task A_rejected_start_with_thousands_of_warnings_stays_bounded_and_keeps_the_verdict()
+    {
+        var notes = Enumerable.Range(0, 3000)
+            .Select(i => new ValidationNote(
+                CrossCheckKind.MissingAddress, $"fixture warning {i}", NoteLines, ErrorSeverity.Warning))
+            .ToArray();
+        var connection = ConnectionPanelWithLoaded(DefaultLoaded(notes: notes), out _);
+        var transport = new ScriptedTransport();
+        transport.Silence(XcpPid.GetDaqProcessorInfo);
+        var vm = new XcpAcquisitionPanelViewModel(
+            connection: connection,
+            transportFactory: _ => transport,
+            // 快 T1：实测缺失走对账拒绝，而不是等默认 2s×2 重试。
+            masterOptionsOverride: new XcpMasterOptions(
+                new CanId(0x18FFF667, FrameFormat.Extended),
+                timeout: TimeSpan.FromMilliseconds(50), maxRetries: 0));
+
+        (await vm.StartAsync()).Should().BeFalse("硬约束缺失必须拒绝");
+
+        vm.StatusLines.Should().HaveCountLessThan(30, "拒绝路径同样会收到 3003 条 A2L 告警");
+        vm.StatusSummary.Should().Contain("对账拒绝启动",
+            "结论行是用户唯一能看懂的出口，不能被明细冲掉");
+        vm.HasStatusDetails.Should().BeTrue();
+        vm.HasStatusError.Should().BeTrue("有 Reject 时折叠标题要染红，否则收起等于藏风险");
+        vm.HasStatusSummaryError.Should().BeTrue("拒绝结论必须是红的");
+
+        var reject = vm.CapabilityReport!.Findings
+            .First(f => f.Severity == XcpCapabilitySeverity.Reject);
+        vm.StatusSummary.Should().Contain(reject.Code,
+            "结论要点名第一条硬约束：收起态只知道'出事了'，不知道'拒的是哪一项'");
+        vm.StatusLines.Should().Contain(l => l.Contains(reject.Code),
+            "拒绝理由必须在明细里，不能只活在 CapabilityReport 里");
+    }
+
     [Fact]
     public async Task StartCommand_canexecute_tracks_isacquiring_gate()
     {
@@ -872,12 +944,15 @@ public class XcpAcquisitionPanelViewModelTests : IDisposable
 
         (await vm.StartAsync()).Should().BeTrue();
         await vm.StopAsync();
-        var statusAfterFirstStop = vm.StatusLines.ToArray();
+        var summaryAfterFirstStop = vm.StatusSummary;
+        var detailsAfterFirstStop = vm.StatusLines.ToArray();
 
         await vm.StopAsync();
 
         vm.IsAcquiring.Should().BeFalse();
-        vm.StatusLines.Should().Equal(statusAfterFirstStop, "重复 Stop 是 no-op，不改写状态区");
+        vm.StatusSummary.Should().Be(summaryAfterFirstStop, "重复 Stop 是 no-op，不改写结论行");
+        vm.StatusLines.Should().Equal(detailsAfterFirstStop, "重复 Stop 是 no-op，不改写明细区");
+        vm.HasStatusSummaryError.Should().BeFalse("正常停止不是错误，不该染红");
         transport.Disposed.Should().BeTrue();
         connection.ConnectionState.Should().Be(XcpConnectionState.Loaded);
     }

@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using A2lEditor.Core;
+using A2lEditor.Core.Parsing;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Services;
@@ -105,8 +107,36 @@ public partial class XcpConnectionPanelViewModel : ObservableObject
     /// <summary>已连接通道快照的只读投影（Q2：唯一通道来源，刷新自 IConnectedChannelsSource）。</summary>
     public ObservableCollection<HilViewModel.ConnectedChannel> Channels { get; } = new();
 
-    /// <summary>状态区行（ValidationNote 渲染 / 加载结果 / 失败提示，人读文本）。</summary>
+    /// <summary>
+    /// 状态区明细（默认折叠；内容已由 <see cref="XcpStatusLineCollapser"/> 按类折叠）。
+    /// 折叠是 UX 决定：3003 条检查项平时没人看，但"有没有、有几条、有多严重"必须常驻可见
+    /// ——所以结论行单独放在 <see cref="StatusSummary"/>，不进这个集合。
+    /// </summary>
     public ObservableCollection<string> StatusLines { get; } = new();
+
+    /// <summary>常驻结论行（一行，不折叠）：最近一次加载成功/失败的结果。</summary>
+    [ObservableProperty]
+    private string _statusSummary = string.Empty;
+
+    /// <summary>折叠区标题（如「检查提示 3003 条」）；空串 = 无明细，折叠区整个隐藏。</summary>
+    [ObservableProperty]
+    private string _statusDetailHeader = string.Empty;
+
+    /// <summary>是否有明细可展开（视图绑定折叠区可见性）。</summary>
+    [ObservableProperty]
+    private bool _hasStatusDetails;
+
+    /// <summary>明细里是否含硬约束级（Error/Fatal）——视图据此把折叠标题染红。</summary>
+    [ObservableProperty]
+    private bool _hasStatusError;
+
+    /// <summary>
+    /// 结论行是否按"错误"着色。与 <see cref="HasStatusError"/> 分开：
+    /// 后者描述明细里的最高级别，前者描述"这次动作是不是失败了"——
+    /// 一个布尔管两个面会让「A2L 读取失败」以灰色渲染（看起来像普通提示）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasStatusSummaryError;
 
     /// <summary>最近一次成功加载的 ValidationNote（与包 API CollectCrossChecks 同源）。</summary>
     public IReadOnlyList<ValidationNote> ValidationNotes { get; private set; } =
@@ -183,9 +213,26 @@ public partial class XcpConnectionPanelViewModel : ObservableObject
                 LoadedResult = loaded;
                 ValidationNotes = loaded.ValidationNotes;
                 StatusLines.Clear();
-                foreach (var note in loaded.ValidationNotes)
-                    StatusLines.Add(FormatNote(note));
-                StatusLines.Add($"A2L 加载成功: {loaded.Contracts.All.Count} 个合同对象。");
+                // 按类别折叠：真机 A2L 的「地址缺失」按对象逐条报（S32K148 样本
+                // 3000 个对象 → 3000 条），逐条上屏会把连接区撑到几万像素、整页不可操作。
+                // 完整清单仍在 ValidationNotes 里，折叠只是不上屏。
+                foreach (var line in XcpStatusLineCollapser.Collapse(
+                    loaded.ValidationNotes.Select(n => (n.Kind, n.Severity.ToString(), FormatNote(n))),
+                    DescribeCrossCheck))
+                {
+                    StatusLines.Add(line);
+                }
+
+                // 结论进常驻行（折叠态也要能看见"加载成功/几个对象"）；
+                // 明细进折叠区，标题自报条数与最高级别。
+                StatusSummary = $"A2L 加载成功: {loaded.Contracts.All.Count} 个合同对象。";
+                HasStatusSummaryError = false;
+                HasStatusDetails = StatusLines.Count > 0;
+                StatusDetailHeader = HasStatusDetails
+                    ? $"检查提示 {loaded.ValidationNotes.Count} 条（同类合并）"
+                    : string.Empty;
+                HasStatusError = loaded.ValidationNotes
+                    .Any(n => n.Severity is ErrorSeverity.Error or ErrorSeverity.Fatal);
                 ConnectionState = XcpConnectionState.Loaded;
                 // P2-5：Loaded→Loaded 重载不触发 PropertyChanged——显式事件通知
                 // MAP 清单重装（XcpViewModel 订阅）。
@@ -251,12 +298,37 @@ public partial class XcpConnectionPanelViewModel : ObservableObject
         CanStart = ConnectionState is XcpConnectionState.Loaded or XcpConnectionState.Connected
             && SelectedChannel is not null;
 
+    /// <summary>
+    /// 失败/拒绝类结论：进常驻行（红色），同时清掉上一次的明细（旧明细会谎报本次结果）。
+    /// 本 VM 的 <see cref="ShowStatus(string)"/> 只用于失败路径——成功路径直接写
+    /// <see cref="StatusSummary"/>。
+    /// </summary>
     private void ShowStatus(string line)
     {
+        StatusSummary = line;
+        HasStatusSummaryError = true;
         StatusLines.Clear();
-        StatusLines.Add(line);
+        StatusDetailHeader = string.Empty;
+        HasStatusDetails = false;
+        HasStatusError = false;
     }
 
+    /// <summary>
+    /// 一条 note 的明细文本（不含严重度前缀——前缀由
+    /// <see cref="XcpStatusLineCollapser"/> 统一加，避免聚合行里重复出现）。
+    /// </summary>
     private static string FormatNote(ValidationNote note) =>
-        $"[{note.Severity}] {note.Kind}: {note.Message} (行 {string.Join(", ", note.Lines)})";
+        $"{note.Kind}: {note.Message} (行 {string.Join(", ", note.Lines)})";
+
+    /// <summary>跨块检查类别的中文名（聚合摘要行用；未登记的类别退回枚举名）。</summary>
+    private static string DescribeCrossCheck(CrossCheckKind kind) => kind switch
+    {
+        CrossCheckKind.ByteOrderConflict => "字节序冲突",
+        CrossCheckKind.MaxCtoPgmZero => "MAX_CTO_PGM=0 生成缺陷",
+        CrossCheckKind.CanIdBeyond29Bits => "CAN ID 超 29 位",
+        CrossCheckKind.SegmentPageMismatch => "段页数声明矛盾",
+        CrossCheckKind.AddressMappingOverflow => "地址映射溢出",
+        CrossCheckKind.MissingAddress => "地址缺失 (0x0)",
+        _ => kind.ToString(),
+    };
 }
