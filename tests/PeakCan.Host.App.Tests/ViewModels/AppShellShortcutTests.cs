@@ -1,5 +1,8 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using PeakCan.HIL.Core;
+using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.ViewModels;
 using Xunit;
@@ -163,5 +166,82 @@ public class AppShellShortcutTests
         vm.ShowXcpCommand.CanExecute(null).Should().BeFalse("NewVm 不注入 XcpViewModel，MainTabs 只有 4 项");
         vm.ShowXcpCommand.Execute(null);
         vm.SelectedMainTabIndex.Should().Be(3);
+    }
+
+    // ---- Ctrl+S 分流 / Ctrl+Shift+S ----
+    //
+    // 脚本 VM 用**独立的**对话框替身：AppShell 自己也有一份 IFileDialogService（保存会话），
+    // 共用替身就分不清是"脚本保存"还是"会话保存"发起的调用。
+
+    private static (AppShellViewModel Shell, IFileDialogService ScriptDialog, IFileDialogService ShellDialog)
+        NewVmWithScriptDialog()
+    {
+        var scriptDialog = Substitute.For<IFileDialogService>();
+        var shellDialog = Substitute.For<IFileDialogService>();
+        var script = new ScriptViewModel(
+            NullLogger<ScriptViewModel>.Instance,
+            new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null),
+            scriptDialog);
+        return (AppShellViewModelTests.NewVm(scriptVm: script, shellDialogs: shellDialog),
+                scriptDialog,
+                shellDialog);
+    }
+
+    [Fact]
+    public void CtrlS_Saves_The_Script_When_The_Script_Tab_Is_Active()
+    {
+        var (vm, scriptDialog, shellDialog) = NewVmWithScriptDialog();
+        vm.SelectedMainTabIndex = AppShellViewModel.ScriptTabIndex;
+
+        vm.SaveCurrentCommand.Execute(null);
+
+        // 没有绑定路径 → 脚本保存先问文件名（同步调用，Execute 返回前已经发生）。
+        scriptDialog.Received(1)
+            .ShowSaveDialog(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>());
+        shellDialog.DidNotReceiveWithAnyArgs()
+            .ShowSaveDialog(default!, default, default);
+    }
+
+    [Fact]
+    public void CtrlS_Saves_The_Session_When_Another_Tab_Is_Active()
+    {
+        var (vm, scriptDialog, shellDialog) = NewVmWithScriptDialog();
+        vm.SelectedMainTabIndex = AppShellViewModel.TraceTabIndex;
+
+        vm.SaveCurrentCommand.Execute(null);
+
+        // 只断言"没弹脚本框"是不够的：把 else 分支删成空方法，Ctrl+S 在追踪页
+        // 会变成毫无反应，而那种写法仍然能通过"没弹脚本框"的断言。
+        scriptDialog.DidNotReceiveWithAnyArgs()
+            .ShowSaveDialog(default!, default, default);
+        shellDialog.Received(1).ShowSaveDialog(
+            Arg.Is<string>(f => f.Contains("tmtrace")),
+            Arg.Any<string?>(),
+            Arg.Any<string?>());
+    }
+
+    [Fact]
+    public void CtrlShiftS_Outside_The_Script_Tab_Only_Explains_Itself()
+    {
+        var (vm, scriptDialog, _) = NewVmWithScriptDialog();
+        vm.SelectedMainTabIndex = AppShellViewModel.TraceTabIndex;
+
+        vm.SaveScriptAsCommand.Execute(null);
+
+        scriptDialog.DidNotReceiveWithAnyArgs()
+            .ShowSaveDialog(default!, default, default);
+        vm.StatusMessage.Should().Contain("脚本页", "键按了不能全无反应，否则用户以为程序卡了");
+    }
+
+    [Fact]
+    public void CtrlShiftS_On_The_Script_Tab_Asks_For_A_Target()
+    {
+        var (vm, scriptDialog, _) = NewVmWithScriptDialog();
+        vm.SelectedMainTabIndex = AppShellViewModel.ScriptTabIndex;
+
+        vm.SaveScriptAsCommand.Execute(null);
+
+        scriptDialog.Received(1)
+            .ShowSaveDialog(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>());
     }
 }

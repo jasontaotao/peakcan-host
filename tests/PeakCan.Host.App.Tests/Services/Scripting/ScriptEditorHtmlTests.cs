@@ -84,6 +84,18 @@ public sealed class ScriptEditorHtmlTests
     }
 
     [Fact]
+    public void Page_Handles_CtrlS_And_CtrlShiftS_For_Save()
+    {
+        var html = ScriptEditorHtml.Build("");
+
+        // WebView2 是独立 HWND：焦点在编辑器里时窗口级 KeyBinding 收不到按键，
+        // 保存必须由页面自己翻译成消息。少了这段，Ctrl+S 在编辑器里就毫无反应。
+        html.Should().MatchRegex("type\\s*:\\s*e\\.shiftKey\\s*\\?\\s*'saveAs'\\s*:\\s*'save'");
+        html.Should().Contain("'saveAs'");
+        html.Should().Contain("'save'");
+    }
+
+    [Fact]
     public void Page_Listens_For_Whole_Text_Replace_From_CSharp()
     {
         var html = ScriptEditorHtml.Build("");

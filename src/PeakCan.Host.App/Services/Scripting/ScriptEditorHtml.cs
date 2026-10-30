@@ -6,7 +6,7 @@ namespace PeakCan.Host.App.Services.Scripting;
 /// 脚本编辑器页面的 HTML 生成器（纯函数，可单测）。
 /// <para>
 /// 页面与 C# 之间只说一种话：<c>window.chrome.webview.postMessage(JSON)</c>，
-/// 消息形如 <c>{type:'text'|'run', text}</c>，由 <see cref="ScriptEditorBridge"/> 解析。
+/// 消息形如 <c>{type:'text'|'run'|'save'|'saveAs', text}</c>，由 <see cref="ScriptEditorBridge"/> 解析。
 /// 反方向有一条**受控**的通道：C# 侧整段替换文本（打开脚本文件时）经
 /// <see cref="BuildSetTextMessage"/> + <c>PostWebMessageAsString</c> 发 <c>{type:'setText'}</c>，
 /// 页面监听后写回 textarea。<b>初始草稿**不用**这条通道</b>——它直接嵌在 HTML 里，
@@ -80,11 +80,19 @@ public static class ScriptEditorHtml
                 // 都不能丢字，而脚本体积只有几 KB。
                 textarea.addEventListener('input', () => post({ type: 'text', text: textarea.value }));
 
-                // Ctrl+Enter 运行：文本随消息一起带上，不依赖上一条 text 消息的到达顺序。
+                // Ctrl+Enter 运行、Ctrl+S 保存、Ctrl+Shift+S 另存为。
+                // 文本随消息一起带上，不依赖上一条 text 消息的到达顺序。
+                // 保存必须在这里接：WebView2 是独立 HWND，焦点在本页面时窗口级
+                // KeyBinding 收不到任何按键（Ctrl+Enter 当初也是因此写在这里的）。
                 textarea.addEventListener('keydown', (e) => {
-                    if (e.ctrlKey && e.key === 'Enter') {
+                    if (!e.ctrlKey) return;
+                    const key = (e.key || '').toLowerCase();
+                    if (key === 'enter') {
                         e.preventDefault();
                         post({ type: 'run', text: textarea.value });
+                    } else if (key === 's') {
+                        e.preventDefault();
+                        post({ type: e.shiftKey ? 'saveAs' : 'save', text: textarea.value });
                     }
                 });
 

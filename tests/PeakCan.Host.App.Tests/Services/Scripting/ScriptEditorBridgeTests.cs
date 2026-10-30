@@ -10,8 +10,8 @@ namespace PeakCan.Host.App.Tests.Services.Scripting;
 /// 编辑器 → VM 的消息桥。这是 WebView2 之外唯一能单测的一层：
 /// 页面里的任何消息都先经过它，再由视图决定要不要执行运行命令。
 /// <para>
-/// 设计契约：<see cref="ScriptEditorBridge.HandleMessage"/> **返回"是否请求运行"**
-/// 而不是自己执行——这样测试不需要等异步 RunAsync，也不需要碰 WPF。
+/// 设计契约：<see cref="ScriptEditorBridge.HandleMessage"/> **返回"请求什么动作"**
+/// 而不是自己执行命令——这样测试不需要等异步命令，也不需要碰 WPF。
 /// </para>
 /// </summary>
 public sealed class ScriptEditorBridgeTests
@@ -26,9 +26,9 @@ public sealed class ScriptEditorBridgeTests
         var vm = NewViewModel();
         var bridge = new ScriptEditorBridge(vm);
 
-        var shouldRun = bridge.HandleMessage("""{"type":"text","text":"var x = 1;"}""");
+        var request = bridge.HandleMessage("""{"type":"text","text":"var x = 1;"}""");
 
-        shouldRun.Should().BeFalse("编辑内容变化不该触发运行");
+        request.Should().Be(EditorRequest.None, "编辑内容变化不该触发运行");
         vm.ScriptText.Should().Be("var x = 1;");
     }
 
@@ -40,10 +40,26 @@ public sealed class ScriptEditorBridgeTests
         var bridge = new ScriptEditorBridge(vm);
         vm.ScriptText = "old";
 
-        var shouldRun = bridge.HandleMessage("""{"type":"run","text":"var x = 2;"}""");
+        var request = bridge.HandleMessage("""{"type":"run","text":"var x = 2;"}""");
 
-        shouldRun.Should().BeTrue();
+        request.Should().Be(EditorRequest.Run);
         vm.ScriptText.Should().Be("var x = 2;", "运行必须看到编辑器里的最新文本");
+    }
+
+    [Theory]
+    [InlineData("save", EditorRequest.Save)]
+    [InlineData("saveAs", EditorRequest.SaveAs)]
+    public void Save_Messages_Request_The_Matching_Command(string type, EditorRequest expected)
+    {
+        // WebView2 是独立 HWND：焦点在编辑器里时窗口级 KeyBinding 收不到 Ctrl+S，
+        // 保存只能靠页面把按键翻译成消息送过来。
+        var vm = NewViewModel();
+        var bridge = new ScriptEditorBridge(vm);
+
+        bridge.HandleMessage($$"""{"type":"{{type}}","text":"var x = 3;"}""")
+              .Should().Be(expected);
+
+        vm.ScriptText.Should().Be("var x = 3;", "保存前要先把编辑器里的最新文本同步过来");
     }
 
     [Theory]
@@ -62,9 +78,9 @@ public sealed class ScriptEditorBridgeTests
         var bridge = new ScriptEditorBridge(vm);
         vm.ScriptText = "keep";
 
-        var shouldRun = bridge.HandleMessage(json);
+        var request = bridge.HandleMessage(json);
 
-        shouldRun.Should().BeFalse();
+        request.Should().Be(EditorRequest.None);
         vm.ScriptText.Should().Be("keep", "脏消息不得改写编辑器内容");
     }
 

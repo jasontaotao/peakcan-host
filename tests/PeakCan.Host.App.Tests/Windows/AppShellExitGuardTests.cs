@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.Tests.ViewModels;
 using PeakCan.Host.App.ViewModels;
@@ -68,8 +70,27 @@ public sealed class AppShellExitGuardTests
         var cancel = AppShell.ShouldCancelExit(
             prompt, isFlashing: false, hasUnsavedScript: true, owner: null);
 
-        cancel.Should().BeTrue("未保存的脚本草稿退出就没了，必须让用户点头");
+        cancel.Should().BeTrue("脚本还没写进原文件，退出前必须让用户确认");
         prompt.Received(1).Confirm(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Window?>());
+    }
+
+    [Fact]
+    public void Script_Risk_Message_Promises_The_Draft_Instead_Of_Loss()
+    {
+        string? captured = null;
+        var prompt = Substitute.For<IMessageBoxPrompt>();
+        prompt.Confirm(default!, default!, default)
+            .ReturnsForAnyArgs(ci =>
+            {
+                captured = ci.ArgAt<string>(1);
+                return true;
+            });
+
+        AppShell.ShouldCancelExit(prompt, isFlashing: false, hasUnsavedScript: true, owner: null);
+
+        captured.Should().NotBeNull();
+        captured.Should().Contain("草稿", "内容会落盘成草稿，文案要说清楚");
+        captured.Should().NotContain("会丢失", "草稿会保留，写\"会丢失\"就是谎报，用户会不再相信这个弹窗");
     }
 
     [Fact]
@@ -232,6 +253,61 @@ public sealed class AppShellExitGuardTests
             {
                 scriptVm.Dispose();
                 engine.Dispose();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 草稿落盘失败时不能假装成功退出：抛第二次确认，选「否」窗口必须还在。
+    /// 这条钉的是 <c>OnClosing</c> 里 flush 的接线（只测 VM 会漏掉"DataContext 没接上"）。
+    /// </summary>
+    [Fact]
+    public void Real_Close_Is_Cancelled_When_The_Draft_Cannot_Be_Written()
+    {
+        RunSta(() =>
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"exitdraft-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            var draftPath = Path.Combine(dir, "draft.json");
+            var engine = new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null);
+
+            // 独占锁住草稿文件：Save 的 tmp→目标 rename 会失败（真实写盘失败，不是替身）。
+            using var locked = new FileStream(
+                draftPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+            var store = new ScriptDraftStore(NullLogger<ScriptDraftStore>.Instance, draftPath);
+            var scriptVm = new ScriptViewModel(
+                NullLogger<ScriptViewModel>.Instance, engine, draftStore: store);
+            try
+            {
+                scriptVm.ScriptText = "unsaved draft";
+                var prompt = Substitute.For<IMessageBoxPrompt>();
+                // 第一次：退出确认 → 是（继续退出）；第二次：草稿写失败 → 否（取消退出）。
+                prompt.Confirm(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Window?>())
+                      .Returns(true, false);
+
+                var shell = new AppShell
+                {
+                    DataContext = AppShellViewModelTests.NewVm(scriptVm: scriptVm, prompt: prompt),
+                    Prompt = prompt,
+                    WindowStateStore = null,
+                    LayoutStateStore = null,
+                };
+                Application.Current!.MainWindow = shell;
+                shell.Show();
+                Pump();
+
+                shell.Close();
+                Pump();
+
+                shell.IsVisible.Should().BeTrue("草稿没写成功，用户选了「否」，窗口必须还在");
+                prompt.Received(2).Confirm(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Window?>());
+            }
+            finally
+            {
+                scriptVm.Dispose();
+                engine.Dispose();
+                locked.Dispose();
+                try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
             }
         });
     }

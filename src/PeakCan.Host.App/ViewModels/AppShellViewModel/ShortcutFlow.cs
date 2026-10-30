@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using CommunityToolkit.Mvvm.Input;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -36,6 +37,7 @@ public sealed partial class AppShellViewModel
 
     private bool IsTraceTabActive => SelectedMainTabIndex == TraceTabIndex;
     private bool IsReplayTabActive => SelectedMainTabIndex == ReplayTabIndex;
+    private bool IsScriptTabActive => SelectedMainTabIndex == ScriptTabIndex;
 
     // ====================================================================
     // 追踪页：Ctrl+P 暂停 / Ctrl+L 清空 / Ctrl+E 导出可见行
@@ -129,4 +131,39 @@ public sealed partial class AppShellViewModel
     }
 
     private bool CanShowXcp() => HasXcpTab;
+
+    // ====================================================================
+    // Ctrl+S / Ctrl+Shift+S：保存按当前页分流
+    //
+    // 这两个包装命令刻意**不写 CanExecute**：包装命令的 CanExecuteChanged 永不触发
+    // （见类注释），带 CanExecute 会让菜单项的启用态冻在启动那一刻的值——脚本页
+    // 在启动时没激活，"另存为脚本"会变成永久灰掉的死菜单。守卫放方法体。
+    //
+    // 注意编辑器内的 Ctrl+S 走的是另一条路：WebView2 是独立 HWND，窗口级
+    // KeyBinding 收不到，必须在页面 keydown 里 postMessage（见 ScriptEditorHtml）。
+    // ====================================================================
+
+    /// <summary>Ctrl+S：脚本页存脚本，其它页存会话（与文件菜单「保存」同一入口）。</summary>
+    [RelayCommand]
+    private void SaveCurrent()
+    {
+        if (IsScriptTabActive)
+        {
+            _scriptViewModel.SaveCommand.Execute(null);
+            return;
+        }
+        SaveSessionCommand.Execute(null);
+    }
+
+    /// <summary>Ctrl+Shift+S：脚本另存为。非脚本页只提示，不静默无反应。</summary>
+    [RelayCommand]
+    private void SaveScriptAs()
+    {
+        if (!IsScriptTabActive)
+        {
+            StatusMessage = "切换到脚本页后再另存为";
+            return;
+        }
+        _scriptViewModel.SaveAsCommand.Execute(null);
+    }
 }

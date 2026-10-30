@@ -63,6 +63,10 @@ public partial class AppShell : Window
         // First run (no saved layout) RestoreLayout no-ops → still lands on
         // Trace. No-op without a LayoutStateStore or a real AppShellViewModel.
         RestoreLayout();
+        // 上次退出时没保存的脚本内容。放在布局之后：它可能要读原文件重建基线，
+        // 不该和窗口几何恢复抢时序。视图此时未加载也无妨——ScriptView.OnLoaded
+        // 用 ScriptText 作页面初值，内容不会丢。
+        (DataContext as AppShellViewModel)?.RestoreScriptDraft();
     }
 
     /// <summary>
@@ -95,6 +99,21 @@ public partial class AppShell : Window
         // 消失。先问，再置闩锁——用户点「否」时本次关闭被取消、级联不会发生，
         // IsClosing 也就不该点亮。
         if (ShouldCancelExit(Prompt, IsFlashingNow(), HasUnsavedScriptNow(), this))
+        {
+            e.Cancel = true;
+            return;
+        }
+        // 2 s 防抖窗口内的最后几个字还没落盘，这里补一次。**必须放在置闩锁之前**：
+        // 下面可能弹模态框，模态框会泵消息，排在 Background 的"复位回调"会提前执行，
+        // 在用户还在做决定时就把 IsClosing 清掉——级联关 UdsWindow 时那道"假选择"
+        // 就又回来了。
+        // 写失败不能假装成功：上面刚承诺过"改动会保留为草稿"。
+        if (DataContext is AppShellViewModel shell && !shell.FlushScriptDraft()
+            && !Prompt.Confirm(
+                "草稿保存失败",
+                // 不写死原因：除了磁盘/权限，脚本超过草稿字数上限也会走到这里。
+                "脚本草稿没能写入磁盘。\n\n现在退出会丢失这些改动。仍要退出吗？",
+                this))
         {
             e.Cancel = true;
             return;
@@ -141,7 +160,7 @@ public partial class AppShell : Window
         if (isFlashing)
             risks.Add("• 正在刷写：退出会让刷写中途失败，ECU 可能停留在编程会话，严重时无法启动。");
         if (hasUnsavedScript)
-            risks.Add("• 脚本页有未保存的改动：退出后这些内容会丢失。");
+            risks.Add("• 脚本页有未保存的改动：退出后会保留为草稿，但没有写入原文件。");
 
         return !prompt.Confirm(
             "确认退出",

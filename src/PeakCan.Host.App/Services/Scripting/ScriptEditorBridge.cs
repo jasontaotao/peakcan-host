@@ -3,13 +3,33 @@ using PeakCan.Host.App.ViewModels;
 
 namespace PeakCan.Host.App.Services.Scripting;
 
+/// <summary>页面请求的动作。解析层只负责翻译，不执行命令。</summary>
+public enum EditorRequest
+{
+    /// <summary>纯文本同步，没有动作。</summary>
+    None,
+
+    /// <summary>Ctrl+Enter：运行脚本。</summary>
+    Run,
+
+    /// <summary>Ctrl+S：保存当前脚本。</summary>
+    Save,
+
+    /// <summary>Ctrl+Shift+S：另存为。</summary>
+    SaveAs,
+}
+
 /// <summary>
 /// 脚本编辑器页面回传消息的解析层（纯逻辑，可脱离 WebView2 单测）。
 /// <para>
-/// 消息协议见 <see cref="ScriptEditorHtml"/>：<c>{type:'text'|'run', text}</c>。
+/// 消息协议见 <see cref="ScriptEditorHtml"/>：<c>{type:'text'|'run'|'save'|'saveAs', text}</c>。
 /// 这里只做两件事——把文本写进 <see cref="ScriptViewModel.ScriptText"/>，
-/// 以及告诉调用方"这条消息是否请求运行"。**不直接执行命令**：
-/// 返回值让视图决定，测试也就无需关心 <c>RunAsync</c> 的异步时序。
+/// 以及告诉调用方"这条消息请求什么动作"。**不直接执行命令**：
+/// 返回值让视图决定，测试也就无需关心命令的异步时序。
+/// </para>
+/// <para>
+/// 为什么保存也要走这条通道：WebView2 是独立 HWND，焦点在编辑器里时
+/// 窗口级 <c>KeyBinding</c> 根本收不到按键。
 /// </para>
 /// <para>
 /// 容错：页面上的任何脏消息（非 JSON、缺字段、未知类型、非字符串）都只被忽略，
@@ -26,6 +46,12 @@ public sealed class ScriptEditorBridge
 
         /// <summary>Ctrl+Enter：用附带的文本运行脚本。</summary>
         public const string Run = "run";
+
+        /// <summary>Ctrl+S：保存当前脚本（文本可省略，以 VM 现有内容为准）。</summary>
+        public const string Save = "save";
+
+        /// <summary>Ctrl+Shift+S：另存为。</summary>
+        public const string SaveAs = "saveAs";
     }
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -39,10 +65,10 @@ public sealed class ScriptEditorBridge
         => _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
 
     /// <summary>处理一条页面消息。</summary>
-    /// <returns><c>true</c> 表示这条消息请求运行脚本。</returns>
-    public bool HandleMessage(string? json)
+    /// <returns>这条消息请求的动作；脏消息一律 <see cref="EditorRequest.None"/>。</returns>
+    public EditorRequest HandleMessage(string? json)
     {
-        if (string.IsNullOrWhiteSpace(json)) return false;
+        if (string.IsNullOrWhiteSpace(json)) return EditorRequest.None;
 
         EditorMessage? message;
         try
@@ -51,11 +77,20 @@ public sealed class ScriptEditorBridge
         }
         catch (JsonException)
         {
-            return false;
+            return EditorRequest.None;
         }
 
-        if (message?.Type is not { } type) return false;
-        if (type is not (MessageTypes.Text or MessageTypes.Run)) return false;
+        if (message?.Type is not { } type) return EditorRequest.None;
+
+        var request = type switch
+        {
+            MessageTypes.Text => EditorRequest.None,
+            MessageTypes.Run => EditorRequest.Run,
+            MessageTypes.Save => EditorRequest.Save,
+            MessageTypes.SaveAs => EditorRequest.SaveAs,
+            _ => (EditorRequest?)null,
+        };
+        if (request is null) return EditorRequest.None;
 
         // text 为 null 时保留现有草稿：宁可不同步，也不要把用户内容清空。
         if (message.Text is not null)
@@ -63,7 +98,7 @@ public sealed class ScriptEditorBridge
             _viewModel.ScriptText = message.Text;
         }
 
-        return type == MessageTypes.Run;
+        return request.Value;
     }
 
     private sealed record EditorMessage(string? Type, string? Text);

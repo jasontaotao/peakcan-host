@@ -168,9 +168,18 @@ public partial class ScriptView : UserControl
         }
 
         var bridge = _bridge ??= new ScriptEditorBridge(_viewModel);
-        if (bridge.HandleMessage(json) && _viewModel.RunCommand.CanExecute(null))
+        switch (bridge.HandleMessage(json))
         {
-            _viewModel.RunCommand.Execute(null);
+            case EditorRequest.Run:
+                if (_viewModel.RunCommand.CanExecute(null)) _viewModel.RunCommand.Execute(null);
+                break;
+            case EditorRequest.Save:
+                // 编辑器内的 Ctrl+S / Ctrl+Shift+S 只能从这里发动（WebView2 收不到窗口快捷键）。
+                if (_viewModel.SaveCommand.CanExecute(null)) _viewModel.SaveCommand.Execute(null);
+                break;
+            case EditorRequest.SaveAs:
+                if (_viewModel.SaveAsCommand.CanExecute(null)) _viewModel.SaveAsCommand.Execute(null);
+                break;
         }
     }
 }

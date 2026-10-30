@@ -125,6 +125,10 @@ public partial class AppHostBuilder
         // DI 解析 AppShell，两个 store 都会注入；LoadAsync 也在工厂里 fire-and-forget）。
         builder.Services.AddSingleton<LayoutStateStore>();
 
+        // 脚本页草稿（关程序不丢未保存内容）。必须显式注册：ScriptViewModel 的这个
+        // 依赖是可选参数，漏注册时 MS DI 会静默用默认 null，草稿功能静默关闭。
+        builder.Services.AddSingleton<ScriptDraftStore>();
+
         // Phase 1 重构: 绑定 Llm 配置到 LlmOptions。
         // 所有消费者 (OpenAiCompatibleChatProvider, HilAnalysisService) 读此实例。
         builder.Services.Configure<PeakCan.HIL.Core.Analysis.LlmOptions>(

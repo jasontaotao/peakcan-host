@@ -18,7 +18,7 @@ namespace PeakCan.Host.App.ViewModels;
 /// generate 8k UI updates/sec).
 /// </para>
 /// </summary>
-public sealed partial class ScriptViewModel : ObservableObject
+public sealed partial class ScriptViewModel : ObservableObject, IDisposable
 {
     private readonly ILogger<ScriptViewModel> _logger;
     private readonly ScriptEngine _engine;
@@ -27,6 +27,8 @@ public sealed partial class ScriptViewModel : ObservableObject
     // 命令会把原因写进 StatusText，而不是像以前那样静默什么都不做。
     private readonly PeakCan.HIL.Core.IFileDialogService? _fileDialog;
     private readonly PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? _prompt;
+    // 草稿存储；null = 不持久化（测试构造点）。生产 DI 注册单例。
+    private readonly PeakCan.Host.App.Services.Ui.ScriptDraftStore? _draftStore;
 
     // Timer for flushing output buffer to UI at 30 Hz.
     private readonly System.Windows.Threading.DispatcherTimer _flushTimer;
@@ -60,7 +62,8 @@ public sealed partial class ScriptViewModel : ObservableObject
         ScriptEngine engine,
         // 可选：既有测试构造点（2 参）不涉及文件流，不必改动。
         PeakCan.HIL.Core.IFileDialogService? fileDialog = null,
-        PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? prompt = null)
+        PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? prompt = null,
+        PeakCan.Host.App.Services.Ui.ScriptDraftStore? draftStore = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(engine);
@@ -69,6 +72,7 @@ public sealed partial class ScriptViewModel : ObservableObject
         _engine = engine;
         _fileDialog = fileDialog;
         _prompt = prompt;
+        _draftStore = draftStore;
 
         // Subscribe to script engine output.
         _engine.OutputReceived += OnOutputReceived;
@@ -90,6 +94,10 @@ public sealed partial class ScriptViewModel : ObservableObject
     public void Dispose()
     {
         _flushTimer.Stop();
+        // 草稿防抖 timer 可能已创建（只有注入 ScriptDraftStore 时才会）。
+        // 不停掉它会一直挂在 Dispatcher 上，退出后仍会尝试写盘。
+        _draftTimer?.Stop();
         _engine.OutputReceived -= OnOutputReceived;
+        GC.SuppressFinalize(this);
     }
 }

@@ -116,7 +116,9 @@ public sealed class AppShellShortcutLayoutTests
             // 全局动作
             ("R", "Control", "ToggleRecordingPanelCommand"),
             ("O", "Control", "OpenSessionCommand"),
-            ("S", "Control", "SaveSessionCommand"),
+            // Ctrl+S 按当前页分流（脚本页存脚本 / 其它页存会话），Ctrl+Shift+S 另存为脚本。
+            ("S", "Control", "SaveCurrentCommand"),
+            ("S", "Control,Shift", "SaveScriptAsCommand"),
             // 回放页动作：走帧刻意用 Ctrl+方向键（裸方向键会吞掉全应用的焦点导航）
             ("Left", "Control", "ReplayPrevFrameCommand"),
             ("Right", "Control", "ReplayNextFrameCommand"),

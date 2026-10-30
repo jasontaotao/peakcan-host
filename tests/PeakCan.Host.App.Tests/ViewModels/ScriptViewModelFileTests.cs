@@ -314,4 +314,57 @@ public sealed class ScriptViewModelFileTests : IDisposable
         }
         finally { vm.Dispose(); }
     }
+
+    [Fact]
+    public async Task SaveAs_Always_Asks_And_Rebinds_The_Path()
+    {
+        var opened = NewTempFile("original");
+        var target = Path.Combine(Path.GetTempPath(), $"script-copy-{Guid.NewGuid():N}.js");
+        _tempFiles.Add(target);
+
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns(opened);
+        dialog.ShowSaveDialog(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>()).Returns(target);
+        var vm = NewVm(dialog);
+
+        try
+        {
+            await vm.OpenCommand.ExecuteAsync(null);
+            vm.ScriptText = "copy me";
+
+            await vm.SaveAsCommand.ExecuteAsync(null);
+
+            File.ReadAllText(target).Should().Be("copy me");
+            File.ReadAllText(opened).Should().Be("original", "另存为不能动原文件");
+            vm.CurrentFilePath.Should().Be(target, "另存为之后 Ctrl+S 要写新文件");
+            vm.StatusText.Should().Contain("已另存为");
+            vm.HasUnsavedChanges.Should().BeFalse();
+        }
+        finally { vm.Dispose(); }
+    }
+
+    [Fact]
+    public async Task SaveAs_Cancelled_Keeps_The_Old_Path()
+    {
+        var opened = NewTempFile("original");
+        var dialog = Substitute.For<IFileDialogService>();
+        dialog.ShowOpenDialog(Arg.Any<string>()).Returns(opened);
+        dialog.ShowSaveDialog(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>()).Returns((string?)null);
+        var vm = NewVm(dialog);
+
+        try
+        {
+            await vm.OpenCommand.ExecuteAsync(null);
+            vm.ScriptText = "edited";
+
+            await vm.SaveAsCommand.ExecuteAsync(null);
+
+            vm.CurrentFilePath.Should().Be(opened);
+            vm.StatusText.Should().Be("已取消另存为");
+            vm.HasUnsavedChanges.Should().BeTrue();
+            File.ReadAllText(opened).Should().Be("original");
+        }
+        finally { vm.Dispose(); }
+    }
+
 }

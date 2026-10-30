@@ -313,6 +313,15 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     /// </summary>
     public bool HasUnsavedScript => _scriptViewModel.HasUnsavedChanges;
 
+    /// <summary>启动时恢复上次未保存的脚本草稿（AppShell.OnSourceInitialized 调用）。</summary>
+    internal void RestoreScriptDraft() => _scriptViewModel.RestoreDraft();
+
+    /// <summary>
+    /// 退出前把脚本草稿落盘。返回 false = 没写成功（超限或 IO 失败），
+    /// 调用方**不能**当成已保存然后放行退出。
+    /// </summary>
+    internal bool FlushScriptDraft() => _scriptViewModel.PersistDraft();
+
     /// <summary>
     /// 诊断面板的只读投影，给主窗口状态栏的会话徽章绑定用
     /// （<c>Uds.Session.CurrentSession</c> / <c>Uds.Flash.IsFlashing</c> 等）。

@@ -95,26 +95,29 @@ public sealed partial class ScriptViewModel
         {
             var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
             var (text, encoding, preamble, lossy) = DecodeScript(bytes);
-            _sourceEncoding = encoding;
-            _sourcePreamble = preamble;
-            _sourceWasLossy = lossy;
-            _sourceNewLine = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
-            text = NormalizeNewLines(text);
+            // 先定基线再改 ScriptText（顺序约束见 ApplyBaseline 注释）。
+            ApplyBaseline(text, encoding, preamble, lossy, path);
 
-            // 先更新"磁盘内容"再改 ScriptText：ScriptText 的 setter 会读
-            // HasUnsavedChanges，顺序反了会把刚打开的干净文件算成脏的。
-            _savedText = text;
-            ScriptText = text;
+            // 这是"装载"不是"用户编辑"：打开期间不要触发草稿落盘。
+            _suppressDraftPersist = true;
+            try
+            {
+                ScriptText = _savedText;
+            }
+            finally
+            {
+                _suppressDraftPersist = false;
+            }
             // 文本与当前内容相同时 setter 不触发通知，这里补一次。
             OnPropertyChanged(nameof(HasUnsavedChanges));
-            _currentPath = path;
-            OnPropertyChanged(nameof(CurrentFilePath));
 
             StatusText = _sourceWasLossy
                 ? $"已打开 {Path.GetFileName(path)}（部分字符无法解码，保存前请确认内容）"
                 : $"已打开 {Path.GetFileName(path)}";
             LogScriptOpened(_logger, path);
-            EditorTextReplaceRequested?.Invoke(text);
+            EditorTextReplaceRequested?.Invoke(_savedText);
+            // 之前的草稿属于别的脚本，已经过期。
+            PersistDraft();
         }
         catch (Exception ex)
         {
@@ -145,8 +148,45 @@ public sealed partial class ScriptViewModel
             }
         }
 
-        // 有损解码：写回去会覆盖原文件里读不出来的字节，必须先征得同意。
-        if (_sourceWasLossy && _prompt is not null)
+        if (await WriteScriptAsync(path).ConfigureAwait(true))
+        {
+            StatusText = $"已保存 {Path.GetFileName(path)}";
+        }
+    }
+
+    /// <summary>另存为：始终弹保存框（绑定过路径后也能换文件名）。</summary>
+    [RelayCommand]
+    private async Task SaveAsAsync()
+    {
+        if (_fileDialog is null)
+        {
+            StatusText = "文件对话框不可用";
+            return;
+        }
+
+        var path = _fileDialog.ShowSaveDialog(
+            ScriptFileFilter, ".js", Path.GetDirectoryName(_currentPath));
+        if (path is null)
+        {
+            StatusText = "已取消另存为";
+            return;
+        }
+
+        if (await WriteScriptAsync(path).ConfigureAwait(true))
+        {
+            StatusText = $"已另存为 {Path.GetFileName(path)}";
+        }
+    }
+
+    /// <summary>
+    /// 按源文件口径（编码 / BOM / 行尾）把当前文本写到 <paramref name="path"/>。
+    /// 失败时把原因写进状态栏并返回 false。
+    /// </summary>
+    private async Task<bool> WriteScriptAsync(string path)
+    {
+        // 有损解码只威胁"覆盖原文件"；另存到新路径不覆盖任何东西，警告就是假话。
+        if (_sourceWasLossy && _prompt is not null
+            && string.Equals(path, _currentPath, StringComparison.OrdinalIgnoreCase))
         {
             var result = await _prompt.ShowAsync(
                 "保存脚本",
@@ -155,7 +195,7 @@ public sealed partial class ScriptViewModel
             if (result != MessageBoxResult.Yes)
             {
                 StatusText = "已取消保存";
-                return;
+                return false;
             }
         }
 
@@ -175,15 +215,60 @@ public sealed partial class ScriptViewModel
             await File.WriteAllBytesAsync(path, bytes).ConfigureAwait(true);
             _currentPath = path;
             _savedText = toSave;
+            // 原文件里读不出来的字节已经被这次写入取代：不必每次保存都再问一遍。
+            _sourceWasLossy = false;
             OnPropertyChanged(nameof(CurrentFilePath));
             OnPropertyChanged(nameof(HasUnsavedChanges));
-            StatusText = $"已保存 {Path.GetFileName(path)}";
             LogScriptSaved(_logger, path);
+            // 保存后内容与磁盘一致 → 草稿应当消失。
+            PersistDraft();
+            return true;
         }
         catch (Exception ex)
         {
             StatusText = $"保存失败：{ex.Message}";
             LogScriptSaveFailed(_logger, path, ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 设定"磁盘基线"（内容 / 编码 / BOM / 行尾 / 路径）。
+    /// 调用方必须在改 <see cref="ScriptText"/> **之前**调用：ScriptText 的 setter 依赖
+    /// `_savedText` 判脏，顺序反了会把刚打开的干净文件算成脏的。
+    /// </summary>
+    private void ApplyBaseline(string text, Encoding encoding, byte[] preamble, bool lossy, string path)
+    {
+        _sourceEncoding = encoding;
+        _sourcePreamble = preamble;
+        _sourceWasLossy = lossy;
+        _sourceNewLine = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        _savedText = NormalizeNewLines(text);
+        _currentPath = path;
+        OnPropertyChanged(nameof(CurrentFilePath));
+    }
+
+    /// <summary>
+    /// 同步读取磁盘文件并重建基线。恢复草稿用（打开文件走异步版本），
+    /// 两边共用 <see cref="DecodeScript"/> 与 <see cref="ApplyBaseline"/>，避免解码口径漂移。
+    /// </summary>
+    private bool TryLoadBaseline(string path, out string? error)
+    {
+        try
+        {
+            var (text, encoding, preamble, lossy) = DecodeScript(File.ReadAllBytes(path));
+            ApplyBaseline(text, encoding, preamble, lossy, path);
+            error = null;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or ArgumentException or NotSupportedException
+                                       or System.Security.SecurityException)
+        {
+            // 路径来自草稿文件（外部数据），非法字符会抛 ArgumentException 一族；
+            // 这些都必须变成"基线读不到"而不是从启动路径逃出去。
+            error = ex.Message;
+            return false;
         }
     }
 

@@ -40,6 +40,9 @@ public sealed partial class ScriptViewModel
     [LoggerMessage(Level = LogLevel.Warning, Message = "Script file save failed: {Path}")]
     private static partial void LogScriptSaveFailed(ILogger logger, string path, Exception ex);
 
+    [LoggerMessage(Level = LogLevel.Error, Message = "Script draft restore failed; draft cleared")]
+    private static partial void LogDraftRestoreFailed(ILogger logger, Exception ex);
+
     /// <summary>
     /// v1.2.12 PATCH Item 7 review I-2/I-3: invoked by ScriptView.OnLoaded
     /// when EnsureCoreWebView2Async or NavigateToString throws. Sets

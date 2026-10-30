@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Markup;
@@ -87,6 +89,34 @@ public class ScriptViewTests
             Action actAgain = () => view.RaiseUnloadedForTesting();
             actAgain.Should().NotThrow("Unloaded must be idempotent");
         });
+    }
+
+    [Fact]
+    public void Save_As_Is_Wired_In_The_Toolbar_And_The_File_Menu()
+    {
+        // 绑定写错是静默失效（按钮点了没反应），所以按 XAML 文本 + VM 反射两头钉。
+        var view = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "Views", "ScriptView.xaml"));
+        view.Should().Contain("{Binding SaveAsCommand}");
+
+        var shell = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "AppShell.xaml"));
+        shell.Should().Contain("另存为脚本");
+        shell.Should().Contain("{Binding SaveScriptAsCommand}");
+
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.SaveAsCommand))
+            .Should().NotBeNull("菜单/按钮绑的命令必须真的存在于 VM 上");
+    }
+
+    private static string RepoFile(params string[] relative)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PeakCan.Host.slnx")))
+            dir = dir.Parent;
+
+        if (dir is null)
+            throw new FileNotFoundException(
+                $"找不到 PeakCan.Host.slnx —— 测试是从非仓库目录运行的？起始目录: {AppContext.BaseDirectory}");
+
+        return Path.Combine(new[] { dir.FullName }.Concat(relative).ToArray());
     }
 
     /// <summary>

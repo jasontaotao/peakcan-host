@@ -119,7 +119,10 @@ public class AppShellViewModelTests
         RecordViewModel? recordVm = null,
         PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? prompt = null,
         // P1 防事故（退出确认）：脚本页的未保存状态也要能摆出来。
-        ScriptViewModel? scriptVm = null)
+        ScriptViewModel? scriptVm = null,
+        // Ctrl+S 分流测试要能断言"非脚本页确实走了会话保存"（脚本侧另有一个
+        // 对话框替身，共用替身就分不清是谁发起的）。
+        IFileDialogService? shellDialogs = null)
     {
         // v3.6.0 MINOR T3: RecentSessionsService + IFileDialogService
         // added to AppShellViewModel ctor. Both have no on-disk side
@@ -163,7 +166,7 @@ public class AppShellViewModelTests
                 new PeakCan.Host.App.Services.Trace.RecentSessionsService(
                     NullLogger<PeakCan.Host.App.Services.Trace.RecentSessionsService>.Instance,
                     recentTemp),
-                Substitute.For<IFileDialogService>(),
+                shellDialogs ?? Substitute.For<IFileDialogService>(),
                 // v3.10.0 MINOR T1 (C1): fake IMessageBoxPrompt seam
                 // (the 2 missing-.asc call sites route through this).
                 prompt ?? Substitute.For<PeakCan.Host.App.Services.Trace.IMessageBoxPrompt>(),
