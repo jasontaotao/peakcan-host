@@ -139,22 +139,11 @@ public sealed partial class TraceSessionSnapshotBuilder
     }
 
     /// <summary>
-    /// v3.6.0 MINOR T1.A pattern: read version from assembly metadata
-    /// instead of a hardcoded string. Mirrors the helpers in
-    /// <see cref="PeakCan.Host.App.ViewModels.ReplayViewModel"/> and
-    /// <see cref="PeakCan.Host.App.ViewModels.TraceViewerViewModel"/>.
-    /// Strip a trailing <c>+git&lt;sha&gt;</c> suffix that LocalBuilder
-    /// adds so the bundle round-trips cleanly across builds.
+    /// 版本口径统一走 <see cref="AppVersion.Semantic"/>（x.y.z，已去掉
+    /// <c>+&lt;commit sha&gt;</c>），与窗口标题同源——两处各写一份截断规则，
+    /// 迟早会出现「标题显示 3.66.1、快照记成别的形状」。
     /// </summary>
-    private static string GetAppVersion()
-    {
-        var info = typeof(TraceSessionSnapshotBuilder).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion;
-        if (string.IsNullOrEmpty(info)) return "0.0.0";
-        var plus = info.IndexOf('+');
-        return plus > 0 ? info[..plus] : info;
-    }
+    private static string GetAppVersion() => AppVersion.Semantic;
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "BuildSnapshot: hashing failed for {Path}; bundle saved without contentHash")]
     private static partial void LogHashFailed(ILogger logger, Exception ex, string? path);

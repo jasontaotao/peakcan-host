@@ -89,10 +89,15 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         }
     }
 
-    /// <summary>窗口标题，含版本号（从 AssemblyInformationalVersion 读取）。</summary>
-    public string WindowTitle { get; } = $"PeakCan Host v{Assembly.GetExecutingAssembly()
-        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-        .InformationalVersion ?? "0.0.0"}";
+    /// <summary>
+    /// 窗口标题，含语义版本号。
+    /// <para>
+    /// 只显示 <see cref="AppVersion.Semantic"/>（x.y.z）：SDK 自动追加的
+    /// <c>+&lt;commit sha&gt;</c> 是源码归属信息，摆在标题上没人认得，
+    /// 看起来只会像版本号坏了。
+    /// </para>
+    /// </summary>
+    public string WindowTitle { get; } = $"PeakCan Host v{AppVersion.Semantic}";
 
     /// <summary>Classic CAN 预设列表（125 / 250 / 500 / 1000 kbps）。</summary>
     public static readonly IReadOnlyList<BaudRate> ClassicBaudRates =

@@ -101,6 +101,23 @@ public class AppShellViewModelTests
     }
 
     /// <summary>
+    /// 窗口标题只显示语义版本，不带源码哈希。
+    /// <para>
+    /// .NET SDK 会把 <c>+&lt;commit sha&gt;</c> 自动追加到 InformationalVersion
+    /// （源码归属）。标题里出现一串哈希时用户根本不知道那是什么，只会觉得
+    /// 版本号坏了；完整值仍留在程序集元数据里（exe 文件属性可查）。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Window_title_shows_a_clean_semantic_version()
+    {
+        var vm = NewVm();
+
+        vm.WindowTitle.Should().MatchRegex(@"^PeakCan Host v\d+\.\d+\.\d+$",
+            "标题是给人看的，只保留 x.y.z");
+    }
+
+    /// <summary>
     /// 共享的 AppShellViewModel 构造点。
     /// <para>
     /// <c>internal</c> + 可选注入：<see cref="AppShellShortcutTests"/> 需要持有
