@@ -36,6 +36,15 @@
                 </StackPanel>
             </Button>
             <Separator />
+            <Button Command="{Binding NewCommand}"
+                    ToolTip="新建脚本 (Ctrl+N)：清空编辑器并解绑当前文件"
+                    Padding="8,4">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Add}"
+                               FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                    <TextBlock Text="新建" />
+                </StackPanel>
+            </Button>
             <Button Command="{Binding OpenCommand}"
                     ToolTip="打开脚本文件（.js）"
                     Padding="8,4">

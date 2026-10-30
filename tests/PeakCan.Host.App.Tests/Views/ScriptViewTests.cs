@@ -125,6 +125,34 @@ public class ScriptViewTests
         typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.ClearRecentScriptsCommand)).Should().NotBeNull();
     }
 
+    [Fact]
+    public void New_Script_Is_Wired_In_The_Toolbar_And_The_File_Menu()
+    {
+        var view = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "Views", "ScriptView.xaml"));
+        view.Should().Contain("{Binding NewCommand}");
+
+        var shell = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "AppShell.xaml"));
+        shell.Should().Contain("新建脚本");
+        shell.Should().Contain("{Binding NewScriptCommand}");
+
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.NewCommand))
+            .Should().NotBeNull("工具栏/菜单绑的命令必须真的存在于 VM 上");
+        typeof(AppShellViewModel).GetProperty(nameof(AppShellViewModel.NewScriptCommand))
+            .Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Dirty_Marker_Is_Bound_To_A_Real_TabSpec_Property()
+    {
+        var shell = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "AppShell.xaml"));
+
+        shell.Should().Contain("{Binding IsDirty, Converter={StaticResource BoolToVis}}",
+            "主标签头要显示未保存标记");
+
+        // 绑定路径写错在 WPF 里是静默失效：圆点会永远不出现，也不报错。
+        typeof(TabSpec).GetProperty(nameof(TabSpec.IsDirty)).Should().NotBeNull();
+    }
+
     private static string RepoFile(params string[] relative)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

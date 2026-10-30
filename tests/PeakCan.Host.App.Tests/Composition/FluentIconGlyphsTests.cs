@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Windows.Media;
 using FluentAssertions;
 using PeakCan.Host.App.Composition.Icons;
@@ -20,31 +22,16 @@ public class FluentIconGlyphsTests
         return new HashSet<int>(font.CharacterToGlyphMap.Keys);
     }
 
+    /// <summary>
+    /// 反射枚举全部 <c>public const string</c> 码点。**不能用清单**：手写清单漏登记过
+    /// 新加的图标，而"漏登记"的后果恰好就是本测试要防的那种——码点不存在时依旧全绿。
+    /// </summary>
     public static IEnumerable<object[]> AllGlyphs()
-    {
-        yield return new object[] { FluentIconGlyphs.Settings };
-        yield return new object[] { FluentIconGlyphs.Play };
-        yield return new object[] { FluentIconGlyphs.Pause };
-        yield return new object[] { FluentIconGlyphs.Stop };
-        yield return new object[] { FluentIconGlyphs.Save };
-        yield return new object[] { FluentIconGlyphs.OpenFolder };
-        yield return new object[] { FluentIconGlyphs.Dismiss };
-        yield return new object[] { FluentIconGlyphs.Search };
-        yield return new object[] { FluentIconGlyphs.ChevronUp };
-        yield return new object[] { FluentIconGlyphs.ChevronDown };
-        yield return new object[] { FluentIconGlyphs.ChevronLeft };
-        yield return new object[] { FluentIconGlyphs.ChevronRight };
-        yield return new object[] { FluentIconGlyphs.Link };
-        yield return new object[] { FluentIconGlyphs.Lightning };
-        yield return new object[] { FluentIconGlyphs.Record };
-        yield return new object[] { FluentIconGlyphs.Plug };
-        yield return new object[] { FluentIconGlyphs.Power };
-        yield return new object[] { FluentIconGlyphs.Bot };
-        yield return new object[] { FluentIconGlyphs.Sparkle };
-        yield return new object[] { FluentIconGlyphs.Replay };
-        yield return new object[] { FluentIconGlyphs.Laptop };
-        yield return new object[] { FluentIconGlyphs.Help };
-    }
+        => typeof(FluentIconGlyphs)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+            .Select(f => new object[] { (string)f.GetRawConstantValue()! })
+            .ToList();
 
     [Theory]
     [MemberData(nameof(AllGlyphs))]

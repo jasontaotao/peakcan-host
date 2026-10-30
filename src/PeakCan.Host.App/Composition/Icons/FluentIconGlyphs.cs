@@ -13,6 +13,7 @@ public static class FluentIconGlyphs
     public const string Play         = "\uE768"; // ▶ 运行
     public const string Pause        = "\uE769"; // ⏸ 暂停
     public const string Stop         = "\uE71A"; // ⏹ 停止
+    public const string Add          = "\uE710"; // ＋ 新建
     public const string Save         = "\uE74E"; // 💾 保存
     public const string OpenFolder   = "\uE8B7"; // 📂 打开
     public const string Dismiss      = "\uE711"; // ✕ 关闭/清除

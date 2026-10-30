@@ -24,6 +24,14 @@ public sealed partial class TabSpec : ObservableObject
     [ObservableProperty]
     private bool _isVisible = true;
 
+    /// <summary>
+    /// 标题旁是否显示"未保存"圆点。目前只有脚本页会用（AppShellViewModel 订阅
+    /// 脚本 VM 的 HasUnsavedChanges 后写入）；其它标签恒为 false，圆点自动折叠。
+    /// 刻意不改 <see cref="Header"/> 本身——它是只读的，而且脏标记不该污染持久化标识。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isDirty;
+
     private readonly Func<object> _factory;
     private object? _view;
 

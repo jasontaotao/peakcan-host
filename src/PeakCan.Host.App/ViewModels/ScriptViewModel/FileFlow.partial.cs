@@ -24,6 +24,13 @@ public sealed partial class ScriptViewModel
 
     private const string ScriptFileFilter = "JavaScript (*.js)|*.js|所有文件|*.*";
 
+    // "新建脚本"的默认口径。字段初始值与 NewAsync 的复位共用同一份常量，
+    // 否则以后加字段时两处容易漏改一处（编译不报错，只在"新建后保存"时才出错）。
+    private static readonly Encoding BlankEncoding =
+        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    private static readonly byte[] BlankPreamble = Array.Empty<byte>();
+    private const string BlankNewLine = "\n";
+
     /// <summary>最近一次打开/保存的路径；null = 还没和磁盘上的文件绑定。</summary>
     private string? _currentPath;
 
@@ -31,13 +38,13 @@ public sealed partial class ScriptViewModel
     private string _savedText = "";
 
     /// <summary>源文件编码（保存时原样写回）。默认 UTF-8 无 BOM = 新建脚本。</summary>
-    private Encoding _sourceEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    private Encoding _sourceEncoding = BlankEncoding;
 
     /// <summary>源文件 BOM（保存时原样写回；新建脚本为空）。</summary>
-    private byte[] _sourcePreamble = Array.Empty<byte>();
+    private byte[] _sourcePreamble = BlankPreamble;
 
     /// <summary>源文件换行风格（保存时还原；默认 LF）。</summary>
-    private string _sourceNewLine = "\n";
+    private string _sourceNewLine = BlankNewLine;
 
     /// <summary>
     /// 打开时解码有损（OEM 回退后仍出现替换字符，或退到 Latin-1）。保存会覆盖原文件，
@@ -141,6 +148,56 @@ public sealed partial class ScriptViewModel
         // 最近列表是旁路信息：它自己出问题不能让"文件已经打开了"变成"打开失败"。
         if (opened) RememberScript(path);
         return opened;
+    }
+
+    /// <summary>
+    /// 新建：清空编辑器并**解绑当前文件**（有未保存改动先确认）。
+    /// <para>
+    /// 和"全选删除"的关键差别就在解绑：只清文本的话，下一次 Ctrl+S 会拿空内容
+    /// 覆盖原来那个真实存在的 .js。
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private async Task NewAsync()
+    {
+        // 判脏用 HasUnsavedChanges 本身，不再叠 !IsNullOrWhiteSpace：
+        // "把内容全删光"也是一次真改动，静默丢弃等于替用户做决定。
+        if (HasUnsavedChanges && _prompt is not null)
+        {
+            var result = await _prompt.ShowAsync(
+                "新建脚本",
+                "当前脚本有未保存的改动，新建会丢弃它们。\n\n继续新建吗？",
+                Application.Current?.MainWindow).ConfigureAwait(true);
+            if (result != MessageBoxResult.Yes)
+            {
+                StatusText = "已取消新建";
+                return;
+            }
+        }
+
+        // 回到"新建脚本"的默认口径（UTF-8 无 BOM / LF），并解绑路径。
+        ResetBaselineToBlank();
+
+        // 这是"装载空白"而不是用户编辑：不要触发草稿落盘调度。
+        _suppressDraftPersist = true;
+        try
+        {
+            ScriptText = "";
+        }
+        finally
+        {
+            _suppressDraftPersist = false;
+        }
+
+        // 文本本来就是空的时候 setter 不通知，脏状态与路径要手动补一次。
+        OnPropertyChanged(nameof(HasUnsavedChanges));
+        OnPropertyChanged(nameof(CurrentFilePath));
+
+        StatusText = "新建脚本";
+        // 编辑器 textarea 里还留着旧内容；只清 VM 的话下一次键入就把旧脚本带回来了。
+        EditorTextReplaceRequested?.Invoke("");
+        // 干净态 → 清掉上一份草稿，否则重启会把它复活。
+        PersistDraft();
     }
 
     /// <summary>保存当前脚本；没有绑定路径时先弹保存框。</summary>
@@ -252,6 +309,20 @@ public sealed partial class ScriptViewModel
         // 刚保存的文件也是"以后可能还要开"的文件。
         if (saved) RememberScript(path);
         return saved;
+    }
+
+    /// <summary>
+    /// 把文件基线复位到"新建脚本"的口径：未绑定路径、空内容、UTF-8 无 BOM、LF、非有损。
+    /// 与 <see cref="ApplyBaseline"/> 分开：那个要求真实路径并会通知 <c>CurrentFilePath</c>。
+    /// </summary>
+    private void ResetBaselineToBlank()
+    {
+        _currentPath = null;
+        _savedText = "";
+        _sourceEncoding = BlankEncoding;
+        _sourcePreamble = BlankPreamble;
+        _sourceNewLine = BlankNewLine;
+        _sourceWasLossy = false;
     }
 
     /// <summary>

@@ -80,9 +80,9 @@ public static class ScriptEditorHtml
                 // 都不能丢字，而脚本体积只有几 KB。
                 textarea.addEventListener('input', () => post({ type: 'text', text: textarea.value }));
 
-                // Ctrl+Enter 运行、Ctrl+S 保存、Ctrl+Shift+S 另存为。
+                // Ctrl+Enter 运行、Ctrl+S 保存、Ctrl+Shift+S 另存为、Ctrl+N 新建。
                 // 文本随消息一起带上，不依赖上一条 text 消息的到达顺序。
-                // 保存必须在这里接：WebView2 是独立 HWND，焦点在本页面时窗口级
+                // 这些键必须在这里接：WebView2 是独立 HWND，焦点在本页面时窗口级
                 // KeyBinding 收不到任何按键（Ctrl+Enter 当初也是因此写在这里的）。
                 textarea.addEventListener('keydown', (e) => {
                     if (!e.ctrlKey) return;
@@ -93,6 +93,10 @@ public static class ScriptEditorHtml
                     } else if (key === 's') {
                         e.preventDefault();
                         post({ type: e.shiftKey ? 'saveAs' : 'save', text: textarea.value });
+                    } else if (key === 'n') {
+                        // 不带 text：新建要清空，不能把当前内容一起送过去。
+                        e.preventDefault();
+                        post({ type: 'new' });
                     }
                 });
 

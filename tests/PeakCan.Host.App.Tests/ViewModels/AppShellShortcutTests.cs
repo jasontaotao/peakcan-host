@@ -173,8 +173,9 @@ public class AppShellShortcutTests
     // 脚本 VM 用**独立的**对话框替身：AppShell 自己也有一份 IFileDialogService（保存会话），
     // 共用替身就分不清是"脚本保存"还是"会话保存"发起的调用。
 
-    private static (AppShellViewModel Shell, IFileDialogService ScriptDialog, IFileDialogService ShellDialog)
-        NewVmWithScriptDialog()
+    private static (AppShellViewModel Shell, ScriptViewModel Script,
+                    IFileDialogService ScriptDialog, IFileDialogService ShellDialog)
+        NewVmWithScript()
     {
         var scriptDialog = Substitute.For<IFileDialogService>();
         var shellDialog = Substitute.For<IFileDialogService>();
@@ -183,8 +184,16 @@ public class AppShellShortcutTests
             new ScriptEngine(NullLogger<ScriptEngine>.Instance, null, null, null),
             scriptDialog);
         return (AppShellViewModelTests.NewVm(scriptVm: script, shellDialogs: shellDialog),
+                script,
                 scriptDialog,
                 shellDialog);
+    }
+
+    private static (AppShellViewModel Shell, IFileDialogService ScriptDialog, IFileDialogService ShellDialog)
+        NewVmWithScriptDialog()
+    {
+        var (shell, _, scriptDialog, shellDialog) = NewVmWithScript();
+        return (shell, scriptDialog, shellDialog);
     }
 
     [Fact]
@@ -243,5 +252,33 @@ public class AppShellShortcutTests
 
         scriptDialog.Received(1)
             .ShowSaveDialog(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>());
+    }
+
+    // ---- Ctrl+N 新建脚本 ----
+
+    [Fact]
+    public void CtrlN_On_The_Script_Tab_Clears_The_Script()
+    {
+        var (vm, script, _, _) = NewVmWithScript();
+        vm.SelectedMainTabIndex = AppShellViewModel.ScriptTabIndex;
+        script.ScriptText = "log('old');";
+
+        vm.NewScriptCommand.Execute(null);
+
+        script.ScriptText.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CtrlN_Outside_The_Script_Tab_Only_Explains_Itself()
+    {
+        // 键被窗口级 KeyBinding 吞了，什么都不做等于"按了没反应"。
+        var (vm, script, _, _) = NewVmWithScript();
+        vm.SelectedMainTabIndex = AppShellViewModel.TraceTabIndex;
+        script.ScriptText = "log('old');";
+
+        vm.NewScriptCommand.Execute(null);
+
+        script.ScriptText.Should().Be("log('old');");
+        vm.StatusMessage.Should().Contain("脚本页");
     }
 }

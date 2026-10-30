@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
@@ -525,6 +526,18 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
             new TabSpec("信号", () => new SignalView { DataContext = _signalViewModel }),
             new TabSpec("统计", () => new StatsView { DataContext = _statsViewModel }),
         };
+
+        // 脚本页的未保存圆点。接线只此一处：TabSpec 不认识 VM，ScriptViewModel
+        // 也不认识 TabSpec——两边各自可测，桥由 shell 负责。
+        _scriptViewModel.PropertyChanged += OnScriptViewModelPropertyChanged;
+    }
+
+    private void OnScriptViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // 只关心脏状态；编辑器每敲一个字都会发 ScriptText，不必跟着写 TabSpec。
+        if (e.PropertyName != nameof(ScriptViewModel.HasUnsavedChanges)) return;
+        if (ScriptTabIndex >= MainTabs.Count) return;
+        MainTabs[ScriptTabIndex].IsDirty = _scriptViewModel.HasUnsavedChanges;
     }
 
     /// <summary>The window-lifecycle host backing the ShowUds /

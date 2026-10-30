@@ -62,6 +62,16 @@ public sealed class ScriptEditorBridgeTests
         vm.ScriptText.Should().Be("var x = 3;", "保存前要先把编辑器里的最新文本同步过来");
     }
 
+    [Fact]
+    public void New_Message_Requests_A_Blank_Document()
+    {
+        // Ctrl+N 与 Ctrl+S 同一条通道：焦点在编辑器里时窗口级快捷键收不到。
+        var vm = NewViewModel();
+        var bridge = new ScriptEditorBridge(vm);
+
+        bridge.HandleMessage("""{"type":"new"}""").Should().Be(EditorRequest.New);
+    }
+
     [Theory]
     [InlineData(null)]                              // 无消息
     [InlineData("")]                                // 空串

@@ -116,6 +116,8 @@ public sealed class AppShellShortcutLayoutTests
             // 全局动作
             ("R", "Control", "ToggleRecordingPanelCommand"),
             ("O", "Control", "OpenSessionCommand"),
+            // Ctrl+N 新建脚本（只在脚本页生效，其它页写状态栏提示）
+            ("N", "Control", "NewScriptCommand"),
             // Ctrl+S 按当前页分流（脚本页存脚本 / 其它页存会话），Ctrl+Shift+S 另存为脚本。
             ("S", "Control", "SaveCurrentCommand"),
             ("S", "Control,Shift", "SaveScriptAsCommand"),

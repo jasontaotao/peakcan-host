@@ -17,12 +17,15 @@ public enum EditorRequest
 
     /// <summary>Ctrl+Shift+S：另存为。</summary>
     SaveAs,
+
+    /// <summary>Ctrl+N：新建（空白文档）。</summary>
+    New,
 }
 
 /// <summary>
 /// 脚本编辑器页面回传消息的解析层（纯逻辑，可脱离 WebView2 单测）。
 /// <para>
-/// 消息协议见 <see cref="ScriptEditorHtml"/>：<c>{type:'text'|'run'|'save'|'saveAs', text}</c>。
+/// 消息协议见 <see cref="ScriptEditorHtml"/>：<c>{type:'text'|'run'|'save'|'saveAs'|'new', text}</c>。
 /// 这里只做两件事——把文本写进 <see cref="ScriptViewModel.ScriptText"/>，
 /// 以及告诉调用方"这条消息请求什么动作"。**不直接执行命令**：
 /// 返回值让视图决定，测试也就无需关心命令的异步时序。
@@ -52,6 +55,9 @@ public sealed class ScriptEditorBridge
 
         /// <summary>Ctrl+Shift+S：另存为。</summary>
         public const string SaveAs = "saveAs";
+
+        /// <summary>Ctrl+N：新建脚本。</summary>
+        public const string New = "new";
     }
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -88,6 +94,7 @@ public sealed class ScriptEditorBridge
             MessageTypes.Run => EditorRequest.Run,
             MessageTypes.Save => EditorRequest.Save,
             MessageTypes.SaveAs => EditorRequest.SaveAs,
+            MessageTypes.New => EditorRequest.New,
             _ => (EditorRequest?)null,
         };
         if (request is null) return EditorRequest.None;

@@ -166,4 +166,16 @@ public sealed partial class AppShellViewModel
         }
         _scriptViewModel.SaveAsCommand.Execute(null);
     }
+
+    /// <summary>Ctrl+N：新建脚本。非脚本页只提示，不静默无反应。</summary>
+    [RelayCommand]
+    private void NewScript()
+    {
+        if (!IsScriptTabActive)
+        {
+            StatusMessage = "切换到脚本页后再新建";
+            return;
+        }
+        _scriptViewModel.NewCommand.Execute(null);
+    }
 }

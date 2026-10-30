@@ -45,6 +45,8 @@
              编辑器内的 Ctrl+S 由页面自己发消息，因为 WebView2 是独立 HWND。 -->
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCurrentCommand}" />
         <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding SaveScriptAsCommand}" />
+        <!-- Ctrl+N 新建脚本（仅脚本页；编辑器内由页面发消息）。 -->
+        <KeyBinding Key="N" Modifiers="Control" Command="{Binding NewScriptCommand}" />
         <!-- 回放页动作（仅回放 tab）。
              走帧刻意用 Ctrl+方向键而不是裸方向键：WPF 的 KeyBinding 只要手势匹配
              就把按键标记为已处理，**即使 CanExecute 为 false**——裸 ←/→ 挂在窗口上
@@ -61,7 +63,9 @@
                 <MenuItem Header="打开 DBC(_D)..." Command="{Binding OpenDbcCommand}" />
                 <Separator />
                 <MenuItem Header="打开会话(_O)..." Command="{Binding OpenSessionCommand}" InputGestureText="Ctrl+O" />
-                <!-- 菜单文字必须与 Ctrl+S 的真实行为一致：脚本页时保存的是脚本。 -->
+                <!-- 脚本的四个动作排在一起：新建 / 保存（按当前页分流）/ 另存为 / 会话保存。
+                     菜单文字必须与 Ctrl+S 的真实行为一致：脚本页时保存的是脚本。 -->
+                <MenuItem Header="新建脚本(_N)..." Command="{Binding NewScriptCommand}" InputGestureText="Ctrl+N" />
                 <MenuItem Header="保存(_S)..." Command="{Binding SaveCurrentCommand}" InputGestureText="Ctrl+S" />
                 <MenuItem Header="另存为脚本(_A)..." Command="{Binding SaveScriptAsCommand}" InputGestureText="Ctrl+Shift+S" />
                 <!-- 脚本页激活时 Ctrl+S 存的是脚本，会话保存需要一个不依赖当前页的入口。 -->
@@ -267,8 +271,21 @@
                                 Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}" />
                     </Style>
                 </TabControl.ItemContainerStyle>
+                <!-- 标题 + 未保存圆点。点放在文字**之后**：出现/消失不会推动标题本身。
+                     目前只有脚本页会点亮（AppShellViewModel 订阅脚本 VM 的 HasUnsavedChanges）。 -->
                 <TabControl.ItemTemplate>
-                    <DataTemplate><TextBlock Text="{Binding Header}" Margin="6,2" /></DataTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" Margin="6,2">
+                            <TextBlock Text="{Binding Header}" />
+                            <TextBlock Text="●"
+                                       Margin="3,0,0,0"
+                                       FontSize="10"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource WarnText}"
+                                       ToolTip="有未保存的改动"
+                                       Visibility="{Binding IsDirty, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </DataTemplate>
                 </TabControl.ItemTemplate>
                 <TabControl.ContentTemplate>
                     <DataTemplate><ContentControl Content="{Binding View}" /></DataTemplate>

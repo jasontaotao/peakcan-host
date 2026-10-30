@@ -96,6 +96,19 @@ public sealed class ScriptEditorHtmlTests
     }
 
     [Fact]
+    public void Page_Handles_CtrlN_For_New_Script()
+    {
+        var html = ScriptEditorHtml.Build("");
+
+        // 同 Ctrl+S：窗口级 KeyBinding 收不到编辑器里的按键，新建也只能由页面翻译。
+        // 只断言"分支存在"不够：少了 preventDefault，按键会继续走 WebView2 的默认处理；
+        // 消息里带上 text，桥会把旧内容又写回 ScriptText，新建等于没新建。
+        html.Should().MatchRegex(@"key\s*===\s*'n'[\s\S]{0,300}?preventDefault\(\)");
+        html.Should().Contain("post({ type: 'new' });");
+        html.Should().NotMatchRegex(@"type:\s*'new'[^}]*text");
+    }
+
+    [Fact]
     public void Page_Listens_For_Whole_Text_Replace_From_CSharp()
     {
         var html = ScriptEditorHtml.Build("");

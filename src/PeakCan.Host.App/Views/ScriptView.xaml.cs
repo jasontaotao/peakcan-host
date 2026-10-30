@@ -180,6 +180,9 @@ public partial class ScriptView : UserControl
             case EditorRequest.SaveAs:
                 if (_viewModel.SaveAsCommand.CanExecute(null)) _viewModel.SaveAsCommand.Execute(null);
                 break;
+            case EditorRequest.New:
+                if (_viewModel.NewCommand.CanExecute(null)) _viewModel.NewCommand.Execute(null);
+                break;
         }
     }
 }
