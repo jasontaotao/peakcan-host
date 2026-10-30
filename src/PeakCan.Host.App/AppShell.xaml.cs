@@ -66,7 +66,7 @@ public partial class AppShell : Window
         // 上次退出时没保存的脚本内容。放在布局之后：它可能要读原文件重建基线，
         // 不该和窗口几何恢复抢时序。视图此时未加载也无妨——ScriptView.OnLoaded
         // 用 ScriptText 作页面初值，内容不会丢。
-        (DataContext as AppShellViewModel)?.RestoreScriptDraft();
+        (DataContext as AppShellViewModel)?.RestoreScriptState();
     }
 
     /// <summary>

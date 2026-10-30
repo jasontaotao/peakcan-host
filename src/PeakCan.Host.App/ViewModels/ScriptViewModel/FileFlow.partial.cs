@@ -76,6 +76,15 @@ public sealed partial class ScriptViewModel
             return;
         }
 
+        await OpenPathAsync(path).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 把指定路径的脚本装载进编辑器。对话框入口与「最近打开」共用同一条路径，
+    /// 因而未保存确认、编码处理、草稿清理对所有入口都一致。
+    /// </summary>
+    private async Task<bool> OpenPathAsync(string path)
+    {
         // 有未保存改动先问一句：打开会整段覆盖编辑器。
         // _prompt 为 null（测试构造点）时不做确认——生产 DI 必注入。
         if (HasUnsavedChanges && !string.IsNullOrWhiteSpace(ScriptText) && _prompt is not null)
@@ -87,10 +96,11 @@ public sealed partial class ScriptViewModel
             if (result != MessageBoxResult.Yes)
             {
                 StatusText = "已取消打开";
-                return;
+                return false;
             }
         }
 
+        bool opened;
         try
         {
             var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
@@ -118,13 +128,19 @@ public sealed partial class ScriptViewModel
             EditorTextReplaceRequested?.Invoke(_savedText);
             // 之前的草稿属于别的脚本，已经过期。
             PersistDraft();
+            opened = true;
         }
         catch (Exception ex)
         {
             // 不静默：读不到文件（权限/文件被删）要留在状态栏上。
             StatusText = $"打开失败：{ex.Message}";
             LogScriptOpenFailed(_logger, path, ex);
+            opened = false;
         }
+
+        // 最近列表是旁路信息：它自己出问题不能让"文件已经打开了"变成"打开失败"。
+        if (opened) RememberScript(path);
+        return opened;
     }
 
     /// <summary>保存当前脚本；没有绑定路径时先弹保存框。</summary>
@@ -199,6 +215,7 @@ public sealed partial class ScriptViewModel
             }
         }
 
+        bool saved;
         try
         {
             // 先取快照再写：await 期间用户可能继续敲键。写完再读 ScriptText 会把
@@ -222,14 +239,19 @@ public sealed partial class ScriptViewModel
             LogScriptSaved(_logger, path);
             // 保存后内容与磁盘一致 → 草稿应当消失。
             PersistDraft();
-            return true;
+            saved = true;
         }
         catch (Exception ex)
         {
             StatusText = $"保存失败：{ex.Message}";
             LogScriptSaveFailed(_logger, path, ex);
-            return false;
+            saved = false;
         }
+
+        // 磁盘已经写成功了，最近列表出问题不能反向把这次保存报成失败。
+        // 刚保存的文件也是"以后可能还要开"的文件。
+        if (saved) RememberScript(path);
+        return saved;
     }
 
     /// <summary>

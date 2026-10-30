@@ -106,6 +106,25 @@ public class ScriptViewTests
             .Should().NotBeNull("菜单/按钮绑的命令必须真的存在于 VM 上");
     }
 
+    [Fact]
+    public void Recent_Scripts_Menu_Is_Wired_To_The_ViewModel()
+    {
+        var xaml = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "Views", "ScriptView.xaml"));
+
+        xaml.Should().Contain("最近脚本");
+        xaml.Should().Contain("{Binding RecentScripts}");
+        xaml.Should().Contain("{Binding DataContext.OpenRecentScriptCommand");
+        xaml.Should().Contain("{Binding ClearRecentScriptsCommand}");
+        xaml.Should().Contain("IsEnabled=\"{Binding HasRecentScripts}\"",
+            "空列表时菜单项要置灰，否则点开是一个空菜单");
+
+        // 绑定路径写错是静默失效：两个名字都必须在 VM 上真实存在。
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.RecentScripts)).Should().NotBeNull();
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.HasRecentScripts)).Should().NotBeNull();
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.OpenRecentScriptCommand)).Should().NotBeNull();
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.ClearRecentScriptsCommand)).Should().NotBeNull();
+    }
+
     private static string RepoFile(params string[] relative)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

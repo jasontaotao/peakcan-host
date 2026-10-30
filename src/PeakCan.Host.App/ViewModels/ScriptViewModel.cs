@@ -29,6 +29,8 @@ public sealed partial class ScriptViewModel : ObservableObject, IDisposable
     private readonly PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? _prompt;
     // 草稿存储；null = 不持久化（测试构造点）。生产 DI 注册单例。
     private readonly PeakCan.Host.App.Services.Ui.ScriptDraftStore? _draftStore;
+    // 最近打开列表；null = 不记录（测试构造点）。生产 DI 注册单例。
+    private readonly PeakCan.Host.App.Services.Ui.RecentScriptsStore? _recentScripts;
 
     // Timer for flushing output buffer to UI at 30 Hz.
     private readonly System.Windows.Threading.DispatcherTimer _flushTimer;
@@ -63,7 +65,8 @@ public sealed partial class ScriptViewModel : ObservableObject, IDisposable
         // 可选：既有测试构造点（2 参）不涉及文件流，不必改动。
         PeakCan.HIL.Core.IFileDialogService? fileDialog = null,
         PeakCan.Host.App.Services.Trace.IMessageBoxPrompt? prompt = null,
-        PeakCan.Host.App.Services.Ui.ScriptDraftStore? draftStore = null)
+        PeakCan.Host.App.Services.Ui.ScriptDraftStore? draftStore = null,
+        PeakCan.Host.App.Services.Ui.RecentScriptsStore? recentScripts = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(engine);
@@ -73,6 +76,7 @@ public sealed partial class ScriptViewModel : ObservableObject, IDisposable
         _fileDialog = fileDialog;
         _prompt = prompt;
         _draftStore = draftStore;
+        _recentScripts = recentScripts;
 
         // Subscribe to script engine output.
         _engine.OutputReceived += OnOutputReceived;

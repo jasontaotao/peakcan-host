@@ -140,6 +140,7 @@ public class AppHostBuilderTests
         var script = host.Services.GetRequiredService<ScriptViewModel>();
 
         script.HasDraftStore.Should().BeTrue("ScriptDraftStore 必须在 AppHostBuilder 里注册");
+        script.HasRecentScriptsStore.Should().BeTrue("RecentScriptsStore 必须在 AppHostBuilder 里注册");
     }
 
     private static T RunSta<T>(Func<T> body)

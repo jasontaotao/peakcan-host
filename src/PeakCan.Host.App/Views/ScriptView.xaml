@@ -45,6 +45,26 @@
                     <TextBlock Text="打开" />
                 </StackPanel>
             </Button>
+            <!-- 最近打开：与会话 MRU 分开（脚本不会出现在「文件 → 最近打开」里）。 -->
+            <Menu VerticalAlignment="Center" Background="Transparent" Padding="0" Margin="4,0,0,0"
+                  IsEnabled="{Binding HasRecentScripts}"
+                  ToolTip="最近打开过的脚本（空列表时置灰）">
+                <MenuItem Header="最近脚本" ItemsSource="{Binding RecentScripts}">
+                    <MenuItem.ItemTemplate>
+                        <DataTemplate>
+                            <!-- 菜单弹出层不在 ScriptView 的可视祖先链上，AncestorType=Menu
+                                 是本仓库已验证的写法（见 AppShell 的「最近打开」菜单）。 -->
+                            <MenuItem Header="{Binding Label}"
+                                      ToolTip="{Binding Path}"
+                                      Command="{Binding DataContext.OpenRecentScriptCommand,
+                                                        RelativeSource={RelativeSource AncestorType=Menu}}"
+                                      CommandParameter="{Binding Path}" />
+                        </DataTemplate>
+                    </MenuItem.ItemTemplate>
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="清空最近脚本" Command="{Binding ClearRecentScriptsCommand}" />
+            </Menu>
             <Button Command="{Binding SaveCommand}"
                     ToolTip="保存当前脚本 (Ctrl+S)"
                     Padding="8,4">

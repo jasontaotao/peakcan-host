@@ -313,8 +313,15 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     /// </summary>
     public bool HasUnsavedScript => _scriptViewModel.HasUnsavedChanges;
 
-    /// <summary>启动时恢复上次未保存的脚本草稿（AppShell.OnSourceInitialized 调用）。</summary>
-    internal void RestoreScriptDraft() => _scriptViewModel.RestoreDraft();
+    /// <summary>
+    /// 启动时恢复脚本页的持久状态：未保存的草稿 + 「最近打开」列表
+    /// （AppShell.OnSourceInitialized 调用）。
+    /// </summary>
+    internal void RestoreScriptState()
+    {
+        _scriptViewModel.RefreshRecentScripts();
+        _scriptViewModel.RestoreDraft();
+    }
 
     /// <summary>
     /// 退出前把脚本草稿落盘。返回 false = 没写成功（超限或 IO 失败），
