@@ -14,14 +14,13 @@
         <StackPanel DockPanel.Dock="Top">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />  <!-- 基线： -->
+                    <ColumnDefinition Width="*" />     <!-- 基线路径框 -->
+                    <ColumnDefinition Width="Auto" />  <!-- 浏览... -->
+                    <ColumnDefinition Width="Auto" />  <!-- 目标： -->
+                    <ColumnDefinition Width="*" />     <!-- 目标路径框 -->
+                    <ColumnDefinition Width="Auto" />  <!-- 浏览... -->
+                    <ColumnDefinition Width="Auto" />  <!-- 计算 diff -->
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="基线：" VerticalAlignment="Center" />
                 <TextBox Grid.Column="1" Text="{Binding BaselinePath, UpdateSourceTrigger=PropertyChanged}"
@@ -34,7 +33,7 @@
                          ToolTip="目标参数集 JSON（S5 导出格式）" />
                 <Button Grid.Column="5" Content="浏览..." Click="OnBrowseTarget" Margin="0,0,12,0" />
                 <Button Grid.Column="6" Content="计算 diff" Padding="10,2"
-                        Command="{Binding LoadAndDiffCommand}" Grid.ColumnSpan="2" />
+                        Command="{Binding LoadAndDiffCommand}" />
             </Grid>
             <TextBlock Text="{Binding StatusText}" Foreground="Gray" Margin="0,2,0,0" TextWrapping="Wrap" />
         </StackPanel>
