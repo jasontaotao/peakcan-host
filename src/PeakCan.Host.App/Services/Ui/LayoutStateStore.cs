@@ -9,7 +9,12 @@ namespace PeakCan.Host.App.Services.Ui;
 public sealed record LayoutStateDto(
     [property: JsonPropertyName("rightPanelWidth")] double RightPanelWidth,
     [property: JsonPropertyName("selectedMainTab")] int SelectedMainTabIndex,
-    [property: JsonPropertyName("selectedRightTab")] int SelectedRightTabIndex);
+    [property: JsonPropertyName("selectedRightTab")] int SelectedRightTabIndex,
+    // P2 显示偏好。旧 layout.json 没有这两个字段 → 反序列化走默认值：
+    // 非紧凑、全部主标签可见（行为与升级前一致）。
+    [property: JsonPropertyName("compactTables")] bool CompactTables = false,
+    // 可见主标签的 key 串（如 "TDR"）；null = 全部可见。
+    [property: JsonPropertyName("visibleMainTabs")] string? VisibleMainTabs = null);
 
 /// <summary>P2-6: AppShell 内布局持久化（右栏宽 / 主右 tab 选中项）到
 /// <c>%APPDATA%/PeakCan.Host/layout.json</c>。镜像 <see cref="WindowStateStore"/>

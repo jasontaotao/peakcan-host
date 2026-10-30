@@ -81,6 +81,12 @@ public sealed partial class RecordViewModel : ObservableObject, IHostedService, 
     Task IHostedService.StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <summary>
+    /// 录制真值（读 <see cref="RecordService"/> 本身，不是 200 ms 轮询的 <see cref="IsRecording"/>）。
+    /// 断开确认这类"风险判定"必须用它：用户点完「开始」立刻断开时，轮询字段可能还是 false。
+    /// </summary>
+    internal bool IsRecordingNow => _record.IsRecording;
+
+    /// <summary>
     /// v1.2.11: test-only entry to force a poll cycle. Production paths
     /// trigger polls via the DispatcherTimer Tick; tests bypass that
     /// because the test dispatcher doesn't pump messages.

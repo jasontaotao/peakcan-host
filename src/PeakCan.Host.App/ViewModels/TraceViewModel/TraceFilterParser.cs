@@ -54,18 +54,9 @@ internal static class TraceFilterParser
         }
 
         // —— PGN 列表（hex，0x 可选，无前缀按 hex，≤0x3FFFF）——
-        IReadOnlySet<uint>? pgns = null;
-        if (!string.IsNullOrWhiteSpace(pgnList))
-        {
-            var set = new HashSet<uint>();
-            foreach (var raw in pgnList.Split(PgnSeparators, StringSplitOptions.RemoveEmptyEntries))
-            {
-                if (!TryParseHexUInt32(raw.Trim(), out var pgn) || pgn > 0x3FFFF)
-                    return (null, $"PGN 无效: {raw.Trim()}");
-                set.Add(pgn);
-            }
-            pgns = set;
-        }
+        var (pgns, invalidPgnToken) = ParsePgnList(pgnList);
+        if (invalidPgnToken is not null)
+            return (null, $"PGN 无效: {invalidPgnToken}");
 
         // —— SA / DA（单 hex 字节，0x 可选；空=不过滤）——
         byte? saValue = null;
@@ -115,8 +106,26 @@ internal static class TraceFilterParser
         }, null);
     }
 
+    /// <summary>
+    /// 把 PGN 文本解析成集合。空输入 → <c>(null, null)</c>；任一 token 非法/越界 →
+    /// <c>(null, 首个非法 token)</c>。<see cref="TryParse"/> 与条件构建器共用这一份规则，
+    /// 避免"构建器判合法、过滤器报错"的分叉。
+    /// </summary>
+    internal static (IReadOnlySet<uint>? Pgns, string? InvalidToken) ParsePgnList(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return (null, null);
+        var set = new HashSet<uint>();
+        foreach (var raw in text.Split(PgnSeparators, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var token = raw.Trim();
+            if (!TryParseHexUInt32(token, out var pgn) || pgn > 0x3FFFF) return (null, token);
+            set.Add(pgn);
+        }
+        return (set, null);
+    }
+
     /// <summary>hex（0x 可选，无前缀按 hex），镜像 <see cref="NodeConfigAssembler.TryParseHexUInt32"/>。</summary>
-    private static bool TryParseHexUInt32(string text, out uint value)
+    internal static bool TryParseHexUInt32(string text, out uint value)
     {
         var s = text.Trim();
         if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
@@ -125,7 +134,7 @@ internal static class TraceFilterParser
     }
 
     /// <summary>单 hex 字节（0x 可选，无前缀按 hex），镜像 <see cref="NodeConfigAssembler.TryParseHexByte"/>。</summary>
-    private static bool TryParseHexByte(string text, out byte value)
+    internal static bool TryParseHexByte(string text, out byte value)
     {
         var s = text.Trim();
         if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))

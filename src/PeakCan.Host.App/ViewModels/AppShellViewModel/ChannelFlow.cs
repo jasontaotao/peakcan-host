@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.Globalization;
+using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core;
@@ -258,15 +259,76 @@ public sealed partial class AppShellViewModel
         // 本方法保留守卫 + UI 文本。
         if (!IsConnected) return;
         if (_isConnecting) return; // review 2026-08-29 P2: 连接进行中不接受断开（CanExecute 兜底）
+        // P1 防事故：刷写/录制进行中，断开会把在跑的任务打断——必须先让用户明确点头。
+        if (!await ConfirmDisconnectWhileBusyAsync().ConfigureAwait(true)) return;
+        // 弹窗期间状态可能已被改掉（MessageBox 只禁用 owner 窗口，UDS 窗口仍可操作），
+        // 恢复后必须复核一次再往下走。用户刚刚明确点了「是」，不能一声不响地什么都不做。
+        if (!IsConnected)
+        {
+            StatusMessage = "连接已断开";
+            // 工具栏的常驻标签（AppShell.xaml 绑 ConnectionState）也要跟上，
+            // 否则状态栏说断开、旁边还写着「已连接 N 路」。
+            ConnectionState = "已断开";
+            return;
+        }
         StatusMessage = "正在断开所有通道";
         ConnectionState = "断开中...";
         await _coordinator.DisconnectAllAsync().ConfigureAwait(true);
+        // 通道断开后 ECU 侧状态不可知：安全等级按"未解锁"处理
+        //（状态栏徽章常驻可见，错报"已解锁"会误导后续写操作）。
+        _udsViewModel.Session.ResetForConnectionChange();
         ConnectionState = "已断开";
         StatusMessage = "已断开";
         NotifyConnectionStateChanged();
     }
 
     private bool CanDisconnect() => IsConnected && !_isConnecting;
+
+    /// <summary>
+    /// P1 防事故：断开前的危险任务确认。刷写中断开会把 ECU 留在编程会话
+    /// （擦写过程中断甚至可能让 ECU 起不来）；录制中断开会让正在写的文件停在半截。
+    /// <para>
+    /// 没有危险任务时**直接放行**，不弹窗——每次断开都弹一次确认，用户很快就会
+    /// 条件反射地点「是」，反而比不弹更危险。
+    /// </para>
+    /// </summary>
+    /// <returns><c>true</c> = 可以继续断开。</returns>
+    private async Task<bool> ConfirmDisconnectWhileBusyAsync()
+    {
+        var flashing = _udsViewModel.Flash.IsFlashing;
+        // 读 service 真值：IsRecording 属性来自 200ms 轮询，刚点「开始」就断开会有盲区。
+        var recording = _recordingPanel.IsRecordingNow;
+        if (!flashing && !recording) return true;
+
+        var risks = new List<string>(2);
+        if (flashing)
+            risks.Add("• 正在刷写：断开会让刷写中途失败，ECU 可能停留在编程会话，严重时无法启动。");
+        if (recording)
+            risks.Add("• 正在录制：断开后录制文件仍保持打开，但不再写入新帧。");
+
+        var result = await _messageBoxPrompt.ShowAsync(
+            "确认断开",
+            "当前有进行中的任务：\n\n" + string.Join("\n", risks) + "\n\n仍要断开吗？",
+            Application.Current?.MainWindow).ConfigureAwait(true);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            StatusMessage = "已取消断开";
+            return false;
+        }
+
+        // 复核：模态框只锁住 owner 窗口，UDS 窗口这时仍可操作——用户完全可能在
+        // 弹窗期间点了「开始刷写」。确认过的风险继续放行（他知道），**新出现**的
+        // 风险必须重新确认，否则这一屏确认就白点了。
+        var flashingNow = _udsViewModel.Flash.IsFlashing;
+        var recordingNow = _recordingPanel.IsRecordingNow;
+        if ((flashingNow && !flashing) || (recordingNow && !recording))
+        {
+            StatusMessage = "状态已变化，已取消断开，请再确认一次";
+            return false;
+        }
+        return true;
+    }
 
     /// <summary>
     /// v3.16.9.4 PATCH: handler for <see cref="ICanChannel.ReadLoopError"/>.

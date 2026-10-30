@@ -9,7 +9,7 @@
         xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MultiFrameSendViewModel}"
-        Title="Multi-frame send"
+        Title="批量发送"
         Width="900" Height="600"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="True"
@@ -37,7 +37,7 @@
                      Switching a row's Kind toggles the RowDetails
                      editor via the DataTrigger on RowKind below. -->
                 <DataGridTextColumn Header="ID (hex)" Binding="{Binding IdHexDisplay, Mode=OneWay}" Width="80" IsReadOnly="True"/>
-                <DataGridComboBoxColumn Header="Type" Width="70"
+                <DataGridComboBoxColumn Header="类型" Width="70"
                                         SelectedItemBinding="{Binding RowKind}">
                     <DataGridComboBoxColumn.ElementStyle>
                         <Style TargetType="ComboBox">
@@ -46,7 +46,7 @@
                     </DataGridComboBoxColumn.ElementStyle>
                 </DataGridComboBoxColumn>
                 <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="70" />
-                <DataGridTextColumn Header="Data (hex)" Binding="{Binding DataHex}" Width="*" />
+                <DataGridTextColumn Header="数据 (hex)" Binding="{Binding DataHex}" Width="*" />
                 <DataGridCheckBoxColumn Header="Ext" Binding="{Binding IsExtended}" Width="40" />
                 <DataGridCheckBoxColumn Header="FD"  Binding="{Binding IsFd}" Width="40" />
                 <DataGridCheckBoxColumn Header="RTR" Binding="{Binding IsRtr}" Width="40" />
@@ -61,20 +61,20 @@
                 <DataTemplate>
                     <Border Padding="8" Background="{StaticResource SurfaceSubtle}" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
                         <StackPanel Visibility="{Binding RowKind, Converter={StaticResource KindEquals}, ConverterParameter=Dbc}">
-                            <TextBlock Text="DBC message" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
+                            <TextBlock Text="DBC 消息" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4"/>
                             <ComboBox ItemsSource="{Binding DataContext.AvailableDbcMessages, RelativeSource={RelativeSource AncestorType=Window}}"
                                       SelectedItem="{Binding DbcMessageName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                       DisplayMemberPath="Name"
                                       Width="200" HorizontalAlignment="Left" Margin="0,0,0,8"/>
-                            <TextBlock Text="Signal values" Foreground="{StaticResource TextSecondary}" Margin="0,4,0,4"/>
+                            <TextBlock Text="信号值" Foreground="{StaticResource TextSecondary}" Margin="0,4,0,4"/>
                             <DataGrid ItemsSource="{Binding DbcSignalValues}"
                                       AutoGenerateColumns="False"
                                       CanUserAddRows="True" CanUserDeleteRows="True"
                                       MaxHeight="160"
                                       HeadersVisibility="Column">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Signal" Binding="{Binding Name}" Width="*" />
-                                    <DataGridTextColumn Header="Engineering value" Binding="{Binding Value}" Width="160" />
+                                    <DataGridTextColumn Header="信号" Binding="{Binding Name}" Width="*" />
+                                    <DataGridTextColumn Header="物理值" Binding="{Binding Value}" Width="160" />
                                 </DataGrid.Columns>
                             </DataGrid>
                         </StackPanel>
@@ -87,31 +87,31 @@
         <DockPanel Grid.Row="1" Margin="0,8,0,0">
             <StackPanel Orientation="Horizontal">
                 <Button Content="+ Add"     Command="{Binding AddRowCommand}"      Padding="8,3" Margin="0,0,4,0"/>
-                <Button Content="Remove"    Command="{Binding RemoveRowCommand}"   Padding="8,3" Margin="0,0,4,0"/>
-                <Button Content="Duplicate" Command="{Binding DuplicateRowCommand}" Padding="8,3" Margin="0,0,4,0"/>
+                <Button Content="移除"    Command="{Binding RemoveRowCommand}"   Padding="8,3" Margin="0,0,4,0"/>
+                <Button Content="复制" Command="{Binding DuplicateRowCommand}" Padding="8,3" Margin="0,0,4,0"/>
                 <Button Content="▲ Up"      Command="{Binding MoveUpCommand}"      Padding="8,3" Margin="0,0,4,0"/>
                 <Button Content="▼ Down"    Command="{Binding MoveDownCommand}"    Padding="8,3" Margin="0,0,4,0"/>
-                <Button Content="Clear all" Command="{Binding ClearRowsCommand}"   Padding="8,3" Margin="0,0,16,0"/>
+                <Button Content="全部清空" Command="{Binding ClearRowsCommand}"   Padding="8,3" Margin="0,0,16,0"/>
                 <!-- v2.1.2 PATCH: saved-sequence picker + Save / Load / Delete -->
                 <ComboBox ItemsSource="{Binding SavedSequences}"
                           SelectedItem="{Binding SelectedSavedSequence}"
                           DisplayMemberPath="Name"
                           Width="160" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                <Button Content="Load"   Command="{Binding LoadSavedCommand}"
+                <Button Content="加载"   Command="{Binding LoadSavedCommand}"
                         CommandParameter="{Binding SelectedSavedSequence}"
                         Padding="8,3" Margin="0,0,4,0"/>
-                <Button Content="Delete" Command="{Binding DeleteSavedCommand}"
+                <Button Content="删除" Command="{Binding DeleteSavedCommand}"
                         CommandParameter="{Binding SelectedSavedSequence}"
                         Padding="8,3" Margin="0,0,4,0"/>
                 <TextBox Text="{Binding SaveNameText, UpdateSourceTrigger=PropertyChanged}"
                          Width="120" VerticalAlignment="Center" Margin="0,0,4,0"
-                         ToolTip="Name for the saved sequence"/>
+                         ToolTip="保存序列的名称"/>
                 <Button Command="{Binding SaveCurrentCommand}"
                         Padding="8,3" Margin="0,0,4,0">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{x:Static icons:FluentIconGlyphs.Save}"
                                    FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
-                        <TextBlock Text="Save current" />
+                        <TextBlock Text="保存当前" />
                     </StackPanel>
                 </Button>
             </StackPanel>
@@ -125,7 +125,7 @@
                     Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}" BorderThickness="1"
                     Visibility="{Binding RateLimitRejectedVisibility}">
                 <TextBlock VerticalAlignment="Center" Foreground="{StaticResource WarnText}" FontSize="12">
-                    <Run Text="rate limit rejected: " />
+                    <Run Text="限流拒绝: " />
                     <Run Text="{Binding RateLimitRejectedCount, Mode=OneWay}" />
                 </TextBlock>
             </Border>
@@ -143,24 +143,24 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-            <RadioButton Grid.Column="1" Content="Concurrent" GroupName="Mode"
+            <TextBlock Text="模式:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <RadioButton Grid.Column="1" Content="并发" GroupName="Mode"
                          IsChecked="{Binding IsConcurrent}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-            <RadioButton Grid.Column="2" Content="Sequential" GroupName="Mode"
+            <RadioButton Grid.Column="2" Content="顺序" GroupName="Mode"
                          IsChecked="{Binding IsSequential}"
                          VerticalAlignment="Center" Margin="0,0,12,0"/>
 
-            <TextBlock Grid.Column="3" Text="Delay (ms):" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <TextBlock Grid.Column="3" Text="间隔 (ms):" VerticalAlignment="Center" Margin="0,0,4,0"/>
             <TextBox Grid.Column="4" Text="{Binding DelayMs, UpdateSourceTrigger=PropertyChanged}"
                      Width="60" VerticalAlignment="Center"/>
 
             <StackPanel Grid.Column="6" Orientation="Horizontal">
-                <TextBlock Text="Iterations:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <TextBlock Text="次数:" VerticalAlignment="Center" Margin="0,0,4,0"/>
                 <TextBox Text="{Binding Iterations, UpdateSourceTrigger=PropertyChanged}"
                          Width="60" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Button Content="▶ Send" Command="{Binding SendCommand}" Padding="10,3" Margin="0,0,4,0"/>
                 <Button Content="⏹ Stop" Command="{Binding StopCommand}" Padding="10,3" Margin="0,0,4,0"/>
-                <Button Content="Close" Click="OnCloseClick" Padding="10,3"/>
+                <Button Content="关闭" Click="OnCloseClick" Padding="10,3"/>
             </StackPanel>
         </Grid>
     </Grid>

@@ -27,6 +27,22 @@ public sealed partial class ScriptViewModel
     [LoggerMessage(EventId = 4001, Level = LogLevel.Error, Message = "WebView2 init failed")]
     private static partial void LogWebView2InitFailed(ILogger logger, Exception ex);
 
+    // 脚本文件流（打开 / 保存）——状态栏给人看，日志给排查用。
+    [LoggerMessage(Level = LogLevel.Information, Message = "Script file opened: {Path}")]
+    private static partial void LogScriptOpened(ILogger logger, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Script file open failed: {Path}")]
+    private static partial void LogScriptOpenFailed(ILogger logger, string path, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Script file saved: {Path}")]
+    private static partial void LogScriptSaved(ILogger logger, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Script file save failed: {Path}")]
+    private static partial void LogScriptSaveFailed(ILogger logger, string path, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Script draft restore failed; draft cleared")]
+    private static partial void LogDraftRestoreFailed(ILogger logger, Exception ex);
+
     /// <summary>
     /// v1.2.12 PATCH Item 7 review I-2/I-3: invoked by ScriptView.OnLoaded
     /// when EnsureCoreWebView2Async or NavigateToString throws. Sets

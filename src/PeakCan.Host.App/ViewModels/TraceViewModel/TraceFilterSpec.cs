@@ -44,6 +44,13 @@ public sealed record TraceFilterSpec
     /// <summary>payload 字节模式；null=不过滤。复用既有 <see cref="BytePattern"/>。</summary>
     public BytePattern? Payload { get; init; }
 
+    /// <summary>
+    /// 显式排除的 ID 集合（行右键"排除这个 ID"）；null=不排除。
+    /// 与 <see cref="Exclude"/> 的整体取反语义**无关**：排除命中在取反之前
+    /// 直接判 false，因此"仅错误帧/PGN/通道"等其他过滤条件不会被反转。
+    /// </summary>
+    public IReadOnlySet<uint>? ExcludedIds { get; init; }
+
     /// <summary>全 null/false 的空规范（显示全部）。</summary>
     public static TraceFilterSpec Empty { get; } = new();
 
@@ -56,14 +63,18 @@ public sealed record TraceFilterSpec
         && Channel is null
         && !ErrorsOnly
         && !Exclude
-        && Payload is null;
+        && Payload is null
+        && ExcludedIds is null;
 
     /// <summary>
     /// 纯谓词：<paramref name="entry"/> 是否通过本规范（spec §5.2）。
-    /// 各条件 AND，最后 <see cref="Exclude"/> 对整体取反。
+    /// <see cref="ExcludedIds"/> 命中在整体取反**之前**直接判 false（绝对排除），
+    /// 其余条件 AND，最后 <see cref="Exclude"/> 对整体取反。
     /// </summary>
     public bool Matches(TraceEntry entry)
     {
+        if (ExcludedIds is not null && ExcludedIds.Contains(entry.Id.Raw))
+            return false;
         bool result = MatchesCore(entry);
         return Exclude ? !result : result;
     }

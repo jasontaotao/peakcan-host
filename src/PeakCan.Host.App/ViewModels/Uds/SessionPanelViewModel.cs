@@ -23,6 +23,22 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     [ObservableProperty] private byte?  _securityLevel;
     [ObservableProperty] private bool   _testerPresentActive;
 
+    /// <summary>
+    /// ECU **已授予**的安全等级：只在 SecurityAccess 成功后写入。
+    /// <para>
+    /// 必须和 <see cref="SecurityLevel"/> 分开：后者同时是「等级输入框的绑定值」，
+    /// 用户在框里敲 0B 但没点 SecurityAccess 时 ECU 根本没解锁——徽章若直接投影
+    /// 它就会谎报"已解锁"，操作者据此跳过解锁，后续写操作全部 NRC 0x33。
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private byte? _grantedSecurityLevel;
+
+    /// <summary>安全等级展示文案（主窗口徽章与 UDS 窗口头部共用）。</summary>
+    public string SecurityLevelText => GrantedSecurityLevel is { } level ? $"等级 {level}" : "未解锁";
+
+    partial void OnGrantedSecurityLevelChanged(byte? value)
+        => OnPropertyChanged(nameof(SecurityLevelText));
+
     public SessionPanelViewModel(UdsClient udsClient, ILogger<SessionPanelViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(udsClient);
@@ -58,10 +74,7 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     {
         if (TesterPresentActive)
         {
-            _testerPresentCts?.Cancel();
-            _testerPresentCts?.Dispose();
-            _testerPresentCts = null;
-            TesterPresentActive = false;
+            StopTesterPresentLoop();
             AppendLog("Info", "TesterPresent stopped");
             return;
         }
@@ -117,6 +130,7 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
             var level = SecurityLevel ?? 0x01;
             var response = await _udsClient.SecurityAccessAsync(level, CancellationToken.None);
             SecurityLevel = level;  // reflect the level that was actually used
+            GrantedSecurityLevel = level;   // 只有这里写"已授予"
             AppendLog("Info", $"SecurityAccess 0x{level:X2} succeeded ({response.Length} bytes).");
         }
         catch (KeyAlgorithmNotConfiguredException ex)
@@ -125,22 +139,26 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
             AppendLog("Warn", ex.Message);
             AppendLog("Info", "Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.");
             SecurityLevel = null;
+            GrantedSecurityLevel = null;
         }
         catch (UdsNegativeResponseException ex)
         {
             AppendLog("Warn", $"Security access failed: NRC 0x{(byte)ex.ResponseCode:X2}");
             SecurityLevel = null;
+            GrantedSecurityLevel = null;
         }
         catch (InvalidOperationException ex)
         {
             AppendLog("Warn", ex.Message);
             AppendLog("Info", "Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.");
             SecurityLevel = null;
+            GrantedSecurityLevel = null;
         }
         catch (Exception ex)
         {
             AppendLog("Error", $"Security access error: {ex.Message}");
             SecurityLevel = null;
+            GrantedSecurityLevel = null;
         }
     }
 
@@ -152,6 +170,8 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
             // the shared ObservableCollection on this continuation path.
             await _udsClient.DiagnosticSessionControlAsync(subFunction);
             CurrentSession = label;
+            // ISO 14229：任何会话切换都会终止已授予的安全访问。
+            GrantedSecurityLevel = null;
             AppendLog("Info", $"Session → {label}");
         }
         catch (Exception ex)
@@ -162,6 +182,39 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
 
     private void AppendLog(string level, string message)
         => _log?.Add(new UdsLogLine($"{DateTime.Now:HH:mm:ss.fff}", level, message));
+
+    /// <summary>
+    /// 停掉保活循环（cancel + dispose + 复位标志）。幂等：没在跑时调用是安全的，
+    /// 只是什么都不做——TesterPresentActive 本来就已经是 false。
+    /// </summary>
+    private void StopTesterPresentLoop()
+    {
+        _testerPresentCts?.Cancel();
+        _testerPresentCts?.Dispose();
+        _testerPresentCts = null;
+        TesterPresentActive = false;
+    }
+
+    /// <summary>
+    /// P1 防事故：刷写开始，立刻停保活循环。
+    /// <para>
+    /// TesterPresent 每 2 秒往诊断 CAN-ID 发 <c>3E 00</c>，刷写用的是编程会话——
+    /// 两者抢同一个 ECU，轻则刷写失败重则 ECU 停在半截。禁用按钮管不住已经在跑的循环，
+    /// 所以这里必须真停。
+    /// </para>
+    /// <para>
+    /// **刻意不自动恢复**：刷写收尾常跟着 ECU 复位/擦除后处理，这时注入 3E 会打断收尾。
+    /// 宁可让用户刷完再明确点一次，也不替他做这个决定。
+    /// </para>
+    /// </summary>
+    public void SuspendForFlash()
+    {
+        // 刷写走副栈，会把 ECU 切到编程会话 → 诊断侧已授予的安全等级失效。
+        GrantedSecurityLevel = null;
+        if (!TesterPresentActive) return;
+        StopTesterPresentLoop();
+        AppendLog("Warn", "TesterPresent 已因刷写暂停（刷写结束后不会自动恢复，需要时请重新开启）");
+    }
 
     [LoggerMessage(EventId = 1000, Level = LogLevel.Warning,
         Message = "SecurityAccess key algorithm not configured for level 0x{Level:X2}")]
@@ -178,6 +231,12 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     /// cycles, so a close must leave it ready to re-arm the loop for the next window
     /// instance that binds it.
     /// </summary>
+    /// <summary>
+    /// 通道断开后 ECU 侧状态不可知。<see cref="GrantedSecurityLevel"/> 按"未解锁"
+    /// 处理：错报已解锁会误导后续写操作，错报未解锁只是让用户多点一次解锁。
+    /// </summary>
+    public void ResetForConnectionChange() => GrantedSecurityLevel = null;
+
     public void StopForWindowClose()
     {
         // Reset the public flag BEFORE cancelling the CTS so observers see

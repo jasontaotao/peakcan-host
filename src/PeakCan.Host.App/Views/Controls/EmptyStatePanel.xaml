@@ -1,0 +1,73 @@
+<UserControl x:Class="PeakCan.Host.App.Views.Controls.EmptyStatePanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
+             mc:Ignorable="d">
+    <UserControl.Resources>
+        <!-- 自带而不是引用 App.xaml：控件要能在没有 Application 的环境下加载
+             （STA 测试、设计器）；跨程序集资源查找失败会让整个视图抛 XamlParseException。 -->
+        <conv:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
+    </UserControl.Resources>
+    <!--
+        P0 空态面板：表格为空时覆盖在表格上，给"一句解释 + 一个出路"。
+        面板的 DataContext 继承自宿主 VM，所以自身属性一律经 RelativeSource 回指
+        UserControl —— 写 {Binding Title} 会去宿主 VM 上找同名属性而失败。
+        未提供 ActionCommand 时按钮整块消失（不是留一个禁用按钮）。
+    -->
+    <Grid Background="{x:Null}">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                    MaxWidth="440" Margin="24,16">
+            <TextBlock Text="{Binding Title, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       FontSize="14" FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextSecondary}"
+                       TextAlignment="Center" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Description, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                       FontSize="12"
+                       Foreground="{DynamicResource TextDisabled}"
+                       Margin="0,6,0,0"
+                       TextAlignment="Center" TextWrapping="Wrap" />
+            <Button Content="{Binding ActionText, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Command="{Binding ActionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    Visibility="{Binding ActionCommand, RelativeSource={RelativeSource AncestorType=UserControl},
+                                         Converter={StaticResource NullToVisibilityConverter}}"
+                    HorizontalAlignment="Center"
+                    Margin="0,12,0,0" Padding="14,4" MinWidth="88"
+                    Cursor="Hand">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="Background" Value="{DynamicResource Accent}" />
+                        <Setter Property="Foreground" Value="{DynamicResource TextOnAccent}" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="Bd"
+                                            Background="{TemplateBinding Background}"
+                                            CornerRadius="3">
+                                        <ContentPresenter Margin="{TemplateBinding Padding}"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center" />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentHover}" />
+                                        </Trigger>
+                                        <Trigger Property="IsPressed" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentPressed}" />
+                                        </Trigger>
+                                        <Trigger Property="IsEnabled" Value="False">
+                                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Border}" />
+                                            <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </StackPanel>
+    </Grid>
+</UserControl>

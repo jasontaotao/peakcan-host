@@ -77,7 +77,7 @@ public class DbcViewModelTests
         vm.Messages.Should().HaveCount(2);
         vm.Messages[0].Name.Should().Be("M1");
         vm.Messages[1].Name.Should().Be("M2");
-        vm.Status.Should().Contain("Loaded 2 messages");
+        vm.Status.Should().Contain("已加载 2 条消息");
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class DbcViewModelTests
 
             vm.Messages.Should().HaveCount(1);
             vm.Messages[0].Name.Should().Be("Msg");
-            vm.Status.Should().Contain("Loaded 1 message");
+            vm.Status.Should().Contain("已加载 1 条消息");
             vm.LoadedPath.Should().Be(path);
         }
         finally

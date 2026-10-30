@@ -1,18 +1,21 @@
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Web.WebView2.Core;
+using PeakCan.Host.App.Services.Scripting;
 using PeakCan.Host.App.ViewModels;
 
 namespace PeakCan.Host.App.Views;
 
 /// <summary>
-/// Code-behind for the Script tab. Hosts a WebView2 control with
-/// CodeMirror 6 for JavaScript editing.
+/// Code-behind for the Script tab. Hosts a WebView2 control that renders the
+/// editor page produced by <see cref="ScriptEditorHtml"/>; editor text flows
+/// back through <see cref="ScriptEditorBridge"/> (postMessage JSON).
 /// </summary>
 public partial class ScriptView : UserControl
 {
     private ScriptViewModel? _viewModel;
+    // 页面 → VM 的解析层；第一次收到消息时创建（_viewModel 在 OnLoaded 才赋值）。
+    private ScriptEditorBridge? _bridge;
     // v1.2.13 PATCH Item 6: guard against post-await side effects after the
     // view is unloaded. WPF may re-fire Loaded after Unloaded during
     // navigation; without this guard the post-await continuation writes
@@ -51,7 +54,30 @@ public partial class ScriptView : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _isLoaded = false;
+        // VM 是 DI 单例：不注销就是永久引用，而且下次 Loaded 会重复订阅。
+        _viewModel?.EditorTextReplaceRequested -= OnEditorTextReplaceRequested;
+        EditorWebView.NavigationCompleted -= OnEditorNavigationCompleted;
     }
+
+    /// <summary>
+    /// C# 侧（打开脚本文件）要求整段替换编辑器内容。
+    /// </summary>
+    private void OnEditorTextReplaceRequested(string text) => PostEditorText(text);
+
+    /// <summary>
+    /// 每次导航完成都把 VM 里的权威文本推一遍。页面重建（切 tab）与
+    /// "导航途中点了打开"两种时序都靠它兜底；WebView 未就绪时 <c>CoreWebView2</c>
+    /// 为 null，直接跳过——<see cref="OnLoaded"/> 会用 <c>ScriptText</c> 重建页面。
+    /// </summary>
+    private void OnEditorNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (!e.IsSuccess || _viewModel is null) return;
+        PostEditorText(_viewModel.ScriptText);
+    }
+
+    private void PostEditorText(string text)
+        => EditorWebView.CoreWebView2?.PostWebMessageAsString(
+            ScriptEditorHtml.BuildSetTextMessage(text));
 
     // v1.2.13 PATCH Item 6: test helpers — drive Loaded / Unloaded events
     // synchronously from unit tests without instantiating a full WPF
@@ -71,6 +97,12 @@ public partial class ScriptView : UserControl
         _viewModel = DataContext as ScriptViewModel;
         if (_viewModel is null) return;
         _isLoaded = true;
+        // DataContext 可能被换掉（视图实例被复用），桥必须跟着换，不能缓存旧的 VM。
+        _bridge = null;
+        // C# → 页面的回灌通道（打开文件后整段替换）。先退订再订阅：
+        // WPF 会重复触发 Loaded，重复订阅会让一次打开推两遍。
+        _viewModel.EditorTextReplaceRequested -= OnEditorTextReplaceRequested;
+        _viewModel.EditorTextReplaceRequested += OnEditorTextReplaceRequested;
 
         try
         {
@@ -79,9 +111,15 @@ public partial class ScriptView : UserControl
             // v1.2.13 PATCH Item 6: guard post-await VM writes.
             if (!_isLoaded) return;
 
-            // Load CodeMirror editor from embedded HTML.
-            var editorHtml = GetEditorHtml();
-            EditorWebView.NavigateToString(editorHtml);
+            // 导航完成后补推一次权威文本：页面里的 message 监听器是在文档解析后
+            // 才注册的，导航途中发出的 setText 会被丢掉（用户切回本 tab 后立刻
+            // 点「打开」就能撞上）。这一推把初值与运行期回灌统一成一条路径。
+            EditorWebView.NavigationCompleted -= OnEditorNavigationCompleted;
+            EditorWebView.NavigationCompleted += OnEditorNavigationCompleted;
+
+            // 编辑器页面 + 回填草稿。初值直接嵌在 HTML 里而不是导航后再灌：
+            // 每次切回本 tab 都会重新 NavigateToString，嵌入初值才能保住草稿。
+            EditorWebView.NavigateToString(ScriptEditorHtml.Build(_viewModel.ScriptText));
 
             if (!_isLoaded) return;
             _viewModel.IsEditorReady = true;
@@ -105,107 +143,46 @@ public partial class ScriptView : UserControl
     {
         if (!e.IsSuccess) return;
 
-        // Add JavaScript-to-C# bridge for script text synchronization.
-        EditorWebView.CoreWebView2.AddHostObjectToScript("scriptBridge", new ScriptBridge(this));
+        // 页面 → C# 的唯一通道：postMessage(JSON)。解析交给 ScriptEditorBridge，
+        // 这里只负责"要不要运行"这一步（见 ScriptEditorHtml 顶部的协议说明）。
+        // WebMessageReceived 在 UI 线程触发，因此直接写 VM 是安全的。
+        // 先退订再订阅：WebView2 若因崩溃/重建再次触发本事件，重复订阅会让
+        // 同一条 run 消息执行两次。
+        EditorWebView.CoreWebView2.WebMessageReceived -= OnEditorWebMessageReceived;
+        EditorWebView.CoreWebView2.WebMessageReceived += OnEditorWebMessageReceived;
     }
 
-    /// <summary>
-    /// Get the CodeMirror 6 editor HTML.
-    /// </summary>
-    private static string GetEditorHtml()
+    private void OnEditorWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
-        // Inline CodeMirror 6 with JavaScript language support.
-        // In production, this would be loaded from an embedded resource.
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                body {
-                    margin: 0;
-                    padding: 0;
-                    overflow: hidden;
-                    background: #1E1E1E;
-                }
-                #editor {
-                    height: 100vh;
-                    width: 100vw;
-                }
-            </style>
-        </head>
-        <body>
-            <div id="editor"></div>
-            <script type="module">
-                // CodeMirror 6 inline bundle (simplified for MVP).
-                // In production, use a bundled version from CDN or embedded resource.
-                const editor = document.getElementById('editor');
+        if (_viewModel is null) return;
 
-                // Create a simple textarea as fallback.
-                const textarea = document.createElement('textarea');
-                textarea.style.cssText = `
-                    width: 100%;
-                    height: 100%;
-                    background: #1E1E1E;
-                    color: #D4D4D4;
-                    font-family: 'Consolas', monospace;
-                    font-size: 14px;
-                    border: none;
-                    outline: none;
-                    resize: none;
-                    padding: 8px;
-                    box-sizing: border-box;
-                `;
-                textarea.placeholder = '// Write your JavaScript script here...\\n// Example: can.onFrame((frame) => { log(frame.id); });';
-                editor.appendChild(textarea);
-
-                // Expose getText/setText for C# bridge.
-                window.getScriptText = () => textarea.value;
-                window.setScriptText = (text) => { textarea.value = text; };
-
-                // Ctrl+Enter to run.
-                textarea.addEventListener('keydown', (e) => {
-                    if (e.ctrlKey && e.key === 'Enter') {
-                        // Notify C# to run the script.
-                        window.chrome?.webview?.postMessage('run');
-                    }
-                });
-            </script>
-        </body>
-        </html>
-        """;
-    }
-
-    /// <summary>
-    /// Bridge object exposed to JavaScript for script text synchronization.
-    /// </summary>
-    [System.Runtime.InteropServices.ComVisible(true)]
-    public class ScriptBridge
-    {
-        private readonly ScriptView _view;
-
-        public ScriptBridge(ScriptView view)
+        string? json;
+        try
         {
-            _view = view;
+            json = e.TryGetWebMessageAsString();
+        }
+        catch (ArgumentException)
+        {
+            // 非字符串载荷不属于编辑器的协议，忽略即可。
+            return;
         }
 
-        /// <summary>
-        /// Called from JavaScript when the script text changes.
-        /// </summary>
-        public void SetScriptText(string text)
+        var bridge = _bridge ??= new ScriptEditorBridge(_viewModel);
+        switch (bridge.HandleMessage(json))
         {
-            if (_view._viewModel is not null)
-            {
-                _view._viewModel.ScriptText = text;
-            }
-        }
-
-        /// <summary>
-        /// Called from JavaScript to get the current script text.
-        /// </summary>
-        public string GetScriptText()
-        {
-            return _view._viewModel?.ScriptText ?? "";
+            case EditorRequest.Run:
+                if (_viewModel.RunCommand.CanExecute(null)) _viewModel.RunCommand.Execute(null);
+                break;
+            case EditorRequest.Save:
+                // 编辑器内的 Ctrl+S / Ctrl+Shift+S 只能从这里发动（WebView2 收不到窗口快捷键）。
+                if (_viewModel.SaveCommand.CanExecute(null)) _viewModel.SaveCommand.Execute(null);
+                break;
+            case EditorRequest.SaveAs:
+                if (_viewModel.SaveAsCommand.CanExecute(null)) _viewModel.SaveAsCommand.Execute(null);
+                break;
+            case EditorRequest.New:
+                if (_viewModel.NewCommand.CanExecute(null)) _viewModel.NewCommand.Execute(null);
+                break;
         }
     }
 }

@@ -75,6 +75,28 @@ public sealed partial class UdsViewModel : ObservableObject
         // Flash panel has its own status/progress surface; it does NOT append to the
         // shared UDS log — flash output is voluminous (per-block TransferData) and would
         // drown the diagnostic log. Keep the logs separate by design.
+
+        // P1 防事故：刷写状态变化要驱动面板锁定 + 停保活循环。所有 ctor
+        // （含 back-compat）都汇到这里，订阅只有一处。
+        Flash.PropertyChanged += OnFlashPropertyChanged;
+    }
+
+    /// <summary>
+    /// 刷写期间诊断面板是否可用。XAML 把它绑到会话条与 DIDs/Routines/DTCs 的
+    /// <c>IsEnabled</c> 上——刷写走编程会话，诊断面板此时发任何 UDS 请求都会抢 ECU。
+    /// </summary>
+    public bool IsDiagnosticsEnabled => !Flash.IsFlashing;
+
+    private void OnFlashPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(FlashPanelViewModel.IsFlashing)) return;
+
+        OnPropertyChanged(nameof(IsDiagnosticsEnabled));
+        if (Flash.IsFlashing)
+        {
+            // 按钮禁用挡不住已经在跑的保活循环，必须真停（见 SuspendForFlash 的说明）。
+            Session.SuspendForFlash();
+        }
     }
 
     /// <summary>

@@ -46,7 +46,13 @@ public sealed partial class SignalViewModel
     public void Reset()
     {
         Latest.Clear();
+        // 表格绑的是 FilteredSignals 而不是 Latest：只清 Latest 会把上一份 DBC
+        // 的信号留在表里，直到下一帧解码才被替换（换 DBC 后显示上自相矛盾）。
+        FilteredSignals.Clear();
         _chartVm?.Reset();
+        // P0 空态判据走的是"Latest 为空"——这里不补通知，换 DBC 后
+        // "还没有解码出信号"面板就永远不会出现。
+        NotifyEmptyStateChanged();
     }
 
     /// <summary>

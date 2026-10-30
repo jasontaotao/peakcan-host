@@ -73,6 +73,15 @@ public sealed partial class TraceViewModel
     /// <summary>当前生效的过滤规范（解析成功的最新 spec；非法时沿用上一有效）。</summary>
     private TraceFilterSpec _activeSpec = TraceFilterSpec.Empty;
 
+    /// <summary>
+    /// 行右键"排除这个 ID"的绝对排除集合。独立于 <see cref="ExcludeMatch"/>
+    /// 的整体取反——排除命中在取反前判 false，其他过滤条件不受影响。
+    /// </summary>
+    private readonly HashSet<uint> _excludedIds = new();
+
+    /// <summary>排除 ID 的显示文本（与界面 ID 列同格式），供 chip 与状态提示使用。</summary>
+    private readonly Dictionary<uint, string> _excludedIdLabels = new();
+
     partial void OnIdListTextChanged(string value) => TryRebuildSpec();
     partial void OnPgnTextChanged(string value) => TryRebuildSpec();
     partial void OnSaTextChanged(string value) => TryRebuildSpec();
@@ -98,6 +107,8 @@ public sealed partial class TraceViewModel
         if (error is not null)
         {
             FilterErrorText = error;
+            // chip 仍反映用户已输入的原始 token，便于就地删除非法项。
+            RebuildFilterChips();
             return; // 沿用 _activeSpec，不动 EntriesView。
         }
 
@@ -108,14 +119,47 @@ public sealed partial class TraceViewModel
             Channel = ChannelFilter,
             ErrorsOnly = ShowErrorsOnly,
             Exclude = ExcludeMatch,
+            // 复制一份：spec 语义不可变，集合可能被后续右键继续追加。
+            ExcludedIds = _excludedIds.Count == 0 ? null : _excludedIds.ToHashSet(),
         };
         FilterErrorText = null;
+        ApplyActiveSpec();
+    }
+
+    /// <summary>
+    /// 把当前 <see cref="_activeSpec"/> 应用到视图并刷新状态文本。
+    /// 正常路径由 <see cref="TryRebuildSpec"/> 调用；过滤文本非法时，
+    /// 行右键的排除操作也用它直接应用（parser 早退不会重建 spec）。
+    /// </summary>
+    private void ApplyActiveSpec()
+    {
         // ListCollectionView.Filter 是 Predicate<object>，需包一层（Entries 元素都是 TraceEntry）。
         EntriesView.Filter = _activeSpec.IsEmpty
             ? null
             : o => o is TraceEntry e && _activeSpec.Matches(e);
         EntriesView.Refresh();
         UpdateStatusText();
+        RebuildFilterChips();
+    }
+
+    /// <summary>
+    /// 过滤文本处于非法态时，<see cref="TryRebuildSpec"/> 会早退并沿用旧 spec
+    /// （旧排除集仍在），导致"排除/清除排除"看起来无效。这里只更新 spec 的
+    /// <see cref="TraceFilterSpec.ExcludedIds"/> 维度并直接应用，不触碰文本字段。
+    /// </summary>
+    private void ApplyExclusionChange()
+    {
+        if (FilterErrorText is null)
+        {
+            TryRebuildSpec();
+            return;
+        }
+
+        _activeSpec = _activeSpec with
+        {
+            ExcludedIds = _excludedIds.Count == 0 ? null : _excludedIds.ToHashSet(),
+        };
+        ApplyActiveSpec();
     }
 
     /// <summary>清空全部过滤字段 + 重置为全显（含并入 spec 的通道/仅错误，review 2026-08-31）。</summary>
@@ -135,11 +179,11 @@ public sealed partial class TraceViewModel
         PayloadOffsetText = "";
         PayloadMaskHex = "";
         PayloadValueHex = "";
+        _excludedIds.Clear();
+        _excludedIdLabels.Clear();
         FilterErrorText = null;
         _activeSpec = TraceFilterSpec.Empty;
-        EntriesView.Filter = null;
-        EntriesView.Refresh();
-        UpdateStatusText();
+        ApplyActiveSpec();
     }
 
     // —— 高亮 / 统计 / 状态（后续任务填充，先编译占位）——
@@ -181,10 +225,20 @@ public sealed partial class TraceViewModel
         }
     }
 
-    /// <summary>状态文本：`显示 X / 共 Y（上限 Z）｜总收 N`（spec §5.8）。</summary>
+    /// <summary>状态文本：`显示 X / 共 Y（上限 Z）｜总收 N`；有排除时追加 `｜已排除 M 个 ID`（spec §5.8）。</summary>
     [ObservableProperty]
     private string _statusText = "";
 
     private void UpdateStatusText()
-        => StatusText = $"显示 {EntriesView.Count} / 共 {Entries.Count}（上限 {MaxRows}）｜总收 {TotalFrameCount}";
+    {
+        // 排除集合是隐藏状态：在状态栏显式给出数量，避免"行莫名消失"不可解释。
+        var excludedSuffix = _excludedIds.Count == 0
+            ? ""
+            : $"｜已排除 {_excludedIds.Count} 个 ID";
+        StatusText =
+            $"显示 {EntriesView.Count} / 共 {Entries.Count}（上限 {MaxRows}）｜总收 {TotalFrameCount}{excludedSuffix}";
+
+        // 空态判据走同一汇合点（每次入列/过滤/清空都会经过这里）。
+        NotifyEmptyStateChanged();
+    }
 }

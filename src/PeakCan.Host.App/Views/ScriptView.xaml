@@ -18,7 +18,7 @@
         <!-- Toolbar -->
         <ToolBar Grid.Row="0" Margin="4">
             <Button Command="{Binding RunCommand}"
-                    ToolTip="Run the script (Ctrl+Enter)"
+                    ToolTip="运行脚本 (Ctrl+Enter)"
                     Padding="8,4">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{x:Static icons:FluentIconGlyphs.Play}"
@@ -27,7 +27,7 @@
                 </StackPanel>
             </Button>
             <Button Command="{Binding StopCommand}"
-                    ToolTip="Stop the running script"
+                    ToolTip="停止正在运行的脚本"
                     Padding="8,4">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{x:Static icons:FluentIconGlyphs.Stop}"
@@ -36,8 +36,17 @@
                 </StackPanel>
             </Button>
             <Separator />
+            <Button Command="{Binding NewCommand}"
+                    ToolTip="新建脚本 (Ctrl+N)：清空编辑器并解绑当前文件"
+                    Padding="8,4">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Add}"
+                               FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                    <TextBlock Text="新建" />
+                </StackPanel>
+            </Button>
             <Button Command="{Binding OpenCommand}"
-                    ToolTip="Open a script file"
+                    ToolTip="打开脚本文件（.js）"
                     Padding="8,4">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{x:Static icons:FluentIconGlyphs.OpenFolder}"
@@ -45,13 +54,42 @@
                     <TextBlock Text="打开" />
                 </StackPanel>
             </Button>
+            <!-- 最近打开：与会话 MRU 分开（脚本不会出现在「文件 → 最近打开」里）。 -->
+            <Menu VerticalAlignment="Center" Background="Transparent" Padding="0" Margin="4,0,0,0"
+                  IsEnabled="{Binding HasRecentScripts}"
+                  ToolTip="最近打开过的脚本（空列表时置灰）">
+                <MenuItem Header="最近脚本" ItemsSource="{Binding RecentScripts}">
+                    <MenuItem.ItemTemplate>
+                        <DataTemplate>
+                            <!-- 菜单弹出层不在 ScriptView 的可视祖先链上，AncestorType=Menu
+                                 是本仓库已验证的写法（见 AppShell 的「最近打开」菜单）。 -->
+                            <MenuItem Header="{Binding Label}"
+                                      ToolTip="{Binding Path}"
+                                      Command="{Binding DataContext.OpenRecentScriptCommand,
+                                                        RelativeSource={RelativeSource AncestorType=Menu}}"
+                                      CommandParameter="{Binding Path}" />
+                        </DataTemplate>
+                    </MenuItem.ItemTemplate>
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="清空最近脚本" Command="{Binding ClearRecentScriptsCommand}" />
+            </Menu>
             <Button Command="{Binding SaveCommand}"
-                    ToolTip="Save the current script"
+                    ToolTip="保存当前脚本 (Ctrl+S)"
                     Padding="8,4">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{x:Static icons:FluentIconGlyphs.Save}"
                                FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
                     <TextBlock Text="保存" />
+                </StackPanel>
+            </Button>
+            <Button Command="{Binding SaveAsCommand}"
+                    ToolTip="另存为 (Ctrl+Shift+S)"
+                    Padding="8,4">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{x:Static icons:FluentIconGlyphs.Save}"
+                               FontFamily="Segoe Fluent Icons" Margin="0,0,4,0" />
+                    <TextBlock Text="另存为" />
                 </StackPanel>
             </Button>
             <Separator />

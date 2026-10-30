@@ -24,7 +24,7 @@ public sealed partial class AppShellViewModel
         // tab. The actual file-open dialog is owned by the per-view
         // Open button inside DbcViewModel.OpenAsync; the menu item
         // only navigates so the user sees the right surface.
-        SelectedMainTabIndex = 1;
+        TrySelectMainTab(DbcTabIndex);
         LogOpenDbcInvoked(_logger);
     }
 

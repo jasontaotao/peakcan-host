@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
+             xmlns:controls="clr-namespace:PeakCan.Host.App.Views.Controls"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
@@ -16,6 +17,26 @@
             <TextBlock Text="  信号数: " FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0" />
             <TextBlock Text="{Binding TotalSignals}" VerticalAlignment="Center" />
         </StackPanel>
+        <!-- P1 防事故：加载失败不再是死路。错误条给出三个出口——
+             重试同一个文件、去看日志、在资源管理器里定位这个 DBC。
+             失败时显示的是一条可操作的路径，而不是一行 FAIL 文字。 -->
+        <Border DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8,6"
+                Background="{StaticResource ErrorBg}"
+                BorderBrush="{StaticResource Error}" BorderThickness="1" CornerRadius="4"
+                Visibility="{Binding LoadError, Converter={StaticResource NullToVisibilityConverter}}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="重试" Command="{Binding RetryLoadCommand}" Padding="10,2" Margin="6,0,0,0" />
+                    <Button Content="查看日志" Command="{Binding OpenLogFolderCommand}" Padding="10,2" Margin="6,0,0,0" />
+                    <Button Content="打开目录" Command="{Binding RevealDbcFileCommand}" Padding="10,2" Margin="6,0,0,0" />
+                </StackPanel>
+                <TextBlock Text="{Binding LoadError}"
+                           Foreground="{StaticResource Error}"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+
         <!-- Search bar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
             <TextBlock Text="搜索:" VerticalAlignment="Center" Margin="0,0,4,0" />
@@ -23,42 +44,79 @@
             <TextBlock Text="{Binding FilteredMessages.Count}" VerticalAlignment="Center" Margin="8,0,0,0" />
             <TextBlock Text=" 条显示" VerticalAlignment="Center" />
         </StackPanel>
-        <DataGrid ItemsSource="{Binding FilteredMessages}"
-                  AutoGenerateColumns="False"
-                  IsReadOnly="True"
-                  EnableRowVirtualization="True"
-                  EnableColumnVirtualization="True"
-                  VirtualizingPanel.IsVirtualizing="True"
-                  VirtualizingPanel.VirtualizationMode="Recycling"
-                  VirtualizingPanel.ScrollUnit="Pixel"
-                  ScrollViewer.CanContentScroll="True"
-                  RowHeight="20"
-                  AlternatingRowBackground="{StaticResource RowAlternate}"
-                  RowDetailsVisibilityMode="VisibleWhenSelected">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="120" />
-                <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" />
-                <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="60" />
-                <DataGridTextColumn Header="发送方" Binding="{Binding Sender}" Width="120" />
-                <DataGridTextColumn Header="信号数" Binding="{Binding SignalCount}" Width="80" />
-                <!-- v3.61.0: DBC CM_ comment for the message. Only shows
-                     when non-null/empty; uses the NullToVisibilityConverter
-                     registered in App.xaml. Displayed in TextSecondary italic. -->
-                <DataGridTextColumn Header="注释" Binding="{Binding Comment}"
-                                    Width="*" Foreground="{StaticResource TextSecondary}"
-                                    FontStyle="Italic" />
-            </DataGrid.Columns>
-            <DataGrid.RowDetailsTemplate>
-                <DataTemplate>
-                    <ItemsControl ItemsSource="{Binding Signals}" Margin="16,4,4,4">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11" Margin="0,1" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </DataTemplate>
-            </DataGrid.RowDetailsTemplate>
-        </DataGrid>
+        <!-- 空态面板与表格叠在同一个 Grid 里，面板声明在表格之后 → 画在上层。 -->
+        <Grid>
+            <DataGrid ItemsSource="{Binding FilteredMessages}"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      VirtualizingPanel.ScrollUnit="Pixel"
+                      ScrollViewer.CanContentScroll="True"
+                      AlternatingRowBackground="{StaticResource RowAlternate}"
+                      RowDetailsVisibilityMode="VisibleWhenSelected">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="120" />
+                    <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" />
+                    <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="60" />
+                    <DataGridTextColumn Header="发送方" Binding="{Binding Sender}" Width="120" />
+                    <DataGridTextColumn Header="信号数" Binding="{Binding SignalCount}" Width="80" />
+                    <!-- v3.61.0: DBC CM_ comment for the message. Only shows
+                         when non-null/empty; uses the NullToVisibilityConverter
+                         registered in App.xaml. Displayed in TextSecondary italic. -->
+                    <DataGridTextColumn Header="注释" Binding="{Binding Comment}"
+                                        Width="*" Foreground="{StaticResource TextSecondary}"
+                                        FontStyle="Italic" />
+                </DataGrid.Columns>
+                <DataGrid.RowDetailsTemplate>
+                    <DataTemplate>
+                        <ItemsControl ItemsSource="{Binding Signals}" Margin="16,4,4,4">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11" Margin="0,1" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DataTemplate>
+                </DataGrid.RowDetailsTemplate>
+            </DataGrid>
+            <!-- P0 空态一：一个 DBC 都没加载。这里能给出"打开 DBC"这个出路。 -->
+            <controls:EmptyStatePanel Title="还没有加载 DBC"
+                                      Description="选一个 .dbc 文件后，消息、信号与发送方会列在这里。"
+                                      ActionText="打开 DBC…"
+                                      ActionCommand="{Binding OpenCommand}"
+                                      AutomationProperties.Name="空态：还没有加载 DBC">
+                <controls:EmptyStatePanel.Style>
+                    <Style TargetType="controls:EmptyStatePanel">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasNoMessages}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </controls:EmptyStatePanel.Style>
+            </controls:EmptyStatePanel>
+
+            <!-- P0 空态二：有消息但被搜索全挡掉。必须给"清除搜索"，否则用户只能自己回想改了什么。 -->
+            <controls:EmptyStatePanel Title="搜索没有匹配的消息"
+                                      Description="{Binding SearchText, StringFormat='没有名称、发送方或信号包含「{0}」的消息。'}"
+                                      ActionText="清除搜索"
+                                      ActionCommand="{Binding ClearSearchCommand}"
+                                      AutomationProperties.Name="空态：搜索没有匹配的消息">
+                <controls:EmptyStatePanel.Style>
+                    <Style TargetType="controls:EmptyStatePanel">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSearchEmpty}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </controls:EmptyStatePanel.Style>
+            </controls:EmptyStatePanel>
+        </Grid>
     </DockPanel>
 </UserControl>

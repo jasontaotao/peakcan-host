@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Markup;
@@ -87,6 +89,81 @@ public class ScriptViewTests
             Action actAgain = () => view.RaiseUnloadedForTesting();
             actAgain.Should().NotThrow("Unloaded must be idempotent");
         });
+    }
+
+    [Fact]
+    public void Save_As_Is_Wired_In_The_Toolbar_And_The_File_Menu()
+    {
+        // 绑定写错是静默失效（按钮点了没反应），所以按 XAML 文本 + VM 反射两头钉。
+        var view = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "Views", "ScriptView.xaml"));
+        view.Should().Contain("{Binding SaveAsCommand}");
+
+        var shell = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "AppShell.xaml"));
+        shell.Should().Contain("另存为脚本");
+        shell.Should().Contain("{Binding SaveScriptAsCommand}");
+
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.SaveAsCommand))
+            .Should().NotBeNull("菜单/按钮绑的命令必须真的存在于 VM 上");
+    }
+
+    [Fact]
+    public void Recent_Scripts_Menu_Is_Wired_To_The_ViewModel()
+    {
+        var xaml = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "Views", "ScriptView.xaml"));
+
+        xaml.Should().Contain("最近脚本");
+        xaml.Should().Contain("{Binding RecentScripts}");
+        xaml.Should().Contain("{Binding DataContext.OpenRecentScriptCommand");
+        xaml.Should().Contain("{Binding ClearRecentScriptsCommand}");
+        xaml.Should().Contain("IsEnabled=\"{Binding HasRecentScripts}\"",
+            "空列表时菜单项要置灰，否则点开是一个空菜单");
+
+        // 绑定路径写错是静默失效：两个名字都必须在 VM 上真实存在。
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.RecentScripts)).Should().NotBeNull();
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.HasRecentScripts)).Should().NotBeNull();
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.OpenRecentScriptCommand)).Should().NotBeNull();
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.ClearRecentScriptsCommand)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void New_Script_Is_Wired_In_The_Toolbar_And_The_File_Menu()
+    {
+        var view = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "Views", "ScriptView.xaml"));
+        view.Should().Contain("{Binding NewCommand}");
+
+        var shell = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "AppShell.xaml"));
+        shell.Should().Contain("新建脚本");
+        shell.Should().Contain("{Binding NewScriptCommand}");
+
+        typeof(ScriptViewModel).GetProperty(nameof(ScriptViewModel.NewCommand))
+            .Should().NotBeNull("工具栏/菜单绑的命令必须真的存在于 VM 上");
+        typeof(AppShellViewModel).GetProperty(nameof(AppShellViewModel.NewScriptCommand))
+            .Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Dirty_Marker_Is_Bound_To_A_Real_TabSpec_Property()
+    {
+        var shell = File.ReadAllText(RepoFile("src", "PeakCan.Host.App", "AppShell.xaml"));
+
+        shell.Should().Contain("{Binding IsDirty, Converter={StaticResource BoolToVis}}",
+            "主标签头要显示未保存标记");
+
+        // 绑定路径写错在 WPF 里是静默失效：圆点会永远不出现，也不报错。
+        typeof(TabSpec).GetProperty(nameof(TabSpec.IsDirty)).Should().NotBeNull();
+    }
+
+    private static string RepoFile(params string[] relative)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PeakCan.Host.slnx")))
+            dir = dir.Parent;
+
+        if (dir is null)
+            throw new FileNotFoundException(
+                $"找不到 PeakCan.Host.slnx —— 测试是从非仓库目录运行的？起始目录: {AppContext.BaseDirectory}");
+
+        return Path.Combine(new[] { dir.FullName }.Concat(relative).ToArray());
     }
 
     /// <summary>

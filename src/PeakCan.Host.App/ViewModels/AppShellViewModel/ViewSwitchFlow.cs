@@ -30,11 +30,12 @@ public sealed partial class AppShellViewModel
     //
     // [RelayCommand] attributes MUST travel with their methods.
 
+    // 主区域索引用 AppShellViewModel.cs 里的常量（与快捷键共用同一份定义）。
     [RelayCommand]
-    private void ShowTrace() => SelectedMainTabIndex = 0;
+    private void ShowTrace() => TrySelectMainTab(TraceTabIndex);
 
     [RelayCommand]
-    private void ShowDbc() => SelectedMainTabIndex = 1;
+    private void ShowDbc() => TrySelectMainTab(DbcTabIndex);
 
     [RelayCommand]
     private void ShowSend() => SelectedRightTabIndex = 0;
@@ -63,7 +64,12 @@ public sealed partial class AppShellViewModel
         // - Closing the window clears the cache so the next Show opens fresh.
         // - Closing AppShell cascade-closes the UDS window via the Owner
         //   assignment below (mirrors ShowTraceViewer at line 681).
-        var win = _windowHost.Show(WindowKey.Uds, () => new UdsWindow { DataContext = _udsViewModel });
+        // P1 防事故：把 shell 的弹窗通道交给窗口，关窗时若正在刷写要能发确认。
+        var win = _windowHost.Show(WindowKey.Uds, () => new UdsWindow
+        {
+            DataContext = _udsViewModel,
+            Prompt = _messageBoxPrompt,
+        });
         if (win is null) return; // factory produced an already-closed window
 
         if (!win.IsVisible)
@@ -80,7 +86,7 @@ public sealed partial class AppShellViewModel
     }
 
     [RelayCommand]
-    private void ShowReplay() => SelectedMainTabIndex = 2;
+    private void ShowReplay() => TrySelectMainTab(ReplayTabIndex);
 
     [RelayCommand]
     private void OpenMultiFrame()

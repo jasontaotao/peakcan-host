@@ -6,15 +6,70 @@
         xmlns:local="clr-namespace:PeakCan.Host.App"
         xmlns:views="clr-namespace:PeakCan.Host.App.Views"
         xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
+        xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
         mc:Ignorable="d"
         Title="{Binding WindowTitle}" Height="720" Width="1280">
+    <Window.Resources>
+        <!-- 本地注册：STA 测试/设计器只合并 Colors.xaml，不加载 App.xaml 的转换器；
+             StaticResource 找不到会直接抛 XamlParseException（已实测）。 -->
+        <conv:BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </Window.Resources>
+    <!--
+        P1 全局快捷键（唯一注册点）。
+        作用域规则：导航类永远可用；页面动作类（Ctrl+L/P/E、Ctrl+←/→、Ctrl+B）
+        由 AppShellViewModel/ShortcutFlow.cs 的 CanExecute + 命令体内守卫收窄到
+        "目标页面激活时"。注意 CanExecute 为 false **不会**让按键穿透：
+        KeyBinding 命中手势即吞键，所以这里一律用带修饰键的组合，不用裸方向键。
+        Ctrl+O / Ctrl+S 此前只有菜单的 InputGestureText（纯文字，按下去没反应），
+        这次补上真正的绑定——宣称可用就必须真的可用。
+    -->
+    <Window.InputBindings>
+        <!-- 主区域导航：追踪 / DBC / 回放 / 脚本 / XCP -->
+        <KeyBinding Key="D1" Modifiers="Control" Command="{Binding ShowTraceCommand}" />
+        <KeyBinding Key="D2" Modifiers="Control" Command="{Binding ShowDbcCommand}" />
+        <KeyBinding Key="D3" Modifiers="Control" Command="{Binding ShowReplayCommand}" />
+        <KeyBinding Key="D4" Modifiers="Control" Command="{Binding ShowScriptCommand}" />
+        <KeyBinding Key="D5" Modifiers="Control" Command="{Binding ShowXcpCommand}" />
+        <!-- 右侧常驻面板导航：发送 / 信号 / 统计 -->
+        <KeyBinding Key="D1" Modifiers="Control+Shift" Command="{Binding ShowSendCommand}" />
+        <KeyBinding Key="D2" Modifiers="Control+Shift" Command="{Binding ShowSignalsCommand}" />
+        <KeyBinding Key="D3" Modifiers="Control+Shift" Command="{Binding ShowStatsCommand}" />
+        <!-- 追踪页动作（仅追踪 tab） -->
+        <KeyBinding Key="L" Modifiers="Control" Command="{Binding ClearTraceFramesCommand}" />
+        <KeyBinding Key="P" Modifiers="Control" Command="{Binding ToggleTracePauseCommand}" />
+        <KeyBinding Key="E" Modifiers="Control" Command="{Binding ExportTraceCsvCommand}" />
+        <!-- 全局动作 -->
+        <KeyBinding Key="R" Modifiers="Control" Command="{Binding ToggleRecordingPanelCommand}" />
+        <KeyBinding Key="O" Modifiers="Control" Command="{Binding OpenSessionCommand}" />
+        <!-- Ctrl+S 按当前页分流：脚本页存脚本，其它页存会话（包装命令见 ShortcutFlow）。
+             编辑器内的 Ctrl+S 由页面自己发消息，因为 WebView2 是独立 HWND。 -->
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCurrentCommand}" />
+        <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding SaveScriptAsCommand}" />
+        <!-- Ctrl+N 新建脚本（仅脚本页；编辑器内由页面发消息）。 -->
+        <KeyBinding Key="N" Modifiers="Control" Command="{Binding NewScriptCommand}" />
+        <!-- 回放页动作（仅回放 tab）。
+             走帧刻意用 Ctrl+方向键而不是裸方向键：WPF 的 KeyBinding 只要手势匹配
+             就把按键标记为已处理，**即使 CanExecute 为 false**——裸 ←/→ 挂在窗口上
+             会把全应用的焦点方向导航吞掉（实测：焦点在按钮上按 ← 不再移动焦点）。
+             Ctrl+←/→ 不与这些默认行为冲突，且编辑器/表格里由控件自身消费方向键。
+             回放页内部仍保留裸 ←/→（见 ReplayView.xaml）。 -->
+        <KeyBinding Key="Left" Modifiers="Control" Command="{Binding ReplayPrevFrameCommand}" />
+        <KeyBinding Key="Right" Modifiers="Control" Command="{Binding ReplayNextFrameCommand}" />
+        <KeyBinding Key="B" Modifiers="Control" Command="{Binding ReplayAddBookmarkCommand}" />
+    </Window.InputBindings>
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="文件(_F)">
                 <MenuItem Header="打开 DBC(_D)..." Command="{Binding OpenDbcCommand}" />
                 <Separator />
                 <MenuItem Header="打开会话(_O)..." Command="{Binding OpenSessionCommand}" InputGestureText="Ctrl+O" />
-                <MenuItem Header="保存会话(_S)..." Command="{Binding SaveSessionCommand}" InputGestureText="Ctrl+S" />
+                <!-- 脚本的四个动作排在一起：新建 / 保存（按当前页分流）/ 另存为 / 会话保存。
+                     菜单文字必须与 Ctrl+S 的真实行为一致：脚本页时保存的是脚本。 -->
+                <MenuItem Header="新建脚本(_N)..." Command="{Binding NewScriptCommand}" InputGestureText="Ctrl+N" />
+                <MenuItem Header="保存(_S)..." Command="{Binding SaveCurrentCommand}" InputGestureText="Ctrl+S" />
+                <MenuItem Header="另存为脚本(_A)..." Command="{Binding SaveScriptAsCommand}" InputGestureText="Ctrl+Shift+S" />
+                <!-- 脚本页激活时 Ctrl+S 存的是脚本，会话保存需要一个不依赖当前页的入口。 -->
+                <MenuItem Header="保存会话(_E)..." Command="{Binding SaveSessionCommand}" />
                 <MenuItem Header="最近打开(_R)" ItemsSource="{Binding RecentSessionEntries}">
                     <MenuItem.ItemTemplate>
                         <DataTemplate>
@@ -30,14 +85,30 @@
                 <MenuItem Header="退出(_X)" Click="OnExit" />
             </MenuItem>
             <MenuItem Header="视图(_V)">
-                <MenuItem Header="追踪(_T)" Command="{Binding ShowTraceCommand}" />
-                <MenuItem Header="DBC" Command="{Binding ShowDbcCommand}" />
-                <MenuItem Header="发送(_S)" Command="{Binding ShowSendCommand}" />
-                <MenuItem Header="信号(_G)" Command="{Binding ShowSignalsCommand}" />
-                <MenuItem Header="统计(_A)" Command="{Binding ShowStatsCommand}" />
+                <!-- InputGestureText 与 Window.InputBindings 一一对应：
+                     显示出来的手势必须真的能按（此前 Ctrl+O / Ctrl+S 就是只显示不生效）。 -->
+                <MenuItem Header="追踪(_T)" Command="{Binding ShowTraceCommand}" InputGestureText="Ctrl+1" />
+                <MenuItem Header="DBC" Command="{Binding ShowDbcCommand}" InputGestureText="Ctrl+2" />
+                <MenuItem Header="发送(_S)" Command="{Binding ShowSendCommand}" InputGestureText="Ctrl+Shift+1" />
+                <MenuItem Header="信号(_G)" Command="{Binding ShowSignalsCommand}" InputGestureText="Ctrl+Shift+2" />
+                <MenuItem Header="统计(_A)" Command="{Binding ShowStatsCommand}" InputGestureText="Ctrl+Shift+3" />
                 <MenuItem Header="UDS 诊断(_U)" Command="{Binding ShowUdsCommand}" />
                 <MenuItem Header="HIL 测试(_I)" Command="{Binding ShowHilCommand}" />
-                <MenuItem Header="回放(_P)" Command="{Binding ShowReplayCommand}" />
+                <MenuItem Header="回放(_P)" Command="{Binding ShowReplayCommand}" InputGestureText="Ctrl+3" />
+                <!-- 脚本与 XCP 此前只能点标签页，菜单里没有任何入口。 -->
+                <MenuItem Header="脚本(_C)" Command="{Binding ShowScriptCommand}" InputGestureText="Ctrl+4" />
+                <MenuItem Header="XCP(_X)" Command="{Binding ShowXcpCommand}" InputGestureText="Ctrl+5" />
+                <Separator />
+                <!-- P2 显示偏好：主标签子集 + 表格密度（都持久化在 layout.json）。 -->
+                <MenuItem Header="主标签(_L)">
+                    <MenuItem Header="追踪" IsCheckable="True" IsChecked="{Binding ShowTraceTab, Mode=TwoWay}" />
+                    <MenuItem Header="DBC" IsCheckable="True" IsChecked="{Binding ShowDbcTab, Mode=TwoWay}" />
+                    <MenuItem Header="回放" IsCheckable="True" IsChecked="{Binding ShowReplayTab, Mode=TwoWay}" />
+                    <MenuItem Header="脚本" IsCheckable="True" IsChecked="{Binding ShowScriptTab, Mode=TwoWay}" />
+                    <MenuItem Header="XCP" IsCheckable="True" IsEnabled="{Binding HasXcpTab}" IsChecked="{Binding ShowXcpTab, Mode=TwoWay}" />
+                </MenuItem>
+                <MenuItem Header="紧凑表格(_D)" IsCheckable="True"
+                          IsChecked="{Binding IsCompactTables, Mode=TwoWay}" />
                 <MenuItem Header="追踪查看器(_V)…" Command="{Binding ShowTraceViewerCommand}" />
                 <MenuItem Header="ECU 脚本编辑器(_E)" Command="{Binding ShowEcuScriptEditorCommand}" />
                 <MenuItem Header="批量发送(_M)..." Command="{Binding OpenMultiFrameCommand}" />
@@ -133,8 +204,36 @@
                            ToolTip="SecOC 启用状态：未启用 = 无 PDU 配置；配置错误 = 检查 SecOc 设置（密钥/格式）" />
             </ToolBar>
         </ToolBarTray>
+        <!-- 底部状态栏：左=最近一条状态消息；右=诊断会话徽章。
+             会话状态是 ECU 侧的真值，关掉 UDS 诊断窗口也不会重置，所以在主窗口常驻可见——
+             否则用户要反复开窗才能确认"还在扩展会话吗 / 安全解锁了吗"。 -->
         <StatusBar DockPanel.Dock="Bottom">
-            <TextBlock Text="{Binding StatusMessage}" />
+            <StatusBarItem>
+                <TextBlock Text="{Binding StatusMessage}" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <Border Background="{StaticResource SurfaceSubtle}" Padding="6,2" CornerRadius="3">
+                    <TextBlock Text="{Binding Uds.Session.CurrentSession, StringFormat='会话: {0}'}" />
+                </Border>
+            </StatusBarItem>
+            <StatusBarItem>
+                <Border Background="{StaticResource SurfaceSubtle}" Padding="6,2" CornerRadius="3">
+                    <TextBlock Text="{Binding Uds.Session.SecurityLevelText, StringFormat='安全: {0}'}" />
+                </Border>
+            </StatusBarItem>
+            <StatusBarItem Visibility="{Binding Uds.Session.TesterPresentActive, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}"
+                        BorderThickness="1" Padding="6,2" CornerRadius="3">
+                    <TextBlock Foreground="{StaticResource WarnText}" Text="TesterPresent 保活中" />
+                </Border>
+            </StatusBarItem>
+            <StatusBarItem Visibility="{Binding Uds.Flash.IsFlashing, Converter={StaticResource BoolToVis}}">
+                <Border Background="{StaticResource ErrorBg}" BorderBrush="{StaticResource Error}"
+                        BorderThickness="1" Padding="6,2" CornerRadius="3">
+                    <TextBlock Foreground="{StaticResource Error}" Text="刷写中" />
+                </Border>
+            </StatusBarItem>
         </StatusBar>
         <!-- v3.50.1 PATCH-A: Recording panel as a docked Expander. Always
              mounted (cheap), only expanded when the toolbar toggle is on.
@@ -164,8 +263,29 @@
             </Grid.ColumnDefinitions>
             <TabControl Grid.Column="0" ItemsSource="{Binding MainTabs}"
                         SelectedIndex="{Binding SelectedMainTabIndex}">
+                <!-- P2 主标签可隐藏：隐藏项只是折叠（索引不变），所以选中索引、
+                     快捷键与持久化语义都不需要重映射。 -->
+                <TabControl.ItemContainerStyle>
+                    <Style TargetType="TabItem">
+                        <Setter Property="Visibility"
+                                Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}" />
+                    </Style>
+                </TabControl.ItemContainerStyle>
+                <!-- 标题 + 未保存圆点。点放在文字**之后**：出现/消失不会推动标题本身。
+                     目前只有脚本页会点亮（AppShellViewModel 订阅脚本 VM 的 HasUnsavedChanges）。 -->
                 <TabControl.ItemTemplate>
-                    <DataTemplate><TextBlock Text="{Binding Header}" Margin="6,2" /></DataTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" Margin="6,2">
+                            <TextBlock Text="{Binding Header}" />
+                            <TextBlock Text="●"
+                                       Margin="3,0,0,0"
+                                       FontSize="10"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource WarnText}"
+                                       ToolTip="有未保存的改动"
+                                       Visibility="{Binding IsDirty, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </DataTemplate>
                 </TabControl.ItemTemplate>
                 <TabControl.ContentTemplate>
                     <DataTemplate><ContentControl Content="{Binding View}" /></DataTemplate>

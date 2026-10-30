@@ -4,6 +4,7 @@
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
              xmlns:core="clr-namespace:PeakCan.HIL.Core.HIL;assembly=PeakCan.HIL.Core"
              xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
+             xmlns:controls="clr-namespace:PeakCan.Host.App.Views.Controls"
              xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf">
     <UserControl.Resources>
         <ObjectDataProvider x:Key="HilModeValues" MethodName="GetValues" ObjectType="{x:Type core:HilMode}">
@@ -54,7 +55,7 @@
                         </Style.Triggers>
                     </Style>
                 </Grid.Style>
-                <TextBox Text="{Binding CaseLogDirectory}" ToolTip="Case log directory" />
+                <TextBox Text="{Binding CaseLogDirectory}" ToolTip="用例日志目录" />
             </Grid>
             <Button Content="打开日志" Command="{Binding OpenCaseLogDirectoryCommand}" Margin="4,0,0,0" />
             <TextBlock Text="{Binding SelectedMode, Converter={StaticResource HilModeIcon}}"
@@ -62,14 +63,14 @@
                        VerticalAlignment="Center" Margin="0,0,8,0" FontSize="16"
                        FontFamily="Segoe Fluent Icons" />
             <Grid MinWidth="180" Margin="0,0,4,0">
-                <TextBox x:Name="DbcPathBox" Text="{Binding DbcPath}" ToolTip="DBC file path" />
+                <TextBox x:Name="DbcPathBox" Text="{Binding DbcPath}" ToolTip="DBC 文件路径" />
                 <TextBlock Text="选择 DBC 文件..." Style="{StaticResource HintTextStyle}"
                            Visibility="{Binding Text, ElementName=DbcPathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
             </Grid>
             <Button Content="浏览..." Command="{Binding BrowseDbcCommand}" Margin="0,0,12,0" />
             <Grid MinWidth="180" Margin="0,0,4,0">
-                <TextBox x:Name="SuitePathBox" Text="{Binding SuitePath}" ToolTip="Test suite JSON path" />
+                <TextBox x:Name="SuitePathBox" Text="{Binding SuitePath}" ToolTip="测试套件 JSON 路径" />
                 <TextBlock Text="选择测试套件 JSON..." Style="{StaticResource HintTextStyle}"
                            Visibility="{Binding Text, ElementName=SuitePathBox,
                                         Converter={StaticResource EmptyStringToVisibilityConverter}}" />
@@ -85,7 +86,7 @@
         <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsTraceMode, Converter={StaticResource BoolToVis}}">
                 <Grid MinWidth="260" Margin="0,0,4,0">
-                    <TextBox x:Name="TracePathBox" Text="{Binding TracePath}" ToolTip="Trace file (ASC/BLF)" />
+                    <TextBox x:Name="TracePathBox" Text="{Binding TracePath}" ToolTip="追踪文件 (ASC/BLF)" />
                     <TextBlock Text="选择 Trace 文件 (.asc/.blf)..." Style="{StaticResource HintTextStyle}"
                                Visibility="{Binding Text, ElementName=TracePathBox,
                                             Converter={StaticResource EmptyStringToVisibilityConverter}}" />
@@ -136,7 +137,7 @@
 
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsVirtualEcuMode, Converter={StaticResource BoolToVis}}">
                 <Grid MinWidth="160" Margin="0,0,4,0">
-                    <TextBox x:Name="EcuScriptPathBox" Text="{Binding EcuScriptPath}" ToolTip="ECU script JSON path" />
+                    <TextBox x:Name="EcuScriptPathBox" Text="{Binding EcuScriptPath}" ToolTip="ECU 脚本 JSON 路径" />
                     <TextBlock Text="选择 ECU 脚本..." Style="{StaticResource HintTextStyle}"
                                Visibility="{Binding Text, ElementName=EcuScriptPathBox,
                                             Converter={StaticResource EmptyStringToVisibilityConverter}}" />
@@ -146,7 +147,7 @@
 
             <StackPanel Orientation="Horizontal" Visibility="{Binding IsMatrixMode, Converter={StaticResource BoolToVis}}">
                 <Grid MinWidth="160" Margin="0,0,4,0">
-                    <TextBox x:Name="MatrixPathBox" Text="{Binding MatrixPath}" ToolTip="Matrix config JSON path" />
+                    <TextBox x:Name="MatrixPathBox" Text="{Binding MatrixPath}" ToolTip="矩阵配置 JSON 路径" />
                     <TextBlock Text="选择矩阵配置 JSON..." Style="{StaticResource HintTextStyle}"
                                Visibility="{Binding Text, ElementName=MatrixPathBox,
                                             Converter={StaticResource EmptyStringToVisibilityConverter}}" />
@@ -208,15 +209,32 @@
         <!-- Phase 7 Unit C: 中部填充区改 TabControl —— Results(原 DataGrid+TreeView) / HTML Report(WebView2)。
              LLM Analysis TextBox 保留 DockPanel 底部（T3）。 -->
         <Expander DockPanel.Dock="Top" Header="试运行诊断" Margin="0,0,0,8">
-            <DataGrid ItemsSource="{Binding TrialDiagnostics}" AutoGenerateColumns="False" IsReadOnly="True"
-                      CanUserAddRows="False" CanUserDeleteRows="False" MaxHeight="160">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Step" Binding="{Binding Step}" Width="120" />
-                    <DataGridCheckBoxColumn Header="Passed" Binding="{Binding Passed}" Width="70" />
-                    <DataGridTextColumn Header="Detail" Binding="{Binding Detail}" Width="*" />
-                    <DataGridTextColumn Header="Possible causes" Binding="{Binding PossibleCauses}" Width="2*" />
-                </DataGrid.Columns>
-            </DataGrid>
+            <Grid>
+                <DataGrid ItemsSource="{Binding TrialDiagnostics}" AutoGenerateColumns="False" IsReadOnly="True"
+                          CanUserAddRows="False" CanUserDeleteRows="False" MaxHeight="160">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="步骤" Binding="{Binding Step}" Width="120" />
+                        <DataGridCheckBoxColumn Header="通过" Binding="{Binding Passed}" Width="70" />
+                        <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*" />
+                        <DataGridTextColumn Header="可能原因" Binding="{Binding PossibleCauses}" Width="2*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+                <!-- P0 空态：试运行诊断要先跑一次才有内容。 -->
+                <controls:EmptyStatePanel Title="还没有试运行诊断"
+                                          Description="试运行一次后，每一步的执行结果与可能原因会列在这里。"
+                                          AutomationProperties.Name="空态：还没有试运行诊断">
+                    <controls:EmptyStatePanel.Style>
+                        <Style TargetType="controls:EmptyStatePanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding TrialDiagnostics.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </controls:EmptyStatePanel.Style>
+                </controls:EmptyStatePanel>
+            </Grid>
         </Expander>
 
         <TabControl>
@@ -226,18 +244,58 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4">
                         <Button Content="全选" Command="{Binding SelectAllCasesCommand}" Padding="8,3" Margin="0,0,4,0" />
                         <Button Content="全不选" Command="{Binding SelectNoCasesCommand}" Padding="8,3" Margin="0,0,4,0" />
-                        <TextBox MinWidth="160" Text="{Binding CaseFilter, UpdateSourceTrigger=PropertyChanged, Delay=100}" ToolTip="Filter cases" />
+                        <TextBox MinWidth="160" Text="{Binding CaseFilter, UpdateSourceTrigger=PropertyChanged, Delay=100}" ToolTip="过滤用例" />
                         <TextBlock Text="{Binding AvailableCases.Count, StringFormat='已加载 {0} 个用例'}"
                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
-                    <DataGrid ItemsSource="{Binding FilteredCases}" AutoGenerateColumns="False"
-                              CanUserAddRows="False" CanUserDeleteRows="False">
-                        <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header="Run" Binding="{Binding IsSelected}" Width="50" />
-                            <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="120" IsReadOnly="True" />
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" IsReadOnly="True" />
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <!-- 外层 Grid 只用于叠放空态面板（面板在表格之后 → 画在上层）。 -->
+                    <Grid>
+                        <DataGrid ItemsSource="{Binding FilteredCases}" AutoGenerateColumns="False"
+                                  CanUserAddRows="False" CanUserDeleteRows="False">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="运行" Binding="{Binding IsSelected}" Width="50" />
+                                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="120" IsReadOnly="True" />
+                                <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" IsReadOnly="True" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <!-- P0 空态：套件没加载 → 直接给"浏览测试套件"这个出路。 -->
+                        <controls:EmptyStatePanel Title="还没有加载测试用例"
+                                                  Description="在顶部「浏览...」选择一个 .hil 测试套件 JSON 文件，用例会列在这里。"
+                                                  ActionText="浏览测试套件"
+                                                  ActionCommand="{Binding BrowseSuiteCommand}"
+                                                  AutomationProperties.Name="空态：还没有加载测试用例">
+                            <controls:EmptyStatePanel.Style>
+                                <Style TargetType="controls:EmptyStatePanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCasesEmpty}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyStatePanel.Style>
+                        </controls:EmptyStatePanel>
+
+                        <!-- P0 空态：用例已加载，但筛选文本把它们全挡掉了 → 一键清除筛选。
+                             这是三个页面里唯一自带筛选框的表格，只做"没数据"会漏掉这一半。 -->
+                        <controls:EmptyStatePanel Title="没有匹配的用例"
+                                                  Description="{Binding CaseFilter, StringFormat='没有名称包含「{0}」的用例。'}"
+                                                  ActionText="清除筛选"
+                                                  ActionCommand="{Binding ClearCaseFilterCommand}"
+                                                  AutomationProperties.Name="空态：没有匹配的用例">
+                            <controls:EmptyStatePanel.Style>
+                                <Style TargetType="controls:EmptyStatePanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCasesFilteredEmpty}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyStatePanel.Style>
+                        </controls:EmptyStatePanel>
+                    </Grid>
                 </DockPanel>
             </TabItem>
             <TabItem Header="结果">
@@ -250,9 +308,9 @@
                     <DataGrid Grid.Column="0" ItemsSource="{Binding Results}" AutoGenerateColumns="False"
                               IsReadOnly="True" Margin="0,0,8,0">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Case" Binding="{Binding Name}" Width="*" />
-                            <DataGridCheckBoxColumn Header="Passed" Binding="{Binding Passed}" Width="60" />
-                            <DataGridTextColumn Header="Failure Reason" Binding="{Binding FailureReason}" Width="2*" />
+                            <DataGridTextColumn Header="用例" Binding="{Binding Name}" Width="*" />
+                            <DataGridCheckBoxColumn Header="通过" Binding="{Binding Passed}" Width="60" />
+                            <DataGridTextColumn Header="失败原因" Binding="{Binding FailureReason}" Width="2*" />
                         </DataGrid.Columns>
                     </DataGrid>
 
@@ -300,9 +358,9 @@
                                                 </Style.Triggers>
                                             </Style>
                                         </StackPanel.Style>
-                                        <TextBlock Text="Actual:" FontSize="11" Foreground="{StaticResource TextSecondary}" Width="44"/>
+                                        <TextBlock Text="实际:" FontSize="11" Foreground="{StaticResource TextSecondary}" Width="44"/>
                                         <TextBlock Text="{Binding ActualValue}" FontSize="11"/>
-                                        <TextBlock Text="Expected:" FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="8,0,0,0"/>
+                                        <TextBlock Text="期望:" FontSize="11" Foreground="{StaticResource TextSecondary}" Margin="8,0,0,0"/>
                                         <TextBlock Text="{Binding ExpectedValue}" FontSize="11"/>
                                     </StackPanel>
                                 </StackPanel>
@@ -320,47 +378,52 @@
 
             <TabItem Header="历史">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="尚无运行记录" Margin="12" HorizontalAlignment="Center">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding RunHistory.Count}" Value="0">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                    <DataGrid ItemsSource="{Binding RunHistory}" AutoGenerateColumns="False" IsReadOnly="True"
-                              CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="时间" Binding="{Binding CompletedAtUtc, StringFormat=yyyy-MM-dd HH:mm:ss}" MinWidth="150" />
-                            <DataGridTextColumn Header="套件" Binding="{Binding SuiteName}" Width="*">
-                                <DataGridTextColumn.ElementStyle>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="ToolTip" Value="{Binding ErrorMessage}" />
-                                    </Style>
-                                </DataGridTextColumn.ElementStyle>
-                            </DataGridTextColumn>
-                            <DataGridTextColumn Header="模式" Binding="{Binding Mode}" Width="100" />
-                            <DataGridTextColumn Header="结果" Binding="{Binding ResultText}" Width="90" />
-                            <DataGridTextColumn Header="耗时" Binding="{Binding ElapsedMs, StringFormat={}{0} ms}" Width="90" />
-                            <DataGridCheckBoxColumn Header="已取消" Binding="{Binding Cancelled}" Width="70" />
-                            <DataGridTemplateColumn Header="操作" Width="190">
-                                <DataGridTemplateColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal">
-                                            <Button Content="打开报告" Command="{Binding DataContext.OpenHistoryReportCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                    CommandParameter="{Binding}" Padding="6,2" Margin="0,0,4,0" />
-                                            <Button Content="加载套件" Command="{Binding DataContext.LoadHistorySuiteCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                    CommandParameter="{Binding}" Padding="6,2" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </DataGridTemplateColumn.CellTemplate>
-                            </DataGridTemplateColumn>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <Grid>
+                        <DataGrid ItemsSource="{Binding RunHistory}" AutoGenerateColumns="False" IsReadOnly="True"
+                                  CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="时间" Binding="{Binding CompletedAtUtc, StringFormat=yyyy-MM-dd HH:mm:ss}" MinWidth="150" />
+                                <DataGridTextColumn Header="套件" Binding="{Binding SuiteName}" Width="*">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="ToolTip" Value="{Binding ErrorMessage}" />
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn Header="模式" Binding="{Binding Mode}" Width="100" />
+                                <DataGridTextColumn Header="结果" Binding="{Binding ResultText}" Width="90" />
+                                <DataGridTextColumn Header="耗时" Binding="{Binding ElapsedMs, StringFormat={}{0} ms}" Width="90" />
+                                <DataGridCheckBoxColumn Header="已取消" Binding="{Binding Cancelled}" Width="70" />
+                                <DataGridTemplateColumn Header="操作" Width="190">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Content="打开报告" Command="{Binding DataContext.OpenHistoryReportCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                        CommandParameter="{Binding}" Padding="6,2" Margin="0,0,4,0" />
+                                                <Button Content="加载套件" Command="{Binding DataContext.LoadHistorySuiteCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                        CommandParameter="{Binding}" Padding="6,2" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <!-- P0 空态：历史记录是累积的，第一次打开时说明它什么时候会有内容。 -->
+                        <controls:EmptyStatePanel Title="还没有运行记录"
+                                                  Description="跑完一次套件后，这里会保留时间、结果与耗时（可直接打开报告）。"
+                                                  AutomationProperties.Name="空态：还没有运行记录">
+                            <controls:EmptyStatePanel.Style>
+                                <Style TargetType="controls:EmptyStatePanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RunHistory.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </controls:EmptyStatePanel.Style>
+                        </controls:EmptyStatePanel>
+                    </Grid>
                 </DockPanel>
             </TabItem>
             <TabItem Header="报告">
@@ -395,7 +458,7 @@
         <TextBox DockPanel.Dock="Bottom" Text="{Binding AnalysisResult, Mode=OneWay}"
                  IsReadOnly="True" AcceptsReturn="True" MinHeight="80"
                  VerticalScrollBarVisibility="Auto" Margin="0,8,0,0"
-                 ToolTip="LLM failure analysis result" />
+                 ToolTip="LLM 失败分析结果" />
     </DockPanel>
 </UserControl>
 

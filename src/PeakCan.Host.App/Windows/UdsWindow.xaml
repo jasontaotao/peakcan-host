@@ -10,7 +10,7 @@
         xmlns:icons="clr-namespace:PeakCan.Host.App.Composition.Icons"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:UdsViewModel}"
-        Title="UDS Diagnostics"
+        Title="UDS 诊断"
         Width="1100" Height="700"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="True">
@@ -18,17 +18,22 @@
         <!-- HexConverter 注册在 Window 级别, 所有 tab (Session/DIDs/Flashing) 都能引用.
              App.xaml 也有全局注册, 但测试不加载 App.xaml, 所以这里也要注册. -->
         <conv:HexConverter x:Key="HexConverter"/>
+        <!-- 同上：刷写横幅要用布尔→可见性，测试环境没有 App.xaml 的 BoolToVis。 -->
+        <conv:BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
 
     <DockPanel>
-        <!-- Top: Session header strip -->
-        <Border DockPanel.Dock="Top" Padding="8" Background="{StaticResource SurfaceSubtle}">
+        <!-- Top: Session header strip.
+             P1 防事故：刷写期间整条诊断通道（会话切换/SecurityAccess/TesterPresent/
+             Load ODX）锁死——刷写走编程会话，此时任何诊断请求都会抢 ECU。 -->
+        <Border DockPanel.Dock="Top" Padding="8" Background="{StaticResource SurfaceSubtle}"
+                IsEnabled="{Binding IsDiagnosticsEnabled}">
             <StackPanel Orientation="Horizontal">
-                <Button Content="Default"     Command="{Binding Session.SetDefaultSessionCommand}"   Padding="6,2" Margin="0,0,4,0"/>
-                <Button Content="Extended"    Command="{Binding Session.SetExtendedSessionCommand}"  Padding="6,2" Margin="0,0,4,0"/>
-                <Button Content="Programming" Command="{Binding Session.SetProgrammingSessionCommand}" Padding="6,2" Margin="0,0,12,0"/>
+                <Button Content="默认"     Command="{Binding Session.SetDefaultSessionCommand}"   Padding="6,2" Margin="0,0,4,0"/>
+                <Button Content="扩展"    Command="{Binding Session.SetExtendedSessionCommand}"  Padding="6,2" Margin="0,0,4,0"/>
+                <Button Content="编程" Command="{Binding Session.SetProgrammingSessionCommand}" Padding="6,2" Margin="0,0,12,0"/>
                 <Separator/>
-                <Button Content="Load ODX…"
+                <Button Content="加载 ODX…"
                         Command="{Binding LoadOdxCommand}"
                         Padding="6,2" Margin="0,0,12,0"/>
                 <CheckBox Content="TesterPresent" IsChecked="{Binding Session.TesterPresentActive, Mode=OneWay}"
@@ -36,17 +41,27 @@
                           VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Separator/>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Level:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBlock Text="等级:" VerticalAlignment="Center" Margin="0,0,4,0"/>
                     <TextBox Text="{Binding Session.SecurityLevel, Converter={StaticResource HexConverter}, ConverterParameter=2, UpdateSourceTrigger=PropertyChanged}" Width="40" Margin="0,0,4,0"/>
                     <Button Content="SecurityAccess"
                             Command="{Binding Session.SecurityAccessCommand}"
                             Padding="6,2" Margin="0,0,12,0"/>
                 </StackPanel>
-                <TextBlock Text="{Binding Session.CurrentSession, StringFormat='Session: {0}'}"
+                <TextBlock Text="{Binding Session.CurrentSession, StringFormat='会话: {0}'}"
                            VerticalAlignment="Center" Margin="0,0,12,0"/>
-                <TextBlock Text="{Binding Session.SecurityLevel, StringFormat='Level: 0x{0:X2}', TargetNullValue='(not authenticated)'}"
+                <!-- 与主窗口徽章同一个口径：显示**已授予**的等级，不是输入框里的请求值。 -->
+                <TextBlock Text="{Binding Session.SecurityLevelText, StringFormat='安全: {0}'}"
                            VerticalAlignment="Center"/>
             </StackPanel>
+        </Border>
+
+        <!-- P1 防事故：刷写锁定横幅。只禁用不说明，用户会以为界面卡了。 -->
+        <Border DockPanel.Dock="Top" Padding="8,4"
+                Background="{StaticResource WarnBg}"
+                BorderBrush="{StaticResource WarnBorder}" BorderThickness="0,0,0,1"
+                Visibility="{Binding Flash.IsFlashing, Converter={StaticResource BoolToVis}}">
+            <TextBlock Foreground="{StaticResource WarnText}" TextWrapping="Wrap"
+                       Text="⚠ 刷写进行中 — 诊断面板（会话 / DIDs / Routines / DTCs）已锁定，刷写结束后自动恢复。" />
         </Border>
 
         <!-- 通信参数 (只读): 诊断栈 + Flash 副栈当前生效的时序参数及其来源.
@@ -88,7 +103,7 @@
         <!-- Bottom: Output Log -->
         <Border DockPanel.Dock="Bottom" Padding="8" Background="{StaticResource ConsoleBg}">
             <DockPanel>
-                <Button DockPanel.Dock="Top" Content="Clear" HorizontalAlignment="Right"
+                <Button DockPanel.Dock="Top" Content="清空" HorizontalAlignment="Right"
                         Command="{Binding ClearOutputCommand}" Margin="0,0,0,4"/>
                 <RichTextBox x:Name="LogBox" IsReadOnly="True" IsDocumentEnabled="True"
                              Background="{StaticResource ConsoleBg}" Foreground="{StaticResource ConsoleFg}"
@@ -103,7 +118,8 @@
 
         <!-- Middle: TabControl (DIDs / Routines / DTCs) -->
         <TabControl>
-            <TabItem Header="DIDs">
+            <TabItem Header="DIDs"
+                     IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*"/>
@@ -113,11 +129,11 @@
                               AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="ID"     Binding="{Binding Id, StringFormat=0x{0:X4}}"/>
-                            <DataGridTextColumn Header="Name"   Binding="{Binding Name}"/>
-                            <DataGridTextColumn Header="Length" Binding="{Binding LengthBytes}"/>
-                            <DataGridTextColumn Header="Type"   Binding="{Binding TypeDisplay}"/>
-                            <DataGridTextColumn Header="R/W"    Binding="{Binding WritableDisplay}"/>
-                            <DataGridTextColumn Header="Value"  Binding="{Binding DecodedSummary}"/>
+                            <DataGridTextColumn Header="名称"   Binding="{Binding Name}"/>
+                            <DataGridTextColumn Header="长度" Binding="{Binding LengthBytes}"/>
+                            <DataGridTextColumn Header="类型"   Binding="{Binding TypeDisplay}"/>
+                            <DataGridTextColumn Header="读写"    Binding="{Binding WritableDisplay}"/>
+                            <DataGridTextColumn Header="值"  Binding="{Binding DecodedSummary}"/>
                         </DataGrid.Columns>
                     </DataGrid>
                     <StackPanel Grid.Column="1" Margin="12">
@@ -128,7 +144,7 @@
                         <TextBlock Text="{Binding Did.SelectedDid.TypeDisplay, StringFormat='Type: {0}', TargetNullValue=''}"
                                    Margin="0,4,0,0"/>
                         <!-- v3.49.0 MINOR T5.1: 解码字段表 (Read 命中后 DidValueDecoder 产出 DecodedField[]) -->
-                        <TextBlock Text="Decoded fields" Margin="0,8,0,2" FontWeight="Bold"/>
+                        <TextBlock Text="解码字段" Margin="0,8,0,2" FontWeight="Bold"/>
                         <ItemsControl ItemsSource="{Binding Did.SelectedDid.DecodedFields}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -148,12 +164,12 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock Text="Write value (hex)" Margin="0,8,0,0"/>
+                        <TextBlock Text="写入值 (hex)" Margin="0,8,0,0"/>
                         <TextBox  Text="{Binding Did.WriteValue, UpdateSourceTrigger=PropertyChanged}"
                                   IsEnabled="{Binding Did.SelectedDid.Writable}"/>
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                            <Button Content="Read"  Command="{Binding Did.ReadDidCommand}"  Padding="6,2" Margin="0,0,8,0"/>
-                            <Button Content="Write" Command="{Binding Did.WriteDidCommand}" Padding="6,2"/>
+                            <Button Content="读取"  Command="{Binding Did.ReadDidCommand}"  Padding="6,2" Margin="0,0,8,0"/>
+                            <Button Content="写入" Command="{Binding Did.WriteDidCommand}" Padding="6,2"/>
                         </StackPanel>
                         <TextBlock Text="{Binding Did.LastResult, StringFormat='Last: {0}'}"
                                    Margin="0,8,0,0" FontFamily="Consolas" TextWrapping="Wrap"/>
@@ -161,13 +177,14 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Routines">
+            <TabItem Header="Routines"
+                     IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <DockPanel>
                     <!-- v2.0.6 PATCH Bug-4: see UdsView.xaml history. Reorder: button row docks to Top. -->
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8">
-                        <Button Content="Start" Command="{Binding Routine.StartRoutineCommand}" Padding="8,3" MinWidth="72" Margin="0,0,6,0"/>
-                        <Button Content="Stop"  Command="{Binding Routine.StopRoutineCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,6,0"/>
-                        <Button Content="Query" Command="{Binding Routine.QueryRoutineCommand}" Padding="8,3" MinWidth="72" Margin="0,0,12,0"/>
+                        <Button Content="启动" Command="{Binding Routine.StartRoutineCommand}" Padding="8,3" MinWidth="72" Margin="0,0,6,0"/>
+                        <Button Content="停止"  Command="{Binding Routine.StopRoutineCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,6,0"/>
+                        <Button Content="查询" Command="{Binding Routine.QueryRoutineCommand}" Padding="8,3" MinWidth="72" Margin="0,0,12,0"/>
                         <TextBlock Text="{Binding Routine.SelectedRoutine.LastResult, StringFormat='Last: {0}'}"
                                    Margin="4,0,0,0" VerticalAlignment="Center" FontFamily="Consolas"/>
                     </StackPanel>
@@ -175,25 +192,26 @@
                               AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="ID"     Binding="{Binding Id, StringFormat=0x{0:X4}}"/>
-                            <DataGridTextColumn Header="Name"   Binding="{Binding Name}"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
-                            <DataGridTextColumn Header="Result" Binding="{Binding LastResult}"/>
+                            <DataGridTextColumn Header="名称"   Binding="{Binding Name}"/>
+                            <DataGridTextColumn Header="状态" Binding="{Binding Status}"/>
+                            <DataGridTextColumn Header="结果" Binding="{Binding LastResult}"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
             </TabItem>
 
-            <TabItem Header="DTCs">
+            <TabItem Header="DTCs"
+                     IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8">
-                        <Button Content="Read DTCs"  Command="{Binding Dtc.ReadDtcsCommand}" Padding="6,2"/>
-                        <Button Content="Clear DTCs" Command="{Binding Dtc.ClearDtcsCommand}" Padding="6,2" Margin="8,0,0,0"/>
+                        <Button Content="读取 DTC"  Command="{Binding Dtc.ReadDtcsCommand}" Padding="6,2"/>
+                        <Button Content="清除 DTC" Command="{Binding Dtc.ClearDtcsCommand}" Padding="6,2" Margin="8,0,0,0"/>
                     </StackPanel>
                     <DataGrid ItemsSource="{Binding Dtc.Dtcs}" AutoGenerateColumns="False" IsReadOnly="True">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Code"        Binding="{Binding CodeDisplay}"/>
-                            <DataGridTextColumn Header="Status"      Binding="{Binding StatusDisplay}"/>
-                            <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*"/>
+                            <DataGridTextColumn Header="故障码"        Binding="{Binding CodeDisplay}"/>
+                            <DataGridTextColumn Header="状态"      Binding="{Binding StatusDisplay}"/>
+                            <DataGridTextColumn Header="描述" Binding="{Binding Description}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
@@ -205,7 +223,7 @@
                  Programming CAN-ID hero readout (+ same-addressing warning) keeps the
                  operator aware the programming pair must differ from diagnostic 0x7E0/0x7E8.
                  Phase 2: Segment model, property panel, HEX/S19 support. -->
-            <TabItem Header="Flashing">
+            <TabItem Header="刷写">
                 <DockPanel>
                     <DockPanel.Resources>
                         <!-- Local copies so tests don't depend on App.xaml initialization -->
@@ -220,26 +238,26 @@
                     <StackPanel DockPanel.Dock="Top" Margin="8">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                             <TextBlock Text="CAN-ID:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock Text="Req 0x" VerticalAlignment="Center"/>
+                            <TextBlock Text="请求 0x" VerticalAlignment="Center"/>
                             <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.RequestId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="0,0,4,0"/>
-                            <TextBlock Text="Resp 0x" VerticalAlignment="Center"/>
+                            <TextBlock Text="响应 0x" VerticalAlignment="Center"/>
                             <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.ResponseId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="0,0,4,0"/>
-                            <TextBlock Text="Func 0x" VerticalAlignment="Center"/>
+                            <TextBlock Text="功能 0x" VerticalAlignment="Center"/>
                             <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.FunctionalId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50"/>
-                            <CheckBox Content="Extended Frame (29-bit)"
+                            <CheckBox Content="扩展帧 (29 位)"
                                       IsChecked="{Binding Flash.CurrentProfile.ProgrammingCanId.IsExtendedFrame}"
                                       VerticalAlignment="Center" Margin="12,0,0,0"
-                                      ToolTip="Standard frame: 11-bit CAN ID (0x000-0x7FF). Extended frame: 29-bit CAN ID."/>
+                                      ToolTip="标准帧：11 位 CAN ID (0x000-0x7FF)。扩展帧：29 位 CAN ID。"/>
                         </StackPanel>
                         <CheckBox Content="出错时自动重启 ECU (Fail-Safe Reset)" IsChecked="{Binding Flash.CurrentProfile.AutoResetOnFailure}"
                                   Margin="0,0,0,8" ToolTip="刷写失败时自动发 EcuReset(0x01) 防止 ECU 半刷状态"/>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                            <Button Content="Start"  Command="{Binding Flash.StartCommand}" Padding="8,3" MinWidth="72" Margin="0,0,8,0"/>
-                            <Button Content="Stop"   Command="{Binding Flash.StopCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,8,0"/>
-                            <Button Content="Save Profile" Command="{Binding Flash.SaveProfileCommand}" Padding="8,3" MinWidth="80" Margin="0,0,4,0"/>
-                            <Button Content="Load Profile" Command="{Binding Flash.LoadProfileCommand}" Padding="8,3" MinWidth="80" Margin="0,0,12,0"/>
+                            <Button Content="启动"  Command="{Binding Flash.StartCommand}" Padding="8,3" MinWidth="72" Margin="0,0,8,0"/>
+                            <Button Content="停止"   Command="{Binding Flash.StopCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,8,0"/>
+                            <Button Content="保存配置" Command="{Binding Flash.SaveProfileCommand}" Padding="8,3" MinWidth="80" Margin="0,0,4,0"/>
+                            <Button Content="加载配置" Command="{Binding Flash.LoadProfileCommand}" Padding="8,3" MinWidth="80" Margin="0,0,12,0"/>
                             <TextBlock VerticalAlignment="Center" FontFamily="Consolas">
-                                <Run Text="Status: "/><Run Text="{Binding Flash.StatusMessage, Mode=OneWay}"/>
+                                <Run Text="状态: "/><Run Text="{Binding Flash.StatusMessage, Mode=OneWay}"/>
                             </TextBlock>
                         </StackPanel>
                         <!-- Phase 2: Firmware Files + Flash Driver loading areas -->
@@ -250,14 +268,14 @@
                             </Grid.ColumnDefinitions>
                             <!-- Firmware Files -->
                             <DockPanel Grid.Column="0" Margin="0,0,8,0">
-                                <TextBlock DockPanel.Dock="Top" Text="Firmware Files:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock DockPanel.Dock="Top" Text="固件文件:" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,4,0,0">
                                     <Button Content="+ Add Firmware File" Padding="4,2" Margin="0,0,4,0"
                                             Command="{Binding Flash.AddFirmwareFileCommand}"
-                                            ToolTip="Load a .hex / .s19 / .bin firmware file"/>
+                                            ToolTip="加载 .hex / .s19 / .bin 固件文件"/>
                                     <Button Content="- Remove" Padding="4,2"
                                             Command="{Binding Flash.RemoveFirmwareFileCommand}"
-                                            ToolTip="Remove selected firmware file"/>
+                                            ToolTip="移除选中的固件文件"/>
                                 </StackPanel>
                                 <ListBox ItemsSource="{Binding Flash.CurrentProfile.FirmwareFiles}"
                                          SelectedItem="{Binding Flash.SelectedFirmwareFile, Mode=TwoWay}"
@@ -265,14 +283,14 @@
                             </DockPanel>
                             <!-- Flash Driver -->
                             <DockPanel Grid.Column="1">
-                                <TextBlock DockPanel.Dock="Top" Text="Flash Driver:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock DockPanel.Dock="Top" Text="刷写驱动:" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,4,0,0">
                                     <Button Content="+ Add Flash Driver" Padding="4,2" Margin="0,0,4,0"
                                             Command="{Binding Flash.AddFlashDriverCommand}"
-                                            ToolTip="Load a flash driver DLL or binary"/>
+                                            ToolTip="加载刷写驱动 DLL 或二进制文件"/>
                                     <Button Content="- Remove" Padding="4,2"
                                             Command="{Binding Flash.RemoveFlashDriverCommand}"
-                                            ToolTip="Remove flash driver"/>
+                                            ToolTip="移除刷写驱动"/>
                                 </StackPanel>
                                 <Border Height="80" BorderBrush="{StaticResource Border}" BorderThickness="1" Padding="4">
                                     <TextBlock Text="{Binding Flash.CurrentProfile.FlashDriver.Path, TargetNullValue='(no driver loaded)'}"
@@ -284,22 +302,22 @@
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <ComboBox x:Name="KindPicker" ItemsSource="{Binding Flash.AddableKinds}"
                                       SelectedIndex="0" Width="140" Margin="0,0,4,0"
-                                      ToolTip="Step kind to add"/>
-                            <Button Content="Add Step" Padding="8,3" MinWidth="72" Margin="0,0,4,0"
+                                      ToolTip="要添加的步骤类型"/>
+                            <Button Content="添加步骤" Padding="8,3" MinWidth="72" Margin="0,0,4,0"
                                     Command="{Binding Flash.AddStepCommand}"
                                     CommandParameter="{Binding SelectedItem, ElementName=KindPicker}"
-                                    ToolTip="Append a new step of the selected kind"/>
-                            <Button Content="Remove Step" Padding="8,3" MinWidth="80"
+                                    ToolTip="追加一个所选类型的步骤"/>
+                            <Button Content="移除步骤" Padding="8,3" MinWidth="80"
                                     Command="{Binding Flash.RemoveStepCommand}"
-                                    ToolTip="Remove the selected step"/>
+                                    ToolTip="移除选中的步骤"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                             <Button Content="▲ Up" Padding="8,3" MinWidth="48" Margin="0,0,4,0"
                                     Command="{Binding Flash.MoveUpCommand}"
-                                    ToolTip="Move selected step up"/>
+                                    ToolTip="上移选中的步骤"/>
                             <Button Content="▼ Down" Padding="8,3" MinWidth="48"
                                     Command="{Binding Flash.MoveDownCommand}"
-                                    ToolTip="Move selected step down"/>
+                                    ToolTip="下移选中的步骤"/>
                         </StackPanel>
                         <ProgressBar Value="{Binding Flash.ProgressPercent, Mode=OneWay}"
                                      Height="14" Minimum="0" Maximum="100" Margin="0,0,0,8"/>
@@ -344,7 +362,7 @@
                                         <ColumnDefinition Width="100"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Addressing:" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Text="寻址:" VerticalAlignment="Center"/>
                                     <ComboBox Grid.Column="1"
                                               ItemsSource="{Binding Flash.AddressingModes}"
                                               SelectedItem="{Binding Flash.SelectedStep.AddressingMode}"
@@ -354,7 +372,7 @@
 
                                 <!-- PreCheck properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.PreCheck, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="PreCheck" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                    <TextBlock Text="预检查" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -363,7 +381,7 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="例程 ID:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.PreCheck.RoutineId, Converter={StaticResource HexConverter}, ConverterParameter=4, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                 </StackPanel>
@@ -380,26 +398,26 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Level:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="等级:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.Level, Converter={StaticResource HexConverter}, ConverterParameter=2, UpdateSourceTrigger=PropertyChanged}"/>
                                         <TextBlock Grid.Row="0" Grid.Column="2" Foreground="{StaticResource Info}" VerticalAlignment="Center" Margin="4,0,0,0"
                                                    Visibility="{Binding Flash.SelectedStep.IsSecurityLevelFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}">
                                             <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Link}"/>
                                             <Run Text=" ODX"/>
                                         </TextBlock>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Mode:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="模式:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="1" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.SecurityAccessModes}"
                                                   SelectedItem="{Binding Flash.SelectedStep.SecurityAccess.Mode}"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Manual Key:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="手动密钥:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.ManualKeyHex, UpdateSourceTrigger=PropertyChanged}"/>
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="DLL Path:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="DLL 路径:" VerticalAlignment="Center"/>
                                         <DockPanel Grid.Row="3" Grid.Column="1">
                                             <Button Content="…" DockPanel.Dock="Right" Padding="6,0" Margin="2,0,0,0"
                                                     Command="{Binding Flash.SelectDllCommand}"/>
                                             <TextBox Text="{Binding Flash.SelectedStep.SecurityAccess.DllPath, UpdateSourceTrigger=PropertyChanged}"/>
                                         </DockPanel>
-                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Seed Length:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="种子长度:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.SeedLength, TargetNullValue='auto', UpdateSourceTrigger=PropertyChanged}"/>
                                         <TextBlock Grid.Row="4" Grid.Column="2" Foreground="{StaticResource Info}" VerticalAlignment="Center" Margin="4,0,0,0"
                                                    Visibility="{Binding Flash.SelectedStep.IsSeedLengthFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -419,7 +437,7 @@
                                             <ColumnDefinition Width="100"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="0" Text="段:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
                                                   SelectedIndex="{Binding Flash.EraseSegmentIndex, UpdateSourceTrigger=PropertyChanged}"
                                                   ToolTip="选择要擦除的 Segment (地址+大小自动获取)">
@@ -443,17 +461,17 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/><RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="例程 ID:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.RoutineId, Converter={StaticResource HexConverter}, ConverterParameter=4, UpdateSourceTrigger=PropertyChanged}"/>
                                         <!-- Start Addr / Size: Verify 步骤隐藏 (从 Segment 自动算); Erase 步骤显示.
                                              选中 Segment 后自动填充 (只读), 未选时可手工编辑. -->
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Start Addr:" VerticalAlignment="Center"
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="起始地址:" VerticalAlignment="Center"
                                                    Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"/>
                                         <TextBox Grid.Row="1" Grid.Column="1"
                                                  Text="{Binding Flash.SelectedStep.RoutineControl.StartAddress, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"
                                                  Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"
                                                  IsEnabled="{Binding Flash.EraseSegmentIndex, Converter={StaticResource NegativeToBooleanConverter}}"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Size:" VerticalAlignment="Center"
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="大小:" VerticalAlignment="Center"
                                                    Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"/>
                                         <TextBox Grid.Row="2" Grid.Column="1"
                                                  Text="{Binding Flash.SelectedStep.RoutineControl.Size, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"
@@ -464,7 +482,7 @@
 
                                 <!-- Download properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.Download, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="Download" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="下载" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -473,7 +491,7 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="段:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
                                                   SelectedIndex="{Binding Flash.SelectedStep.Download.SegmentIndex}"
                                                   ToolTip="选择要下载的 Segment (地址+大小+CRC 自动获取)">
@@ -493,7 +511,7 @@
 
                                 <!-- Verify properties (CRC 预设 + Segment 绑定) -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="Verify" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="校验" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -502,7 +520,7 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Segment:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="段:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
                                                   SelectedIndex="{Binding Flash.SelectedStep.Verify.SegmentIndex}"
                                                   ToolTip="选择要校验的 Segment (地址+大小+CRC 自动获取)">
@@ -517,17 +535,17 @@
                                                 </DataTemplate>
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="CRC Preset:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="CRC 预设:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="1" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.CrcPresetNames}"
                                                   SelectedIndex="{Binding Flash.SelectedStep.Verify.SelectedCrcPresetIndex}"
                                                   ToolTip="选择 CRC 算法预设以匹配目标 ECU"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Polynomial:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="多项式:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Polynomial, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"
                                                  IsEnabled="{Binding Flash.SelectedStep.Verify.IsCrcCustom}"/>
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Expected CRC:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="期望 CRC:" VerticalAlignment="Center"/>
                                         <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.ExpectedChecksum, StringFormat=0x{0:X8}}"/>
-                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Address:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="地址:" VerticalAlignment="Center"/>
                                         <TextBlock Grid.Row="4" Grid.Column="1">
                                             <Run Text="0x"/><Run Text="{Binding Flash.SelectedStep.Verify.StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
                                             <Run Text=" - 0x"/><Run Text="{Binding Flash.SelectedStep.Verify.EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
@@ -536,21 +554,21 @@
                                     <!-- Custom CRC 参数面板 (仅在 Custom 预设时显示) -->
                                     <StackPanel Margin="0,8,0,0"
                                                 Visibility="{Binding Flash.SelectedStep.Verify.IsCrcCustom, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                        <TextBlock Text="Custom CRC Parameters" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                        <TextBlock Text="自定义 CRC 参数" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
                                             <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Init:" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="初值:" VerticalAlignment="Center"/>
                                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Init, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Final XOR:" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="2" Text="最终异或:" VerticalAlignment="Center"/>
                                             <TextBox Grid.Row="0" Grid.Column="3" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.FinalXor, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <CheckBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Content="Reflect Input"
+                                            <CheckBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Content="输入反转"
                                                       IsChecked="{Binding Flash.SelectedStep.Verify.CrcParameters.ReflectInput}"
                                                       VerticalAlignment="Center"/>
-                                            <CheckBox Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Reflect Output"
+                                            <CheckBox Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="输出反转"
                                                       IsChecked="{Binding Flash.SelectedStep.Verify.CrcParameters.ReflectOutput}"
                                                       VerticalAlignment="Center"/>
                                         </Grid>
@@ -568,7 +586,7 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Reset Type:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="复位类型:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.EcuResetTypes}"
                                                   SelectedItem="{Binding Flash.SelectedStep.EcuReset.ResetType}"/>
@@ -586,7 +604,7 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Sub-function:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="子功能:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.CommunicationSubFunctions}"
                                                   SelectedItem="{Binding Flash.SelectedStep.CommunicationControl.SubFunction}"/>
@@ -604,11 +622,11 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Sub-function:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="子功能:" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.DtcControlSubFunctions}"
                                                   SelectedItem="{Binding Flash.SelectedStep.DtcControl.SubFunction}"/>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="DTC Group:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="DTC 组:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Flash.SelectedStep.DtcControl.DtcGroup, Converter={StaticResource HexConverter}, ConverterParameter=6, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                 </StackPanel>
@@ -624,7 +642,7 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Routine ID:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="例程 ID:" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.DependencyCheck.RoutineId, Converter={StaticResource HexConverter}, ConverterParameter=4, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                 </StackPanel>
@@ -635,7 +653,7 @@
                                     <TextBlock Text="将 flash driver 下载到 ECU RAM, ECU 自动执行擦写操作" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap"/>
                                     <StackPanel Margin="0,8,0,0"
                                                 Visibility="{Binding Flash.FlashDriverSegmentCount, Converter={StaticResource NonZeroToVisibilityConverter}}">
-                                        <TextBlock Text="Driver Segments:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                        <TextBlock Text="驱动段:" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                         <ItemsControl ItemsSource="{Binding Flash.FlashDriverSegments}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>

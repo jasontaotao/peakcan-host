@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
@@ -300,6 +301,42 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
     /// P2-1 真拆类后委托至 coordinator（同一实例）。</summary>
     public SendService SendService => _coordinator.SendService;
 
+    /// <summary>
+    /// 刷写进行中的只读投影。主窗口 <c>Closing</c> 用它决定要不要弹
+    /// 「退出会中止刷写」的确认（见 <c>AppShell.ShouldCancelExit</c>）；
+    /// 这里不另存状态，真源始终是 <see cref="UdsViewModel.Flash"/>。
+    /// </summary>
+    public bool IsFlashing => _udsViewModel.Flash.IsFlashing;
+
+    /// <summary>
+    /// 脚本页是否有未保存的改动。退出确认与刷写一起提示——脚本页现在有真正的
+    /// 「保存」了，退出时静默丢弃会和"换文件会问、退出不问"形成矛盾。
+    /// </summary>
+    public bool HasUnsavedScript => _scriptViewModel.HasUnsavedChanges;
+
+    /// <summary>
+    /// 启动时恢复脚本页的持久状态：未保存的草稿 + 「最近打开」列表
+    /// （AppShell.OnSourceInitialized 调用）。
+    /// </summary>
+    internal void RestoreScriptState()
+    {
+        _scriptViewModel.RefreshRecentScripts();
+        _scriptViewModel.RestoreDraft();
+    }
+
+    /// <summary>
+    /// 退出前把脚本草稿落盘。返回 false = 没写成功（超限或 IO 失败），
+    /// 调用方**不能**当成已保存然后放行退出。
+    /// </summary>
+    internal bool FlushScriptDraft() => _scriptViewModel.PersistDraft();
+
+    /// <summary>
+    /// 诊断面板的只读投影，给主窗口状态栏的会话徽章绑定用
+    /// （<c>Uds.Session.CurrentSession</c> / <c>Uds.Flash.IsFlashing</c> 等）。
+    /// 会话状态是 ECU 侧的真值，关掉 UDS 窗口也不会重置——所以要在主窗口常驻可见。
+    /// </summary>
+    public UdsViewModel Uds => _udsViewModel;
+
     public AppShellViewModel(
         ChannelRouter router,
         ILogger<AppShellViewModel> logger,
@@ -464,22 +501,23 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
         _coordinator.ConnectionsChanged += NotifyConnectionStateChanged;
 
         // P1-5: 双 TabControl 的 tab 集合（TabSpec 懒创建，ctor 不实例化 UserControl）。
+        // key 用于持久化可见子集（不能用索引，插标签时会把旧配置藏错页）。
         var mainTabs = new List<TabSpec>
         {
-            new("追踪", () => new TraceView { DataContext = _traceViewModel }),
-            new("DBC", () => new DbcView { DataContext = _dbcViewModel }),
-            new("回放", () => new ReplayView { DataContext = _replayViewModel }),
+            new("追踪", () => new TraceView { DataContext = _traceViewModel }, key: "T"),
+            new("DBC", () => new DbcView { DataContext = _dbcViewModel }, key: "D"),
+            new("回放", () => new ReplayView { DataContext = _replayViewModel }, key: "R"),
             // F1-3: the JS-scripting surface was orphaned — the VM was constructed
             // and injected into the shell but no tab/menu ever hosted ScriptView,
             // so the whole feature (WebView2 + CodeMirror + CAN/DBC script API) was
             // unreachable from the product.
-            new("脚本", () => new ScriptView { DataContext = _scriptViewModel }),
+            new("脚本", () => new ScriptView { DataContext = _scriptViewModel }, key: "S"),
         };
         // S3-T8（D1）：XCP 主 tab 追加（懒创建 TabSpec——ctor 不实例化 UserControl）。
         // 仅在注入了 XcpViewModel 时追加，保持既有测试构造点的 MainTabs 形状不变。
         if (xcpViewModel is not null)
         {
-            mainTabs.Add(new TabSpec("XCP", () => new Views.Xcp.XcpView { DataContext = xcpViewModel }));
+            mainTabs.Add(new TabSpec("XCP", () => new Views.Xcp.XcpView { DataContext = xcpViewModel }, key: "X"));
         }
         MainTabs = mainTabs;
         RightTabs = new[]
@@ -488,6 +526,18 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
             new TabSpec("信号", () => new SignalView { DataContext = _signalViewModel }),
             new TabSpec("统计", () => new StatsView { DataContext = _statsViewModel }),
         };
+
+        // 脚本页的未保存圆点。接线只此一处：TabSpec 不认识 VM，ScriptViewModel
+        // 也不认识 TabSpec——两边各自可测，桥由 shell 负责。
+        _scriptViewModel.PropertyChanged += OnScriptViewModelPropertyChanged;
+    }
+
+    private void OnScriptViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // 只关心脏状态；编辑器每敲一个字都会发 ScriptText，不必跟着写 TabSpec。
+        if (e.PropertyName != nameof(ScriptViewModel.HasUnsavedChanges)) return;
+        if (ScriptTabIndex >= MainTabs.Count) return;
+        MainTabs[ScriptTabIndex].IsDirty = _scriptViewModel.HasUnsavedChanges;
     }
 
     /// <summary>The window-lifecycle host backing the ShowUds /
@@ -603,6 +653,16 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
 
     public IReadOnlyList<TabSpec> MainTabs { get; }
     public IReadOnlyList<TabSpec> RightTabs { get; }
+
+    // 主区域 tab 的固定索引（与 ctor 里 MainTabs 的构造顺序一一对应）。
+    // **单点定义**：ViewSwitchFlow 的 Show* 命令、SessionFlow 的 OpenDbc、
+    // ShortcutFlow 的快捷键都从这里取。否则哪天在 DBC 与回放之间插一个 tab，
+    // "菜单写着 Ctrl+1 是追踪、按下去却切到别的页"这种错位会同时出现在两处。
+    internal const int TraceTabIndex = 0;
+    internal const int DbcTabIndex = 1;
+    internal const int ReplayTabIndex = 2;
+    internal const int ScriptTabIndex = 3;
+    internal const int XcpTabIndex = 4;
 
     [ObservableProperty]
     private bool _isRecordingPanelOpen;

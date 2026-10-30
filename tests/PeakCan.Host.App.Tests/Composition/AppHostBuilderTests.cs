@@ -130,6 +130,19 @@ public class AppHostBuilderTests
             "AppShell must receive LayoutStateStore from the DI factory (P2-6)");
     }
 
+    [Fact]
+    public void Script_ViewModel_Receives_The_Draft_Store()
+    {
+        // ScriptDraftStore 是 ScriptViewModel 的**可选**参数：MS DI 在没注册时
+        // 会静默用默认 null，草稿功能就无声关闭了（用户直到重启发现内容没了才知道）。
+        using var host = new AppHostBuilder().Build();
+
+        var script = host.Services.GetRequiredService<ScriptViewModel>();
+
+        script.HasDraftStore.Should().BeTrue("ScriptDraftStore 必须在 AppHostBuilder 里注册");
+        script.HasRecentScriptsStore.Should().BeTrue("RecentScriptsStore 必须在 AppHostBuilder 里注册");
+    }
+
     private static T RunSta<T>(Func<T> body)
     {
         if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
