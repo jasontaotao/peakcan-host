@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -6,6 +7,23 @@ using PeakCan.Host.Core.Analysis.Nm;
 using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.App.ViewModels;
+
+/// <summary>补全对话框里可勾选为 NM 的报文候选。</summary>
+public sealed partial class NmMessageCandidateVm : ObservableObject
+{
+    public NmMessageCandidateVm(string canIdHex, string? name, bool isSelected)
+    {
+        CanIdHex = canIdHex;
+        Name = name ?? "";
+        IsSelected = isSelected;
+    }
+
+    public string CanIdHex { get; }
+
+    public string Name { get; }
+
+    [ObservableProperty] private bool _isSelected;
+}
 
 /// <summary>
 /// 补全 NM 输入的对话框 VM。建议值只填充编辑器，永不自动生效；
@@ -16,9 +34,16 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
     private readonly NmToolSnapshot _snapshot;
     private readonly NmMessageDef? _firstNm;
     private readonly ReplayFrame? _sampleFrame;
-    // 编辑器预填的是 profile 当前值；记住初值才能区分「用户改过」与「只是回显」。
+    // 磁盘上已有的 sidecar：保存时按字段合并，避免第二次补全覆盖掉第一轮的输入。
+    private readonly NmUserSupplement? _existing;
+    // 编辑器预填值。记住它们才能区分「用户改过」与「只是回显」。
+    private readonly byte? _initialNidByte;
+    private readonly byte? _initialCbvByte;
+    private readonly byte? _initialUserDataOffset;
+    private readonly int? _initialUserDataLength;
     private readonly int? _initialCycleMs;
     private readonly int? _initialTimeoutMs;
+    private readonly bool? _initialPnEnabled;
 
     [ObservableProperty] private byte? _nidByte;
     [ObservableProperty] private byte? _cbvByte;
@@ -29,6 +54,9 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
     [ObservableProperty] private bool? _pnEnabled;
     [ObservableProperty] private string _status = "";
 
+    /// <summary>保存成功后触发；窗口据此关闭对话框（DialogResult = true）。</summary>
+    public event EventHandler? RequestClose;
+
     public NmInputWizardViewModel(NmToolSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -37,20 +65,46 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
         _sampleFrame = _firstNm is null
             ? null
             : snapshot.Frames.FirstOrDefault(f =>
-                (f.Id & 0x1FFFFFFFu) == ParseId(_firstNm.CanIdHex));
+                (f.Id & 0x1FFFFFFFu) == ParseId(_firstNm.CanIdHex)
+                && f.IsExtended == _firstNm.IsExtended);
 
-        CycleMs = snapshot.Profile.Timings.CycleMs;
-        TimeoutMs = snapshot.Profile.Timings.TimeoutMs;
+        _existing = snapshot.DbcPath is null ? null : NmSidecarStore.Load(snapshot.DbcPath);
+
+        // 已有 sidecar 的值回填编辑器：用户第二次补全时能看到并继续编辑上一轮的输入。
+        NidByte = _existing?.NidByte;
+        CbvByte = _existing?.CbvByte;
+        UserDataOffset = _existing?.UserDataOffset;
+        UserDataLength = _existing?.UserDataLength;
+        PnEnabled = _existing?.Features?.PnEnabled;
+        CycleMs = _existing?.Timings?.CycleMs ?? snapshot.Profile.Timings.CycleMs;
+        TimeoutMs = _existing?.Timings?.TimeoutMs ?? snapshot.Profile.Timings.TimeoutMs;
+
+        _initialNidByte = NidByte;
+        _initialCbvByte = CbvByte;
+        _initialUserDataOffset = UserDataOffset;
+        _initialUserDataLength = UserDataLength;
         _initialCycleMs = CycleMs;
         _initialTimeoutMs = TimeoutMs;
+        _initialPnEnabled = PnEnabled;
 
         SampleByteTexts = SampleBytes
             .Select(b => b.ToString("X2", CultureInfo.InvariantCulture))
             .ToArray();
         MissingItems = snapshot.Report.MissingInputs.ToArray();
+
+        MessageCandidates = new ObservableCollection<NmMessageCandidateVm>(
+            snapshot.Profile.Messages
+                .Where(m => !m.IsNm)
+                .Select(m => new NmMessageCandidateVm(
+                    m.CanIdHex,
+                    m.Name,
+                    _existing?.NmMessageSelectors?.Contains(m.CanIdHex, StringComparer.OrdinalIgnoreCase) == true)));
     }
 
     public IReadOnlyList<NmInputMissing> MissingItems { get; }
+
+    /// <summary>DBC 里尚未标记为 NM 的报文；勾选后会进入 sidecar 的 nm_message_selectors。</summary>
+    public ObservableCollection<NmMessageCandidateVm> MessageCandidates { get; }
 
     /// <summary>取当前 trace 里该 NM 报文的第一帧字节；没有样本时为空。</summary>
     public IReadOnlyList<byte> SampleBytes => _sampleFrame?.Data ?? Array.Empty<byte>();
@@ -77,37 +131,63 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
     }
 
     public NmUserSupplement ToSupplement() => new(
-        NidByte: NidByte,
-        CbvByte: CbvByte,
-        UserDataOffset: UserDataOffset,
-        UserDataLength: UserDataLength,
+        NmMessageSelectors: BuildSelectors(),
+        IdMapping: _existing?.IdMapping,
+        NidByte: Pick(NidByte, _initialNidByte, _existing?.NidByte),
+        CbvByte: Pick(CbvByte, _initialCbvByte, _existing?.CbvByte),
+        UserDataOffset: Pick(UserDataOffset, _initialUserDataOffset, _existing?.UserDataOffset),
+        UserDataLength: Pick(UserDataLength, _initialUserDataLength, _existing?.UserDataLength),
         Timings: BuildTimings(),
-        Features: PnEnabled is null ? null : new NmFeatures(PnEnabled: PnEnabled),
+        Features: BuildFeatures(),
+        Nodes: _existing?.Nodes,
         DbcPath: _snapshot.DbcPath,
         DbcHash: _snapshot.DbcHash);
 
     /// <summary>
-    /// 只回传用户真正改过的计时字段。编辑器预填的是 profile 当前值，
-    /// 原样带回去等于凭空声明「用户覆盖了 DBC」，会污染 sidecar 语义。
+    /// 逐字段合并：编辑器改过的值优先，未改动的字段沿用既有 sidecar。
+    /// 否则整文件覆盖会把上一轮保存的字段静默抹掉。
     /// </summary>
+    private static T Pick<T>(T current, T initial, T stored)
+        => EqualityComparer<T>.Default.Equals(current, initial) ? stored : current;
+
+    /// <summary>只回传用户改过的计时字段，未改动的沿用既有 sidecar（其余计时字段原样保留）。</summary>
     private NmTimings? BuildTimings()
     {
-        var cycleChanged = CycleMs != _initialCycleMs;
-        var timeoutChanged = TimeoutMs != _initialTimeoutMs;
-        if (!cycleChanged && !timeoutChanged) return null;
+        var stored = _existing?.Timings;
+        var cycle = Pick(CycleMs, _initialCycleMs, stored?.CycleMs);
+        var timeout = Pick(TimeoutMs, _initialTimeoutMs, stored?.TimeoutMs);
+        if (cycle is null && timeout is null && stored is null) return null;
         return new NmTimings(
-            CycleMs: cycleChanged ? CycleMs : null,
-            TimeoutMs: timeoutChanged ? TimeoutMs : null);
+            CycleMs: cycle,
+            TimeoutMs: timeout,
+            RepeatMessageMs: stored?.RepeatMessageMs,
+            WaitBusSleepMs: stored?.WaitBusSleepMs,
+            ImmediateCycleMs: stored?.ImmediateCycleMs,
+            ImmediateCount: stored?.ImmediateCount);
     }
 
-    [RelayCommand]
-    private void ApplySuggestion(NmInputMissing item)
+    /// <summary>PN 勾选同理；既有 sidecar 的其他 feature 字段原样保留。</summary>
+    private NmFeatures? BuildFeatures()
     {
-        // 只把建议值填进对应编辑器；不保存、不自动生效。
-        Status = $"已填入建议：{item.Suggestion}（仍需点「保存到项目」）";
-        if (item.InputKey == "cycle_ms" && _firstNm?.CycleMs is { } cycle) CycleMs = cycle;
-        if (item.InputKey == "nid_byte") NidByte = 0;
-        if (item.InputKey == "cbv_byte") CbvByte = 1;
+        var stored = _existing?.Features;
+        var pn = Pick(PnEnabled, _initialPnEnabled, stored?.PnEnabled);
+        if (pn is null && stored is null) return null;
+        return new NmFeatures(
+            ActiveWakeupBitEnabled: stored?.ActiveWakeupBitEnabled,
+            RepeatMsgIndEnabled: stored?.RepeatMsgIndEnabled,
+            PnEnabled: pn);
+    }
+
+    /// <summary>既有选择器 ∪ 当前勾选；为空时返回 null（不写空数组）。</summary>
+    private IReadOnlyList<string>? BuildSelectors()
+    {
+        var ids = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var id in _existing?.NmMessageSelectors ?? Array.Empty<string>())
+            if (seen.Add(id)) ids.Add(id);
+        foreach (var candidate in MessageCandidates.Where(c => c.IsSelected))
+            if (seen.Add(candidate.CanIdHex)) ids.Add(candidate.CanIdHex);
+        return ids.Count == 0 ? null : ids;
     }
 
     [RelayCommand]
@@ -155,7 +235,9 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
         try
         {
             NmSidecarStore.Save(_snapshot.DbcPath, ToSupplement());
-            Status = "已保存到 " + NmSidecarStore.PathFor(_snapshot.DbcPath);
+            Status = "已保存到 " + NmSidecarStore.PathFor(_snapshot.DbcPath) + "；关闭对话框后面板将重算";
+            // 保存成功自动关闭：面板由 OpenNmWizardAsync 在 ShowDialog 返回后重算。
+            RequestClose?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
         {
