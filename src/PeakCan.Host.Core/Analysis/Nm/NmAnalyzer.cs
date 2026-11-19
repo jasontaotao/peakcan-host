@@ -11,6 +11,9 @@ public static class NmAnalyzer
 {
     public const string EngineVersion = "nm-m1-1";
 
+    // 与 NmContentAnalyzer.MaxEventsPerMessage 同口径：单报文事件上限。
+    private const int MaxEventsPerMessage = 200;
+
     private static readonly string[] s_unknowns =
     {
         "接收端本地 NM 超时状态不可观测（trace 只看到发送）",
@@ -37,12 +40,28 @@ public static class NmAnalyzer
             assumptions.Add("未配置 NM 超时，按 2000ms 处理。");
 
         var nmMessages = request.Profile.Messages.Where(m => m.IsNm).ToArray();
-        // 单次建索引：1M 帧 × 每帧线性找定义会变成 O(n²)。
-        var defById = nmMessages.ToDictionary(m => ParseId(m.CanIdHex));
-        var nmFrames = selected
-            .Where(f => defById.ContainsKey(f.Id & 0x1FFFFFFFu))
-            .Select(f => new NmFrame(defById[f.Id & 0x1FFFFFFFu], f))
-            .ToList();
+        // 单次建索引：键必须含扩展位，否则标准 0x500 与扩展 0x500 会混算。
+        var defByKey = new Dictionary<(uint Id, bool IsExtended), NmMessageDef>();
+        var analyzedDefs = new List<NmMessageDef>();
+        foreach (var def in nmMessages)
+        {
+            if (defByKey.TryAdd((ParseId(def.CanIdHex), def.IsExtended), def))
+            {
+                analyzedDefs.Add(def);
+            }
+            else
+            {
+                // 同一 (数值 ID, 扩展位) 只允许一个定义：不静默择一，也不抛异常。
+                assumptions.Add($"报文定义重复：{def.CanIdHex}（IsExtended={def.IsExtended}），已跳过后续重复定义。");
+            }
+        }
+
+        var nmFrames = new List<NmFrame>();
+        foreach (var frame in selected)
+        {
+            if (defByKey.TryGetValue((frame.Id & 0x1FFFFFFFu, frame.IsExtended), out var def))
+                nmFrames.Add(new NmFrame(def, frame));
+        }
 
         var timeoutMs = request.Profile.Timings.TimeoutMs ?? 2000;
         var cycleMs = request.Profile.Timings.CycleMs ?? 500;
@@ -63,46 +82,54 @@ public static class NmAnalyzer
         }
 
         var messageReports = new List<NmMessageReport>();
-        foreach (var def in nmMessages)
+        // 多通道且未指定 channel 时 selector 已短路返回空；此时按报文报 absent 是假结论。
+        if (!diagnostics.MultiChannel)
         {
-            ct.ThrowIfCancellationRequested();
-            var frames = nmFrames.Where(f => f.Def.CanIdHex == def.CanIdHex).ToArray();
-            if (frames.Length == 0)
+            foreach (var def in analyzedDefs)
             {
-                findings.Add(new NmFinding("NM_MESSAGE_ABSENT", "warn",
-                    $"{def.CanIdHex}（{def.Name}）在窗口内从未出现",
-                    Array.Empty<double>(), false, "核对 DBC/矩阵/记录范围"));
-                continue;
+                ct.ThrowIfCancellationRequested();
+                var frames = nmFrames
+                    .Where(f => f.Def.CanIdHex == def.CanIdHex && f.Def.IsExtended == def.IsExtended)
+                    .ToArray();
+                if (frames.Length == 0)
+                {
+                    findings.Add(new NmFinding("NM_MESSAGE_ABSENT", "warn",
+                        $"{def.CanIdHex}（{def.Name}）在窗口内从未出现",
+                        Array.Empty<double>(), false, "核对 DBC/矩阵/记录范围"));
+                    continue;
+                }
+
+                var timestamps = frames.Select(f => f.Frame.Timestamp).ToArray();
+                var cycle = NmCycleAnalyzer.Analyze(timestamps, def, episodes);
+
+                // spec §7.4: 偏差占比 > 5% 或连续 3 帧超容差才算 finding；
+                // 共享 ID 不拆节点时本报告只给按报文的周期结论，不做按节点的偏差归因。
+                if (NmCycleAnalyzer.IsDeviationSignificant(cycle))
+                {
+                    findings.Add(new NmFinding("NM_CYCLE_DEVIATION", "warn",
+                        $"{def.CanIdHex} 周期偏差 {cycle.DeviationCount}/{cycle.IntervalCount} 次（期望 {def.CycleMs}ms）",
+                        timestamps.Take(5).ToArray(), true, "检查调度/负载/时钟"));
+                }
+
+                if (frames.Any(f => f.Frame.Dlc != def.Dlc))
+                {
+                    findings.Add(new NmFinding("NM_DLC_MISMATCH", "warn",
+                        $"{def.CanIdHex} 实测 DLC 与 DBC（{def.Dlc}）不一致",
+                        timestamps.Take(5).ToArray(), false, "核对帧格式/配置"));
+                }
+
+                var activity = new[]
+                {
+                    new NmSegment(timestamps[0], timestamps[^1], "active"),
+                };
+                // 与 NmCycleAnalyzer 同源：报文自身超时优先，其次 profile 级超时。
+                var defTimeoutSec =
+                    (def.TimeoutMs ?? request.Profile.Timings.TimeoutMs ?? 2000) / 1000.0;
+                messageReports.Add(new NmMessageReport(
+                    def.CanIdHex, def.IsExtended, def.Name, def.Sender,
+                    frames.Length, timestamps[0], timestamps[^1], cycle, activity,
+                    SilentBeyondTimeout: request.End - timestamps[^1] > defTimeoutSec));
             }
-
-            var timestamps = frames.Select(f => f.Frame.Timestamp).ToArray();
-            var cycle = NmCycleAnalyzer.Analyze(timestamps, def, episodes);
-
-            // spec §7.4: 偏差占比 > 5% 或连续 3 帧超容差才算 finding；
-            // 共享 ID 不拆节点时本报告只给按报文的周期结论，不做按节点的偏差归因。
-            if (NmCycleAnalyzer.IsDeviationSignificant(cycle))
-            {
-                findings.Add(new NmFinding("NM_CYCLE_DEVIATION", "warn",
-                    $"{def.CanIdHex} 周期偏差 {cycle.DeviationCount}/{cycle.IntervalCount} 次（期望 {def.CycleMs}ms）",
-                    timestamps.Take(5).ToArray(), true, "检查调度/负载/时钟"));
-            }
-
-            if (frames.Any(f => f.Frame.Dlc != def.Dlc))
-            {
-                findings.Add(new NmFinding("NM_DLC_MISMATCH", "warn",
-                    $"{def.CanIdHex} 实测 DLC 与 DBC（{def.Dlc}）不一致",
-                    timestamps.Take(5).ToArray(), false, "核对帧格式/配置"));
-            }
-
-            var activity = new[]
-            {
-                new NmSegment(timestamps[0], timestamps[^1], "active"),
-            };
-            messageReports.Add(new NmMessageReport(
-                def.CanIdHex, def.IsExtended, def.Name, def.Sender,
-                frames.Length, timestamps[0], timestamps[^1], cycle, activity,
-                SilentBeyondTimeout: episodes.Count > 0 &&
-                    request.End - timestamps[^1] > timeoutMs / 1000.0));
         }
 
         if (episodes.Any(e => e.BoundaryStart || e.BoundaryEnd))
@@ -123,11 +150,23 @@ public static class NmAnalyzer
         truncations.AddRange(content.Truncations);
 
         if (request.Dbc is not null)
-            events.AddRange(NmSignalSummary.Build(request.Dbc, nmFrames));
+        {
+            // 信号事件与内容事件用同一上限口径：按报文计，超出的丢弃并显式记截断。
+            var signalEvents = NmSignalSummary.Build(request.Dbc, nmFrames);
+            foreach (var group in signalEvents.GroupBy(
+                e => e.CanIdHex ?? string.Empty, StringComparer.Ordinal))
+            {
+                var all = group.ToArray();
+                var returned = Math.Min(all.Length, MaxEventsPerMessage);
+                for (int i = 0; i < returned; i++) events.Add(all[i]);
+                if (all.Length > MaxEventsPerMessage)
+                    truncations.Add(new NmTruncation("events:signals:" + group.Key, returned, all.Length));
+            }
+        }
 
         var unknowns = new List<string>(s_unknowns);
         unknowns.AddRange(gap.Unknowns);
-        if (nmFrames.Count == 0)
+        if (nmFrames.Count == 0 && !diagnostics.MultiChannel)
             assumptions.Add("该窗口未发现 NM 帧；不推断节点状态。");
         if (diagnostics.DirectionUnknownFrames > 0)
             assumptions.Add($"direction=unknown 的帧 {diagnostics.DirectionUnknownFrames} 条；M1 不排除 Tx。");

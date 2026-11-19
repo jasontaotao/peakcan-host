@@ -14,6 +14,9 @@ public class NmAnalyzerTests
     private static ReplayFrame F(double t, uint id, bool ext, params byte[] data)
         => new(t, id, (byte)data.Length, data, FrameFlags.None, ext);
 
+    private static ReplayFrame FOn(double t, uint id, bool ext, ushort channel, params byte[] data)
+        => new(t, id, (byte)data.Length, data, FrameFlags.None, ext, channel);
+
     private static NmProfile Profile() => new(
         NmProfileSource.Dbc,
         new[] { new NmMessageDef("0x500", false, "NM_Message", "ECU_A", 8, true,
@@ -81,6 +84,98 @@ public class NmAnalyzerTests
         Assert.Empty(report.Messages);
         Assert.Contains(report.MissingInputs, m => m.InputKey == "nm_message_selection");
         Assert.Contains("该窗口", string.Join(" ", report.Assumptions));
+    }
+
+    [Fact]
+    public void Analyze_MultiChannelWithoutSelection_SkipsAnalysisWithoutAbsentFindings()
+    {
+        var frames = new[]
+        {
+            FOn(0, 0x500, false, 1, 0xF4, 0),
+            FOn(0.5, 0x500, false, 2, 0xF4, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, Profile(), 0, 1));
+
+        // 多通道短路后没有可分析的帧，不能再断言"报文缺失"。
+        Assert.Empty(report.Messages);
+        Assert.Empty(report.Episodes);
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NM_MESSAGE_ABSENT");
+        Assert.Contains(report.Assumptions, a => a.Contains("跳过分析"));
+    }
+
+    [Fact]
+    public void Analyze_SameNumericIdDifferentFrameFormat_ReportsSeparately()
+    {
+        var messages = new[]
+        {
+            new NmMessageDef("0x500", false, "NM_Std", "ECU_A", 8, true, CannmReasons, 500, 2000),
+            new NmMessageDef("0x500", true, "NM_Ext", "ECU_A", 8, true, CannmReasons, 500, 2000),
+        };
+        var profile = Profile() with { Messages = messages };
+        var frames = new[]
+        {
+            F(0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, true, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 1));
+
+        Assert.Equal(2, report.Messages.Count);
+        var standard = report.Messages.Single(m => !m.IsExtended);
+        var extended = report.Messages.Single(m => m.IsExtended);
+        Assert.Equal("NM_Std", standard.Name);
+        Assert.Equal(1, standard.FrameCount);
+        Assert.Equal("NM_Ext", extended.Name);
+        Assert.Equal(1, extended.FrameCount);
+    }
+
+    [Fact]
+    public void Analyze_DuplicateMessageDefinition_SkipsDuplicateWithoutThrowing()
+    {
+        var messages = new[]
+        {
+            new NmMessageDef("0x500", false, "NM_First", "ECU_A", 8, true, CannmReasons, 500, 2000),
+            new NmMessageDef("0x500", false, "NM_Dup", "ECU_A", 8, true, CannmReasons, 500, 2000),
+        };
+        var profile = Profile() with { Messages = messages };
+        var frames = new[] { F(0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0) };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 1));
+
+        var message = Assert.Single(report.Messages);
+        Assert.Equal("NM_First", message.Name);
+        Assert.Contains(report.Assumptions, a => a.Contains("报文定义重复"));
+    }
+
+    [Fact]
+    public void Analyze_SignalEventsExceedLimit_TruncatesPerMessage()
+    {
+        var dbc = DbcParser.Parse("""
+VERSION ""
+
+BO_ 1280 NM_Message: 8 ECU_A
+ SG_ SigA : 0|8@1+ (1,0) [0|255] "" ECU_B
+ SG_ SigB : 8|8@1+ (1,0) [0|255] "" ECU_B
+""").Value!;
+
+        // 120 帧、两个信号每帧都变化 → 238 条 signal_change，超过单报文 200 上限。
+        var frames = Enumerable.Range(0, 120)
+            .Select(i => F(i * 0.5, 0x500, false,
+                (byte)i, (byte)(255 - i), 0, 0, 0, 0, 0, 0))
+            .ToArray();
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, dbc, Profile(), 0, 60));
+
+        var truncation = Assert.Single(
+            report.Truncations, t => t.Section == "events:signals:0x500");
+        Assert.Equal(200, truncation.Returned);
+        Assert.Equal(238, truncation.Total);
+        Assert.True(report.Events.Count(e => e.Type == "signal_change" && e.CanIdHex == "0x500") <= 200);
     }
 
     [Fact]
