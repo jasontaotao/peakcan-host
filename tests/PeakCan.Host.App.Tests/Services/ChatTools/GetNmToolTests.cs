@@ -141,8 +141,10 @@ public class GetNmToolTests
         var json = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
 
         var detail = json["events"]![0]!["detail"]!.GetValue<string>();
-        detail.Should().Contain("0x??");
-        detail.Should().NotContain("0x00 → 0x08");
+        // 精确匹配：两个取值都必须被替换。只替换首个值会留下 "0x?? → 0x08"，
+        // 宽松的 Contain/NotContain 断言无法发现这种部分泄漏。
+        detail.Should().Be("byte0: 0x?? → 0x??，变化 3 次");
+        detail.Should().NotContain("0x08");
         json["detail_redacted"]!.GetValue<bool>().Should().BeTrue();
     }
 
