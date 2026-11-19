@@ -10,6 +10,9 @@ public class NmAnalyzerTests
 {
     // CA1861: 常量数组不内联，避免每次构造都分配。
     private static readonly string[] CannmReasons = ["MsgType=CANNM"];
+    private static readonly string[] ConflictValues = ["500", "1000"];
+    private static readonly string[] ConflictSources = ["dbc", "sidecar"];
+    private static readonly string[] MissingDbc = ["dbc"];
 
     private static ReplayFrame F(double t, uint id, bool ext, params byte[] data)
         => new(t, id, (byte)data.Length, data, FrameFlags.None, ext);
@@ -176,6 +179,130 @@ BO_ 1280 NM_Message: 8 ECU_A
         Assert.Equal(200, truncation.Returned);
         Assert.Equal(238, truncation.Total);
         Assert.True(report.Events.Count(e => e.Type == "signal_change" && e.CanIdHex == "0x500") <= 200);
+    }
+
+    [Fact]
+    public void Analyze_EveryFinding_HasEvidenceInsideWindow()
+    {
+        var profile = Profile() with
+        {
+            Messages = new[]
+            {
+                new NmMessageDef("0x500", false, "NM_Message", "ECU_A", 8, true,
+                    CannmReasons, 500, 2000, true),
+                new NmMessageDef("0x501", false, "NM_Absent", "ECU_B", 8, true,
+                    CannmReasons, 500, 2000, true),
+            },
+            Conflicts = new[]
+            {
+                new NmConfigConflict("CycleMs", ConflictValues, ConflictSources),
+            },
+        };
+        var frames = Enumerable.Range(0, 10)
+            .Select(i => F(i * 0.5, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0))
+            .ToArray();
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 4.5));
+
+        // 两类原先 EvidenceTimes 为空的 finding 都要覆盖到。
+        Assert.Contains(report.Findings, f => f.Code == "NM_CONFIG_CONFLICT");
+        Assert.Contains(report.Findings, f => f.Code == "NM_MESSAGE_ABSENT");
+        Assert.All(report.Findings, finding =>
+        {
+            Assert.NotEmpty(finding.EvidenceTimes);
+            Assert.All(finding.EvidenceTimes,
+                t => Assert.InRange(t, report.Window.Start, report.Window.End));
+        });
+    }
+
+    [Fact]
+    public void Analyze_SharedIdWithMultipleNids_SuppressesCycleDeviation()
+    {
+        var profile = Profile() with { Layout = new NmLayout(NidByte: 0, CbvByte: 1) };
+        var frames = new List<ReplayFrame>();
+        for (int i = 0; i < 6; i++)
+        {
+            frames.Add(F(i * 0.5, 0x500, false, 0xF4, 0x00, 0, 0, 0, 0, 0, 0, 0));
+            // 两个 NID 交错 100ms：合并后的间隔离散，按常规容差足以触发偏差判据。
+            frames.Add(F(i * 0.5 + 0.1, 0x500, false, 0x27, 0x00, 0, 0, 0, 0, 0, 0));
+        }
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 3.2));
+
+        // 共享 ID 无法按节点拆周期，不得把交错发送误报成周期偏差。
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NM_CYCLE_DEVIATION");
+        Assert.Contains(report.Assumptions, a => a.Contains("共享 ID"));
+    }
+
+    [Fact]
+    public void Analyze_FewCycleIntervals_ReportsInsufficientSamplesAssumption()
+    {
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0),
+            F(1.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, Profile(), 0, 1.5));
+
+        var message = Assert.Single(report.Messages);
+        Assert.True(message.Cycle.InsufficientSamples);
+        Assert.Contains(report.Assumptions,
+            a => a.Contains("周期有效间隔") && a.Contains("< 5"));
+    }
+
+    [Fact]
+    public void Analyze_ProfileDeclaresDbcMissing_AddsDbcMissingInput()
+    {
+        var profile = Profile() with { MissingFields = MissingDbc };
+        var frames = new[] { F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0) };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 1));
+
+        Assert.Contains(report.MissingInputs, m => m.InputKey == "dbc");
+    }
+
+    [Fact]
+    public void Analyze_PnDisabledWithCbv_AddsPniInferenceAssumption()
+    {
+        var profile = Profile() with
+        {
+            Layout = new NmLayout(NidByte: 0, CbvByte: 1),
+            Features = new NmFeatures(PnEnabled: false),
+        };
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0xF4, 0x10, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0xF4, 0x10, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 1));
+
+        Assert.Contains(report.Assumptions,
+            a => a.Contains("PNI 按 AUTOSAR CanNm CBV bit4 解读"));
+        Assert.Contains(report.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
+    }
+
+    [Fact]
+    public void Analyze_PopulatesSelectionDiagnostics()
+    {
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, Profile(), 0, 1));
+
+        Assert.NotNull(report.Selection);
+        Assert.Equal(2, report.Selection!.DirectionUnknownFrames);
     }
 
     [Fact]

@@ -29,8 +29,18 @@ public static class NmAnalyzer
 
         var selected = NmFrameSelector.Select(request, out var diagnostics);
         var window = new NmWindow(request.Start, request.End, request.WindowRef);
-        var (capabilities, missing) = NmCapabilityGate.Evaluate(
+        var (capabilities, gateMissing) = NmCapabilityGate.Evaluate(
             request.Profile, selected, request.Dbc);
+        var missing = gateMissing.ToList();
+        // MissingFields 里的 "dbc" 必须落到 missing_inputs：否则 profile 明确声明缺 DBC，
+        // 报告却没有任何可执行的补全提示。
+        if (request.Profile.MissingFields.Contains("dbc", StringComparer.Ordinal)
+            && !missing.Any(m => string.Equals(m.InputKey, "dbc", StringComparison.Ordinal)))
+        {
+            missing.Add(new NmInputMissing(
+                NmCapability.IdentifyMessages, "dbc",
+                "没有加载 DBC，无法读取 NM 属性", "加载 DBC 或使用补全对话框", null));
+        }
 
         var assumptions = new List<string>();
         if (diagnostics.MultiChannel)
@@ -38,6 +48,13 @@ public static class NmAnalyzer
 
         if (request.Profile.Timings.TimeoutMs is null)
             assumptions.Add("未配置 NM 超时，按 2000ms 处理。");
+
+        // PNI 位角色是硬编码的 AUTOSAR 约定（CBV bit4），不是从矩阵读出的，按推断解释。
+        if (request.Profile.Layout?.CbvByte is not null
+            && request.Profile.Features?.PnEnabled == false)
+        {
+            assumptions.Add("PNI 按 AUTOSAR CanNm CBV bit4 解读（M1 已知限制）");
+        }
 
         var nmMessages = request.Profile.Messages.Where(m => m.IsNm).ToArray();
         // 单次建索引：键必须含扩展位，否则标准 0x500 与扩展 0x500 会混算。
@@ -75,10 +92,11 @@ public static class NmAnalyzer
 
         foreach (var conflict in request.Profile.Conflicts)
         {
+            // DBC 级配置冲突对整段窗口持续有效，证据取整窗。
             findings.Add(new NmFinding(
                 "NM_CONFIG_CONFLICT", "warn",
                 $"{conflict.Field} 存在冲突：{string.Join(" / ", conflict.Values)}（来自 {string.Join(" / ", conflict.Sources)}）",
-                Array.Empty<double>(), false, "先统一 DBC/矩阵配置"));
+                new[] { window.Start, window.End }, false, "先统一 DBC/矩阵配置"));
         }
 
         var messageReports = new List<NmMessageReport>();
@@ -93,18 +111,45 @@ public static class NmAnalyzer
                     .ToArray();
                 if (frames.Length == 0)
                 {
+                    // 结论是"整个窗口内未出现"，证据时间覆盖整窗。
                     findings.Add(new NmFinding("NM_MESSAGE_ABSENT", "warn",
                         $"{def.CanIdHex}（{def.Name}）在窗口内从未出现",
-                        Array.Empty<double>(), false, "核对 DBC/矩阵/记录范围"));
+                        new[] { window.Start, window.End }, false, "核对 DBC/矩阵/记录范围"));
                     continue;
                 }
 
                 var timestamps = frames.Select(f => f.Frame.Timestamp).ToArray();
-                var cycle = NmCycleAnalyzer.Analyze(timestamps, def, episodes);
+                // 周期剔除与 SilentBeyondTimeout 必须同源：报文自身超时优先，其次 profile 级。
+                var effectiveTimeoutMs = def.TimeoutMs ?? request.Profile.Timings.TimeoutMs ?? 2000;
+                var cycle = NmCycleAnalyzer.Analyze(
+                    timestamps, def with { TimeoutMs = effectiveTimeoutMs }, episodes);
+
+                if (cycle.InsufficientSamples)
+                {
+                    assumptions.Add(
+                        $"{def.CanIdHex} 周期有效间隔 {cycle.IntervalCount} 个（< 5），未评估偏差");
+                }
+
+                // 共享 ID（同一报文组内 NID 不唯一）无法按节点拆周期，偏差结论会被多节点
+                // 交错发送放大成假阳性，因此抑制 NM_CYCLE_DEVIATION。
+                var sharedId = false;
+                if (request.Profile.Layout?.NidByte is { } nidByte)
+                {
+                    sharedId = frames
+                        .Where(f => f.Frame.Data.Length > nidByte)
+                        .Select(f => f.Frame.Data[nidByte])
+                        .Distinct()
+                        .Take(2)
+                        .Count() > 1;
+                }
+                if (sharedId)
+                {
+                    assumptions.Add($"{def.CanIdHex} 为共享 ID（NID 不唯一），已抑制周期偏差结论");
+                }
 
                 // spec §7.4: 偏差占比 > 5% 或连续 3 帧超容差才算 finding；
                 // 共享 ID 不拆节点时本报告只给按报文的周期结论，不做按节点的偏差归因。
-                if (NmCycleAnalyzer.IsDeviationSignificant(cycle))
+                if (!sharedId && NmCycleAnalyzer.IsDeviationSignificant(cycle))
                 {
                     findings.Add(new NmFinding("NM_CYCLE_DEVIATION", "warn",
                         $"{def.CanIdHex} 周期偏差 {cycle.DeviationCount}/{cycle.IntervalCount} 次（期望 {def.CycleMs}ms）",
@@ -122,9 +167,8 @@ public static class NmAnalyzer
                 {
                     new NmSegment(timestamps[0], timestamps[^1], "active"),
                 };
-                // 与 NmCycleAnalyzer 同源：报文自身超时优先，其次 profile 级超时。
-                var defTimeoutSec =
-                    (def.TimeoutMs ?? request.Profile.Timings.TimeoutMs ?? 2000) / 1000.0;
+                // 与 NmCycleAnalyzer.Analyze 同源：两者都用 effectiveTimeoutMs。
+                var defTimeoutSec = effectiveTimeoutMs / 1000.0;
                 messageReports.Add(new NmMessageReport(
                     def.CanIdHex, def.IsExtended, def.Name, def.Sender,
                     frames.Length, timestamps[0], timestamps[^1], cycle, activity,
@@ -152,15 +196,14 @@ public static class NmAnalyzer
         if (request.Dbc is not null)
         {
             // 信号事件与内容事件用同一上限口径：按报文计，超出的丢弃并显式记截断。
-            var signalEvents = NmSignalSummary.Build(request.Dbc, nmFrames);
-            foreach (var group in signalEvents.GroupBy(
-                e => e.CanIdHex ?? string.Empty, StringComparer.Ordinal))
+            // Build 内部达到上限后不再物化事件，避免先分配再丢弃。
+            foreach (var group in nmFrames.GroupBy(
+                f => f.Def.CanIdHex, StringComparer.Ordinal))
             {
-                var all = group.ToArray();
-                var returned = Math.Min(all.Length, MaxEventsPerMessage);
-                for (int i = 0; i < returned; i++) events.Add(all[i]);
-                if (all.Length > MaxEventsPerMessage)
-                    truncations.Add(new NmTruncation("events:signals:" + group.Key, returned, all.Length));
+                var signalEvents = NmSignalSummary.Build(
+                    request.Dbc, group.ToArray(), MaxEventsPerMessage, out var truncation);
+                events.AddRange(signalEvents);
+                if (truncation is not null) truncations.Add(truncation);
             }
         }
 
@@ -189,7 +232,8 @@ public static class NmAnalyzer
             truncations,
             StandardId: null,
             ProfileHash: null,
-            EngineVersion: EngineVersion);
+            EngineVersion: EngineVersion,
+            Selection: diagnostics);
     }
 
     private static uint ParseId(string hex)

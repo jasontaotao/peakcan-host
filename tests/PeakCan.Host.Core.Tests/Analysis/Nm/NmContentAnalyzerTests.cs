@@ -115,7 +115,9 @@ public class NmContentAnalyzerTests
         var result = NmContentAnalyzer.Analyze(new NmContentInput(
             frames, Profile(new NmLayout(NidByte: 0, CbvByte: 1), new NmFeatures(PnEnabled: false)), 500));
 
-        Assert.Contains(result.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
+        var finding = Assert.Single(result.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
+        // 位角色是硬编码的 AUTOSAR 约定，不是从矩阵读出的，必须标为推断。
+        Assert.True(finding.IsInference);
     }
 
     [Fact]

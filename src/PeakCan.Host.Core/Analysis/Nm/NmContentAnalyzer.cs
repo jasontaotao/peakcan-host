@@ -213,12 +213,13 @@ public static class NmContentAnalyzer
         if (input.Profile.Features?.PnEnabled != false) return;
 
         // AUTOSAR CanNm 的 PNI 位于 CBV bit4；只在用户明确配置 CBV 字节时解释。
+        // 位角色是硬编码的（M1 的 NmLayout 没有位定义），所以结论按推断输出。
         var hit = ordered.FirstOrDefault(f => f.Frame.Data.Length > cbvByte &&
                                               (f.Frame.Data[cbvByte] & 0x10) != 0);
         if (hit is not null)
         {
             findings.Add(new NmFinding("NM_PNI_WHILE_PN_DISABLED", "warn",
-                "PN 关闭但 CBV PNI 位置 1", new[] { hit.Frame.Timestamp }, false,
+                "PN 关闭但 CBV PNI 位置 1", new[] { hit.Frame.Timestamp }, IsInference: true,
                 "核对 CanNmPnEnabled 与实际发送内容"));
         }
     }

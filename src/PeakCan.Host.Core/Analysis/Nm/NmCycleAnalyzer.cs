@@ -1,7 +1,8 @@
 namespace PeakCan.Host.Core.Analysis.Nm;
 
 /// <summary>
-/// 逐报文周期统计。规则见 spec §7.4：剔除跨 episode 边界与超过超时阈值的间隔；
+/// 逐报文周期统计。规则见 spec §7.4：剔除跨 episode 边界、超过超时阈值以及
+/// missed_frame（1.5×cycle &lt; 间隔 ≤ timeout，见 §7.5.6）的间隔；
 /// 有效样本 &lt; 5 时只报样本不足，不下偏差结论。
 /// </summary>
 public static class NmCycleAnalyzer
@@ -15,6 +16,7 @@ public static class NmCycleAnalyzer
     {
         var ordered = timestamps.OrderBy(t => t).ToArray();
         var timeoutSec = (def.TimeoutMs ?? int.MaxValue) / 1000.0;
+        var cycleSec = def.CycleMs is { } cycle ? cycle / 1000.0 : (double?)null;
 
         var intervals = new List<double>();
         for (int i = 1; i < ordered.Length; i++)
@@ -24,6 +26,9 @@ public static class NmCycleAnalyzer
             if (delta <= 0) continue;
             // 静默超过超时阈值的间隔已被 episode 切分吃掉，不算周期样本。
             if (delta > timeoutSec) continue;
+            // spec §7.5.6：1.5×cycle < 间隔 ≤ timeout 属于 missed_frame（漏发一次），
+            // 不是周期本身的变化；纳入统计会把一次漏发误报成周期偏差。
+            if (cycleSec is { } expectedCycle && delta > 1.5 * expectedCycle) continue;
             if (CrossesEpisodeBoundary(ordered[i - 1], ordered[i], episodes)) continue;
             intervals.Add(delta);
         }
@@ -34,7 +39,8 @@ public static class NmCycleAnalyzer
             return new NmCycleStats(null, null, null, null, null, 0,
                 IntervalCount: intervals.Count,
                 ExpectedMs: def.CycleMs,
-                ToleranceMs: Tolerance(def.CycleMs));
+                ToleranceMs: Tolerance(def.CycleMs),
+                InsufficientSamples: true);
         }
 
         var sorted = intervals.OrderBy(x => x).ToArray();
@@ -66,10 +72,21 @@ public static class NmCycleAnalyzer
             }
         }
 
-        // 相位：首个报文相对首个 episode 起点的偏移。
-        var phase = episodes.Count > 0
-            ? (ordered[0] - episodes[0].Start) * 1000.0
-            : 0.0;
+        // 相位：首帧相对"包含首帧的那个 episode"起点的偏移。
+        // 不能固定用 episodes[0]：报文首次出现在后续 episode 时，会把 episode 之间的
+        // 空档也算进相位，数值会偏出几十秒。
+        NmEpisode? firstEpisode = null;
+        foreach (var episode in episodes)
+        {
+            if (episode.Start <= ordered[0] && ordered[0] <= episode.End)
+            {
+                firstEpisode = episode;
+                break;
+            }
+        }
+        var phase = firstEpisode is null
+            ? (double?)null
+            : (ordered[0] - firstEpisode.Start) * 1000.0;
 
         return new NmCycleStats(
             MedianMs: median * 1000.0,

@@ -12,7 +12,9 @@ public sealed record NmCycleStats(
     int IntervalCount = 0,
     int? ExpectedMs = null,
     int? ToleranceMs = null,
-    int ConsecutiveDeviationCount = 0);
+    int ConsecutiveDeviationCount = 0,
+    // 有效间隔 < 5 时为 true：中位数/相位/偏差均为空，消费方不应据此下结论。
+    bool InsufficientSamples = false);
 
 public sealed record NmSegment(double Start, double End, string Kind);
 
@@ -101,4 +103,6 @@ public sealed record NmReport(
     IReadOnlyList<NmTruncation> Truncations,
     string? StandardId = null,
     string? ProfileHash = null,
-    string? EngineVersion = null);
+    string? EngineVersion = null,
+    // 选择器丢弃/过滤计数：让"为什么少了很多帧"可复核，而不是算完即丢。
+    NmSelectionDiagnostics? Selection = null);

@@ -148,4 +148,60 @@ public class NmCycleAnalyzerTests
         Assert.Equal(4, stats.IntervalCount);
         Assert.Equal(0, stats.ConsecutiveDeviationCount);
     }
+
+    [Fact]
+    public void Analyze_ExcludesCrossBoundaryInterval_WhenCycleUnknown()
+    {
+        // cycle 未知时 missed_frame 剔除不生效，此时只能靠「跨 episode 边界」判据剔除 2.0s 间隔。
+        var times = new[] { 0.0, 0.5, 1.0, 3.0, 3.5, 4.0 };
+        var episodes = new[]
+        {
+            new NmEpisode(0, 0, 1.0, "active", null, SenderIds, false, false),
+            new NmEpisode(1, 3.0, 4.0, "active", null, SenderIds, false, false),
+        };
+
+        var stats = NmCycleAnalyzer.Analyze(times, Def(cycle: null, timeout: null), episodes);
+
+        Assert.Equal(4, stats.IntervalCount);
+    }
+
+    [Fact]
+    public void Analyze_MissedFrameIntervalBelowTimeout_IsExcludedAsMissedFrame()
+    {
+        // 500ms 周期，2.0s 处丢 1 帧 → 1.5→2.5 间隔 1.0s（> 1.5×cycle 且 ≤ timeout）。
+        // spec §7.5.6 属 missed_frame，不是周期偏差；剔除后其余 7 个间隔零偏差。
+        var times = new[] { 0.0, 0.5, 1.0, 1.5, 2.5, 3.0, 3.5, 4.0, 4.5 };
+
+        var stats = NmCycleAnalyzer.Analyze(times, Def(cycle: 500, timeout: 2000), OneEpisode(0, 4.5));
+
+        Assert.Equal(7, stats.IntervalCount);
+        Assert.Equal(0, stats.DeviationCount);
+        Assert.False(stats.InsufficientSamples);
+    }
+
+    [Fact]
+    public void Analyze_FirstFrameInLaterEpisode_PhaseRelativeToContainingEpisode()
+    {
+        // 报文只在第 2 个 episode 出现：相位应相对该 episode 起点，而不是全局首个 episode。
+        var times = new[] { 5.0, 5.5, 6.0, 6.5, 7.0, 7.5 };
+        var episodes = new[]
+        {
+            new NmEpisode(0, 0, 1.0, "active", null, SenderIds, false, false),
+            new NmEpisode(1, 5.0, 8.0, "active", null, SenderIds, false, false),
+        };
+
+        var stats = NmCycleAnalyzer.Analyze(times, Def(), episodes);
+
+        Assert.Equal(0, stats.PhaseMs);
+    }
+
+    [Fact]
+    public void Analyze_FewerThanFiveIntervals_SetsInsufficientSamplesFlag()
+    {
+        var times = new[] { 0.0, 0.5, 1.0, 1.5 };
+
+        var stats = NmCycleAnalyzer.Analyze(times, Def(), OneEpisode(0, 1.5));
+
+        Assert.True(stats.InsufficientSamples);
+    }
 }

@@ -127,4 +127,49 @@ BO_ 1280 NM_Message: 8 ECU_A
         var e = Assert.Single(events, x => x.Type == "signal_change");
         Assert.Equal("Temp: 0 → 0.1", e.Detail);
     }
+
+    [Fact]
+    public void Build_WithCap_StopsMaterialisingButKeepsAttemptedTotal()
+    {
+        var dbc = DbcParser.Parse("""
+VERSION ""
+
+BO_ 1280 NM_Message: 8 ECU_A
+ SG_ WakeReason : 0|8@1+ (1,0) [0|255] "" ECU_B
+""").Value!;
+
+        // 10 帧逐值递增 → 9 次变化；上限 3 时只物化 3 条，截断记录仍报 9。
+        var frames = Enumerable.Range(0, 10)
+            .Select(i => Nm(i * 0.5, [(byte)i, 0, 0, 0, 0, 0, 0, 0]))
+            .ToArray();
+
+        var events = NmSignalSummary.Build(dbc, frames, 3, out var truncation);
+
+        Assert.Equal(3, events.Count);
+        Assert.NotNull(truncation);
+        Assert.Equal("events:signals:0x500", truncation.Section);
+        Assert.Equal(3, truncation.Returned);
+        Assert.Equal(9, truncation.Total);
+    }
+
+    [Fact]
+    public void Build_WithGenerousCap_ReportsNoTruncation()
+    {
+        var dbc = DbcParser.Parse("""
+VERSION ""
+
+BO_ 1280 NM_Message: 8 ECU_A
+ SG_ WakeReason : 0|8@1+ (1,0) [0|255] "" ECU_B
+""").Value!;
+        var frames = new[]
+        {
+            Nm(0.0, ZeroPayload),
+            Nm(0.5, TwoPayload),
+        };
+
+        var events = NmSignalSummary.Build(dbc, frames, 200, out var truncation);
+
+        Assert.Single(events);
+        Assert.Null(truncation);
+    }
 }
