@@ -11,6 +11,10 @@ namespace PeakCan.Host.Core.Replay;
 /// hex value. Consumers must never re-derive the format from <see cref="Id"/>'s
 /// bit pattern — read <see cref="IsExtended"/> instead.
 /// </para>
+/// <para>
+/// <see cref="IsTransmit"/> records the trace's own Rx/Tx marker. Null means the
+/// source did not state a direction (writers here don't emit one).
+/// </para>
 /// </summary>
 public sealed record ReplayFrame(
     double Timestamp,
@@ -19,5 +23,6 @@ public sealed record ReplayFrame(
     byte[] Data,
     FrameFlags Flags,
     bool IsExtended = false,
-    ushort Channel = 0);
+    ushort Channel = 0,
+    bool? IsTransmit = null);
 

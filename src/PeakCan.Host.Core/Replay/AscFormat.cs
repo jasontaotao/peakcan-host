@@ -153,12 +153,17 @@ public static class AscFormat
         int dataStartIndex = 4;
         byte dlc;
         FrameFlags flags = FrameFlags.None;
+        bool? isTransmit = null;
         int scan = 3;
         while (scan < tokens.Length &&
                (tokens[scan].Equals("rx", StringComparison.OrdinalIgnoreCase) ||
                 tokens[scan].Equals("tx", StringComparison.OrdinalIgnoreCase) ||
-                tokens[scan].Equals("fd", StringComparison.OrdinalIgnoreCase)))
+                tokens[scan].Equals("fd", StringComparison.OrdinalIgnoreCase) ||
+                tokens[scan].Equals("rtr", StringComparison.OrdinalIgnoreCase)))
         {
+            if (tokens[scan].Equals("tx", StringComparison.OrdinalIgnoreCase)) isTransmit = true;
+            else if (tokens[scan].Equals("rx", StringComparison.OrdinalIgnoreCase)) isTransmit = false;
+            else if (tokens[scan].Equals("rtr", StringComparison.OrdinalIgnoreCase)) flags |= FrameFlags.Rtr;
             scan++;
         }
         if (scan + 1 < tokens.Length &&
@@ -179,10 +184,21 @@ public static class AscFormat
             }
             dataStartIndex = scan + 2;
         }
-        else if (!byte.TryParse(tokens[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out dlc))
+        else if (scan < tokens.Length &&
+                 byte.TryParse(tokens[scan], NumberStyles.Integer, CultureInfo.InvariantCulture, out dlc))
         {
-            reason = $"invalid DLC '{tokens[3]}'";
+            dataStartIndex = scan + 1;
+        }
+        else if (scan < tokens.Length)
+        {
+            reason = $"invalid DLC '{tokens[scan]}'";
             return false;
+        }
+        else
+        {
+            // 无方向/帧型标记且 token 已耗尽 = 无数据帧（如 RTR）。
+            dlc = 0;
+            dataStartIndex = scan;
         }
 
         var data = new List<byte>(capacity: Math.Max((int)dlc, 8));
@@ -203,8 +219,9 @@ public static class AscFormat
                     flags |= FrameFlags.ErrorStateIndicator; continue;
                 case "error":
                     flags |= FrameFlags.ErrFrame; continue;
-                case "rx": continue;
-                case "tx": continue;
+                case "rx": isTransmit ??= false; continue;
+                case "tx": isTransmit ??= true; continue;
+                case "rtr": flags |= FrameFlags.Rtr; continue;
                 default:
                     if (t.Contains('=') ||
                         t.Equals("Length", StringComparison.OrdinalIgnoreCase) ||
@@ -258,7 +275,7 @@ public static class AscFormat
             return false;
         }
 
-        frame = new ReplayFrame(ts, id, (byte)data.Count, data.ToArray(), flags, isExtended, channel);
+        frame = new ReplayFrame(ts, id, (byte)data.Count, data.ToArray(), flags, isExtended, channel, isTransmit);
         return true;
     }
 
