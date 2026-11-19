@@ -71,6 +71,29 @@ public class NmContentAnalyzerTests
             frames, Profile(new NmLayout(NidByte: 0, CbvByte: 1)), 500));
 
         Assert.Contains(result.Findings, f => f.Code == "NM_NID_MISMATCH");
+        // 已命中 MISMATCH 时不再重复报 UNKNOWN。
+        Assert.DoesNotContain(result.Findings, f => f.Code == "NM_UNKNOWN_NID");
+    }
+
+    [Fact]
+    public void Analyze_SharedIdWithUnknownNid_ReportsUnknownWithoutNidChanged()
+    {
+        // 同一 CAN ID 下两个不同 NID：0xF4 是节点 A 的站地址，0x27 不在节点表中。
+        var frames = new[]
+        {
+            Nm(0.0, 0xF4, 0x00),
+            Nm(0.5, 0x27, 0x00),
+            Nm(1.0, 0xF4, 0x00),
+            Nm(1.5, 0x27, 0x00),
+        };
+
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(
+            frames, Profile(new NmLayout(NidByte: 0, CbvByte: 1)), 500));
+
+        // 共享 ID 下 NID 本就应各不相同，不报"NID 变化"。
+        Assert.DoesNotContain(result.Findings, f => f.Code == "NM_NID_CHANGED");
+        var unknown = Assert.Single(result.Findings, f => f.Code == "NM_UNKNOWN_NID");
+        Assert.Contains("0x27", unknown.Message);
     }
 
     [Fact]
@@ -101,6 +124,27 @@ public class NmContentAnalyzerTests
             frames, Profile(new NmLayout(0, 1, 2, 0)), 500));
 
         Assert.Contains(result.Findings, f => f.Code == "NM_USER_DATA_UNUSED_NONZERO");
+    }
+
+    [Fact]
+    public void Analyze_MoreThanEventCap_TruncatesWithAttemptedTotal()
+    {
+        // 23 字节全部翻转：23 条 byte_change + 23×8 条 bit_change = 207 条，超过 200 上限。
+        // CAN FD 单帧最多 64 字节，23 字节合法；这里只为触达事件上限。
+        var first = new byte[23];
+        var second = Enumerable.Repeat((byte)0xFF, 23).ToArray();
+        var frames = new[]
+        {
+            Nm(0.0, first),
+            Nm(0.5, second),
+        };
+
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(frames, Profile(), 500));
+
+        var truncation = Assert.Single(result.Truncations);
+        Assert.Equal(200, truncation.Returned);
+        Assert.Equal(207, truncation.Total);
+        Assert.Equal(200, result.Events.Count);
     }
 
     [Fact]
