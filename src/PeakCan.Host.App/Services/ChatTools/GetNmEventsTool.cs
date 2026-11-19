@@ -97,18 +97,14 @@ public sealed class GetNmEventsTool : ChatToolBase
 
         // 用 long 乘法避免 page*page_size 在极端 page 值下 int 溢出，导致 next_page 误判。
         var nextPage = (long)page * pageSize < filtered.Length ? page + 1 : (int?)null;
-        var root = new JsonObject
-        {
-            ["source_id"] = snapshot.Report.SourceId,
-            ["channel"] = snapshot.Report.Channel,
-            ["detail_redacted"] = true,
-            ["total"] = filtered.Length,
-            ["page"] = page,
-            ["page_size"] = pageSize,
-            ["next_page"] = nextPage,
-            ["truncated"] = filtered.Length > pageSize,
-            ["events"] = new JsonArray(rows.ToArray()),
-        };
+        var root = NmToolOutput.Root(snapshot);
+        root["detail_redacted"] = true;
+        root["total"] = filtered.Length;
+        root["page"] = page;
+        root["page_size"] = pageSize;
+        // 分页信息只由 next_page 表达；truncated 保持公共契约的空数组。
+        root["next_page"] = nextPage;
+        root["events"] = new JsonArray(rows.ToArray());
         return root.ToJsonString();
     }
 }

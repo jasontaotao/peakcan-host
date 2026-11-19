@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services.ChatTools;
+using PeakCan.HIL.Core.Analysis.Chat;
 using PeakCan.Host.Core.Analysis.Nm;
 using PeakCan.Host.Core.Replay;
 using Xunit;
@@ -17,6 +18,11 @@ public class GetNmToolTests
     private static readonly double[] FindingEvidenceTimes = { 2.0 };
     private static readonly string[] Assumptions = { "assumption" };
     private static readonly string[] Unknowns = { "unknown" };
+    private static readonly string[] CommonRootKeys =
+    {
+        "source_id", "channel", "dbc_path", "dbc_hash",
+        "semantics_available", "unknowns", "assumptions", "truncated",
+    };
 
     private static NmReport Report(int eventCount = 3) => new(
         new NmWindow(0, 10, "full"), "src", null,
@@ -202,13 +208,45 @@ public class GetNmToolTests
     }
 
     [Fact]
+    public async Task AllTools_ShareCommonRootContract()
+    {
+        // spec §8.1 / §5.3：三个工具根对象必须带同一组公共字段，
+        // truncated 统一为 [{section, returned, total}] 数组。
+        var ctx = Context();
+        var tools = new IChatTool[]
+        {
+            new GetNmProfileTool(ctx, NullLogger<GetNmProfileTool>.Instance),
+            new GetNmOverviewTool(ctx, NullLogger<GetNmOverviewTool>.Instance),
+            new GetNmEventsTool(ctx, NullLogger<GetNmEventsTool>.Instance),
+        };
+
+        foreach (var tool in tools)
+        {
+            var json = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
+
+            foreach (var key in CommonRootKeys)
+                json.ContainsKey(key).Should().BeTrue($"缺少公共字段 {key}");
+            json["semantics_available"]!.GetValue<bool>().Should().BeFalse();
+            json["dbc_hash"]!.GetValue<string>().Should().Be("hash");
+            json["truncated"].Should().BeOfType<JsonArray>();
+            json["unknowns"]!.AsArray().Should().NotBeEmpty();
+            json["assumptions"]!.AsArray().Should().ContainSingle();
+        }
+    }
+
+    [Fact]
     public async Task Tool_ContextError_IsReturnedAsErrorJson()
     {
-        var ctx = new FakeChatToolContext { NmSnapshotException = new InvalidOperationException("多通道需指定 channel") };
+        var ctx = new FakeChatToolContext
+        {
+            NmSnapshotException = new InvalidOperationException(
+                "多通道 trace（可用 channel: 0, 1），请指定 channel"),
+        };
         var tool = new GetNmProfileTool(ctx, NullLogger<GetNmProfileTool>.Instance);
 
         var json = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
 
+        json["error"]!.GetValue<string>().Should().Contain("多通道");
         json["error"]!.GetValue<string>().Should().Contain("channel");
     }
 }

@@ -18,6 +18,8 @@ public class NmInputWizardViewModelTests
     private static readonly string[] ExistingSelectors = ["0x700"];
     private static readonly string[] UserSelection = ["0x600"];
     private static readonly byte[] SampleData = [0x01, 0xAB];
+    private static readonly byte[] FirstCandidateData = [0x11, 0x22, 0x33];
+    private static readonly byte[] SecondCandidateData = [0xA1, 0xA2, 0xA3, 0xA4, 0xA5];
 
     private static NmProfile BuildProfile() => new(
         NmProfileSource.Dbc,
@@ -112,9 +114,70 @@ public class NmInputWizardViewModelTests
     [Fact]
     public void SampleByteTexts_FormatsBytesAsUppercaseHex()
     {
-        var w = Wizard(new[] { new ReplayFrame(1.0, 0x500, 2, SampleData, FrameFlags.None) });
+        // 候选列表唯一报文 0x600 即默认选中项，样本取自它的帧。
+        var w = Wizard(new[] { new ReplayFrame(1.0, 0x600, 2, SampleData, FrameFlags.None) });
 
         w.SampleByteTexts.Should().Equal("01", "AB");
+    }
+
+    [Fact]
+    public void SamplePreview_FollowsSelectedCandidate()
+    {
+        // 两条 DLC 不同的候选：默认取列表第一条，勾选切换后预览与 DLC 必须跟着变。
+        var profile = new NmProfile(
+            NmProfileSource.Dbc,
+            new[]
+            {
+                new NmMessageDef("0x601", false, "CAND_A", "A", 3, false, Array.Empty<string>()),
+                new NmMessageDef("0x602", false, "CAND_B", "B", 5, false, Array.Empty<string>()),
+            },
+            new NmTimings(500, 2000), Array.Empty<NmNodeDef>(), Array.Empty<NmConfigConflict>(),
+            Array.Empty<string>(), new NmProvenance());
+        var frames = new[]
+        {
+            new ReplayFrame(1.0, 0x601, 3, FirstCandidateData, FrameFlags.None),
+            new ReplayFrame(2.0, 0x602, 5, SecondCandidateData, FrameFlags.None),
+        };
+        var w = WizardFromProfile(profile, frames);
+
+        // 无勾选时取候选列表第一条。
+        w.Dlc.Should().Be(3);
+        w.SampleByteTexts.Should().Equal("11", "22", "33");
+
+        var second = w.MessageCandidates.Single(c => c.CanIdHex == "0x602");
+        second.IsSelected = true;
+
+        w.Dlc.Should().Be(5);
+        w.SampleByteTexts.Should().Equal("A1", "A2", "A3", "A4", "A5");
+    }
+
+    [Fact]
+    public void DbcHashChanged_SkipsLayoutPrefillAndWarns()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var dbcPath = Path.Combine(dir, "net.dbc");
+            // 快照 DbcHash 为 "h"；sidecar 记录的是旧 DBC。
+            NmSidecarStore.Save(dbcPath, new NmUserSupplement(
+                NidByte: 0, CbvByte: 1, UserDataOffset: 2, UserDataLength: 0,
+                DbcHash: "old-hash"));
+
+            var w = Wizard(dbcPath: dbcPath);
+
+            // 布局类字段来自旧 DBC：不回填，要求用户重新确认。
+            w.NidByte.Should().BeNull();
+            w.CbvByte.Should().BeNull();
+            w.UserDataOffset.Should().BeNull();
+            w.UserDataLength.Should().BeNull();
+            // 计时仍按既有逻辑预填。
+            w.CycleMs.Should().Be(500);
+            w.Status.Should().Contain("DBC 已变更");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     [Fact]

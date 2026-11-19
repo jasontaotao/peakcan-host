@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using PeakCan.Host.App.Services.ChatTools;
 using PeakCan.Host.Core.Analysis.Nm;
+using PeakCan.Host.Core.Replay;
 using PeakCan.HIL.Core.Dbc;
 
 namespace PeakCan.Host.App.ViewModels;
@@ -30,6 +31,9 @@ public sealed partial class TraceViewerViewModel
 
         // 快照必须在 UI 线程取：LoadedFrames 返回内部只读列表（加载后不可变）。
         var frames = service.LoadedFrames;
+        // 多通道且未指定 channel 时分析器只会返回空选择；这里直接报错，
+        // 避免工具/面板把「不知道看哪个通道」呈现成「没有 NM」。
+        EnsureSingleChannel(frames, query.Channel);
         var dbc = _dbcService.Current;
         var dbcPath = string.IsNullOrEmpty(dbc?.SourcePath) ? null : dbc.SourcePath;
         var dbcHash = ComputeNmDbcHash(dbc, dbcPath);
@@ -52,6 +56,19 @@ public sealed partial class TraceViewerViewModel
         var report = await Task.Run(() => NmAnalyzer.Analyze(request, ct), ct).ConfigureAwait(false);
         _nmCache.Put(key, report);
         return new NmToolSnapshot(sourceId, query.Channel, dbcPath, dbcHash, profile, report, frames);
+    }
+
+    /// <summary>
+    /// 多通道 trace 未指定 channel 时无法给出唯一 NM 结论：明确报错并列出可用通道。
+    /// 指定了 channel 或只有一个通道时放行。
+    /// </summary>
+    internal static void EnsureSingleChannel(IReadOnlyList<ReplayFrame> frames, ushort? channel)
+    {
+        if (channel is not null) return;
+        var channels = frames.Select(f => f.Channel).Distinct().OrderBy(c => c).ToArray();
+        if (channels.Length > 1)
+            throw new InvalidOperationException(
+                $"多通道 trace（可用 channel: {string.Join(", ", channels)}），请指定 channel");
     }
 
     private string ComputeNmDbcHash(DbcDocument? dbc, string? path)

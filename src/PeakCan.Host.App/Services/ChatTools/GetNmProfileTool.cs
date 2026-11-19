@@ -49,56 +49,45 @@ public sealed class GetNmProfileTool : ChatToolBase
             ["marker_authoritative"] = m.MarkerAuthoritative,
         });
 
-        var root = new JsonObject
+        var root = NmToolOutput.Root(snapshot);
+        root["messages"] = new JsonArray(messages.ToArray());
+        root["timings"] = new JsonObject
         {
-            ["source_id"] = snapshot.SourceId,
-            ["channel"] = snapshot.Channel,
-            ["dbc_path"] = snapshot.DbcPath,
-            ["dbc_hash"] = snapshot.DbcHash,
-            ["semantics_available"] = false,
-            ["messages"] = new JsonArray(messages.ToArray()),
-            ["timings"] = new JsonObject
-            {
-                ["cycle_ms"] = snapshot.Profile.Timings.CycleMs,
-                ["timeout_ms"] = snapshot.Profile.Timings.TimeoutMs,
-                ["repeat_message_ms"] = snapshot.Profile.Timings.RepeatMessageMs,
-                ["wait_bus_sleep_ms"] = snapshot.Profile.Timings.WaitBusSleepMs,
-            },
-            ["nodes"] = new JsonArray(snapshot.Profile.Nodes.Select(n => (JsonNode)new JsonObject
-            {
-                ["name"] = n.Name,
-                ["station_address"] = n.StationAddress,
-                ["is_nm_node"] = n.IsNmNode,
-            }).ToArray()),
-            ["conflicts"] = new JsonArray(snapshot.Profile.Conflicts.Select(c => (JsonNode)new JsonObject
-            {
-                ["field"] = c.Field,
-                ["values"] = new JsonArray(c.Values.Select(v => (JsonNode)v).ToArray()),
-                ["sources"] = new JsonArray(c.Sources.Select(v => (JsonNode)v).ToArray()),
-            }).ToArray()),
-            ["capabilities"] = new JsonArray(snapshot.Report.Capabilities.Select(c => (JsonNode)new JsonObject
-            {
-                ["capability"] = c.Capability.ToString(),
-                ["available"] = c.Available,
-            }).ToArray()),
-            ["missing_inputs"] = new JsonArray(snapshot.Report.MissingInputs.Select(m => (JsonNode)new JsonObject
-            {
-                ["capability"] = m.Capability.ToString(),
-                ["input"] = m.InputKey,
-                ["why"] = m.Why,
-                ["suggestion"] = m.Suggestion,
-                ["suggestion_source"] = m.SuggestionSource,
-            }).ToArray()),
-            ["truncated"] = snapshot.Profile.Messages.Count > 50 ? new JsonObject
-            {
-                ["section"] = "messages",
-                ["returned"] = 50,
-                ["total"] = snapshot.Profile.Messages.Count,
-            } : null,
-            ["next_step"] = snapshot.Report.MissingInputs.Count > 0
-                ? "缺少输入时先说明缺什么、影响哪个能力，再引导用户打开「网络管理 → 补全」对话框。"
-                : "输入齐备，可以调用 get_nm_overview 查看时间轴结论。",
+            ["cycle_ms"] = snapshot.Profile.Timings.CycleMs,
+            ["timeout_ms"] = snapshot.Profile.Timings.TimeoutMs,
+            ["repeat_message_ms"] = snapshot.Profile.Timings.RepeatMessageMs,
+            ["wait_bus_sleep_ms"] = snapshot.Profile.Timings.WaitBusSleepMs,
         };
+        root["nodes"] = new JsonArray(snapshot.Profile.Nodes.Select(n => (JsonNode)new JsonObject
+        {
+            ["name"] = n.Name,
+            ["station_address"] = n.StationAddress,
+            ["is_nm_node"] = n.IsNmNode,
+        }).ToArray());
+        root["conflicts"] = new JsonArray(snapshot.Profile.Conflicts.Select(c => (JsonNode)new JsonObject
+        {
+            ["field"] = c.Field,
+            ["values"] = new JsonArray(c.Values.Select(v => (JsonNode)v).ToArray()),
+            ["sources"] = new JsonArray(c.Sources.Select(v => (JsonNode)v).ToArray()),
+        }).ToArray());
+        root["capabilities"] = new JsonArray(snapshot.Report.Capabilities.Select(c => (JsonNode)new JsonObject
+        {
+            ["capability"] = c.Capability.ToString(),
+            ["available"] = c.Available,
+        }).ToArray());
+        root["missing_inputs"] = new JsonArray(snapshot.Report.MissingInputs.Select(m => (JsonNode)new JsonObject
+        {
+            ["capability"] = m.Capability.ToString(),
+            ["input"] = m.InputKey,
+            ["why"] = m.Why,
+            ["suggestion"] = m.Suggestion,
+            ["suggestion_source"] = m.SuggestionSource,
+        }).ToArray());
+        if (snapshot.Profile.Messages.Count > 50)
+            NmToolOutput.AddTruncation(root, "messages", 50, snapshot.Profile.Messages.Count);
+        root["next_step"] = snapshot.Report.MissingInputs.Count > 0
+            ? "缺少输入时先说明缺什么、影响哪个能力，再引导用户打开「网络管理 → 补全」对话框。"
+            : "输入齐备，可以调用 get_nm_overview 查看时间轴结论。";
         return root.ToJsonString();
     }
 }

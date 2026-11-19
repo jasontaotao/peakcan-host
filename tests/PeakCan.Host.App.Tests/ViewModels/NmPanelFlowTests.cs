@@ -3,6 +3,7 @@ using System.IO;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using PeakCan.HIL.Core;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.ChatTools;
 using PeakCan.Host.App.Services.Trace;
@@ -82,6 +83,38 @@ public class NmPanelFlowTests
         vm.NmStatus.Should().Be("本窗口未发现 NM 帧");
         vm.NmStatus.Should().NotContain("睡眠");
         vm.NmStatus.Should().NotContain("掉线");
+    }
+
+    [Fact]
+    public void EnsureSingleChannel_MultiChannelWithoutSelection_ThrowsWithChannelList()
+    {
+        var frames = new[]
+        {
+            new ReplayFrame(0, 0x500, 8, Array.Empty<byte>(), FrameFlags.None, Channel: 1),
+            new ReplayFrame(0, 0x501, 8, Array.Empty<byte>(), FrameFlags.None, Channel: 0),
+        };
+
+        var act = () => TraceViewerViewModel.EnsureSingleChannel(frames, null);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*多通道 trace*channel: 0, 1*");
+    }
+
+    [Fact]
+    public void EnsureSingleChannel_AllowsExplicitOrSingleChannel()
+    {
+        var frames = new[]
+        {
+            new ReplayFrame(0, 0x500, 8, Array.Empty<byte>(), FrameFlags.None, Channel: 0),
+            new ReplayFrame(0, 0x501, 8, Array.Empty<byte>(), FrameFlags.None, Channel: 1),
+        };
+
+        var actExplicit = () => TraceViewerViewModel.EnsureSingleChannel(frames, 1);
+        var actSingle = () => TraceViewerViewModel.EnsureSingleChannel(
+            new[] { frames[0], frames[0] }, null);
+
+        actExplicit.Should().NotThrow();
+        actSingle.Should().NotThrow();
     }
 
     /// <summary>与 GreenLineAnchorFlowTests.NewVm 同形：只为面板测试构造

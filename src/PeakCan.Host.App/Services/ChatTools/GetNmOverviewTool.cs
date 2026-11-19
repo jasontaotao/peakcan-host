@@ -81,56 +81,48 @@ public sealed class GetNmOverviewTool : ChatToolBase
             ["suggested_next_check"] = f.SuggestedNextCheck,
         });
 
-        var root = new JsonObject
+        var root = NmToolOutput.Root(snapshot);
+        root["window"] = new JsonObject
         {
-            ["source_id"] = report.SourceId,
-            ["channel"] = report.Channel,
-            ["window"] = new JsonObject
-            {
-                ["start"] = report.Window.Start,
-                ["end"] = report.Window.End,
-                ["ref"] = report.Window.WindowRef,
-            },
-            ["direction"] = report.Direction is null ? null : new JsonObject
-            {
-                ["transmit"] = report.Direction.Transmit,
-                ["receive"] = report.Direction.Receive,
-                ["unknown"] = report.Direction.Unknown,
-            },
-            ["episodes"] = new JsonArray(episodes.ToArray()),
-            ["messages"] = new JsonArray(messages.ToArray()),
-            ["findings"] = new JsonArray(findings.ToArray()),
-            ["capabilities"] = new JsonArray(report.Capabilities.Select(c => (JsonNode)new JsonObject
-            {
-                ["capability"] = c.Capability.ToString(),
-                ["available"] = c.Available,
-            }).ToArray()),
-            ["missing_inputs"] = new JsonArray(report.MissingInputs.Select(m => (JsonNode)new JsonObject
-            {
-                ["capability"] = m.Capability.ToString(),
-                ["input"] = m.InputKey,
-                ["why"] = m.Why,
-                ["suggestion"] = m.Suggestion,
-            }).ToArray()),
-            ["unknowns"] = new JsonArray(report.Unknowns.Select(u => (JsonNode)u).ToArray()),
-            ["assumptions"] = new JsonArray(report.Assumptions.Select(a => (JsonNode)a).ToArray()),
-            // 分析器自身的截断（如 signal_change 事件超上限），让模型知道结果并非全量。
-            ["truncations"] = new JsonArray(report.Truncations.Select(t => (JsonNode)new JsonObject
-            {
-                ["section"] = t.Section,
-                ["returned"] = t.Returned,
-                ["total"] = t.Total,
-            }).ToArray()),
+            ["start"] = report.Window.Start,
+            ["end"] = report.Window.End,
+            ["ref"] = report.Window.WindowRef,
         };
+        root["direction"] = report.Direction is null ? null : new JsonObject
+        {
+            ["transmit"] = report.Direction.Transmit,
+            ["receive"] = report.Direction.Receive,
+            ["unknown"] = report.Direction.Unknown,
+        };
+        root["episodes"] = new JsonArray(episodes.ToArray());
+        root["messages"] = new JsonArray(messages.ToArray());
+        root["findings"] = new JsonArray(findings.ToArray());
+        root["capabilities"] = new JsonArray(report.Capabilities.Select(c => (JsonNode)new JsonObject
+        {
+            ["capability"] = c.Capability.ToString(),
+            ["available"] = c.Available,
+        }).ToArray());
+        root["missing_inputs"] = new JsonArray(report.MissingInputs.Select(m => (JsonNode)new JsonObject
+        {
+            ["capability"] = m.Capability.ToString(),
+            ["input"] = m.InputKey,
+            ["why"] = m.Why,
+            ["suggestion"] = m.Suggestion,
+        }).ToArray());
+        // 分析器自身的截断（如 signal_change 事件超上限），让模型知道结果并非全量。
+        root["truncations"] = new JsonArray(report.Truncations.Select(t => (JsonNode)new JsonObject
+        {
+            ["section"] = t.Section,
+            ["returned"] = t.Returned,
+            ["total"] = t.Total,
+        }).ToArray());
 
-        var truncated = new JsonArray();
         if (report.Episodes.Count > 20)
-            truncated.Add(new JsonObject { ["section"] = "episodes", ["returned"] = 20, ["total"] = report.Episodes.Count });
+            NmToolOutput.AddTruncation(root, "episodes", 20, report.Episodes.Count);
         if (report.Messages.Count > 50)
-            truncated.Add(new JsonObject { ["section"] = "messages", ["returned"] = 50, ["total"] = report.Messages.Count });
+            NmToolOutput.AddTruncation(root, "messages", 50, report.Messages.Count);
         if (report.Findings.Count > 30)
-            truncated.Add(new JsonObject { ["section"] = "findings", ["returned"] = 30, ["total"] = report.Findings.Count });
-        root["truncated"] = truncated;
+            NmToolOutput.AddTruncation(root, "findings", 30, report.Findings.Count);
 
         return root.ToJsonString();
     }

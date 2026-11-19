@@ -34,6 +34,10 @@ public sealed partial class TraceViewerViewModel
 
     private Views.TraceViewerViewNmPanel? _nmPanelContent;
     private CancellationTokenSource? _nmCts;
+    // 面板最近一次成功分析得到的快照：导出优先导出用户正在看的那一份报告。
+    private NmToolSnapshot? _lastNmSnapshot;
+    // 用户已确认「报告含敏感信息，仍要导出」；每次会话确认一次。
+    private bool _exportIncludeRaw;
     public Views.TraceViewerViewNmPanel? NmPanelContent
     {
         get
@@ -122,6 +126,7 @@ public sealed partial class TraceViewerViewModel
     /// <summary>失败时清空旧报告，避免换 trace 后残留上一次的段/事件/能力/摘要。</summary>
     private void ClearNmReport()
     {
+        _lastNmSnapshot = null;
         NmHasReport = false;
         NmProfileSummary = "";
         NmMissingText = "";
@@ -132,6 +137,7 @@ public sealed partial class TraceViewerViewModel
 
     internal void ApplyNmReport(NmToolSnapshot snapshot)
     {
+        _lastNmSnapshot = snapshot;
         var report = snapshot.Report;
         NmHasReport = true;
         NmProfileSummary = $"来源 {snapshot.Profile.Provenance.ResolvedFrom} · NM 报文 {snapshot.Profile.Messages.Count(m => m.IsNm)} · " +
@@ -197,11 +203,25 @@ public sealed partial class TraceViewerViewModel
             path += isCsv ? csvExt : markdownExt;
         }
 
+        // spec §9.3：导出前提示报告可能包含项目敏感信息；用户拒绝则不写文件。
+        if (!_exportIncludeRaw)
+        {
+            var answer = System.Windows.MessageBox.Show(
+                "报告包含 DBC 路径、节点名与事件详情（含原始字节取值）。是否继续导出？",
+                "导出确认",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Question);
+            if (answer != System.Windows.MessageBoxResult.Yes) return;
+            _exportIncludeRaw = true;
+        }
+
         try
         {
-            // 导出不复用面板的 _nmCts：即使面板分析被取消，导出本身仍应完成。
-            var snapshot = await ((IChatToolContext)this).GetNmSnapshotAsync(
-                new NmToolQuery(), CancellationToken.None);
+            // 导出面板正在显示的那份报告；面板从未成功分析时才现取快照。
+            // 不等待 _nmCts：即使面板分析被取消，导出本身仍应完成。
+            var snapshot = _lastNmSnapshot
+                ?? await ((IChatToolContext)this).GetNmSnapshotAsync(
+                    new NmToolQuery(), CancellationToken.None);
             var text = isCsv
                 ? NmReportWriter.WriteCsv(snapshot.Report)
                 : NmReportWriter.WriteMarkdown(snapshot);

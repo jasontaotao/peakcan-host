@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -11,16 +12,23 @@ namespace PeakCan.Host.App.ViewModels;
 /// <summary>补全对话框里可勾选为 NM 的报文候选。</summary>
 public sealed partial class NmMessageCandidateVm : ObservableObject
 {
-    public NmMessageCandidateVm(string canIdHex, string? name, bool isSelected)
+    public NmMessageCandidateVm(string canIdHex, string? name, bool isExtended, byte dlc, bool isSelected)
     {
         CanIdHex = canIdHex;
         Name = name ?? "";
+        IsExtended = isExtended;
+        Dlc = dlc;
         IsSelected = isSelected;
     }
 
     public string CanIdHex { get; }
 
     public string Name { get; }
+
+    /// <summary>与 DBC 的 IDE bit 一致；匹配帧时必须同时比较扩展位。</summary>
+    public bool IsExtended { get; }
+
+    public int Dlc { get; }
 
     [ObservableProperty] private bool _isSelected;
 }
@@ -33,7 +41,9 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
 {
     private readonly NmToolSnapshot _snapshot;
     private readonly NmMessageDef? _firstNm;
-    private readonly ReplayFrame? _sampleFrame;
+    // 当前用于样本预览的候选：勾选中的第一个；无勾选时取候选列表第一个。
+    private NmMessageCandidateVm? _selectedCandidate;
+    private ReplayFrame? _sampleFrame;
     // 磁盘上已有的 sidecar：保存时按字段合并，避免第二次补全覆盖掉第一轮的输入。
     private readonly NmUserSupplement? _existing;
     // 编辑器预填值。记住它们才能区分「用户改过」与「只是回显」。
@@ -62,22 +72,29 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(snapshot);
         _snapshot = snapshot;
         _firstNm = snapshot.Profile.Messages.FirstOrDefault(m => m.IsNm);
-        _sampleFrame = _firstNm is null
-            ? null
-            : snapshot.Frames.FirstOrDefault(f =>
-                (f.Id & 0x1FFFFFFFu) == ParseId(_firstNm.CanIdHex)
-                && f.IsExtended == _firstNm.IsExtended);
 
         _existing = snapshot.DbcPath is null ? null : NmSidecarStore.Load(snapshot.DbcPath);
 
+        // sidecar 记录的 DBC 哈希与当前快照不一致：布局类输入来自旧 DBC，
+        // 不能静默回填成「已确认」的值；计时/选择器仍按既有逻辑预填。
+        var dbcChanged = _existing?.DbcHash is { Length: > 0 } existingHash
+            && !string.Equals(existingHash, snapshot.DbcHash, StringComparison.Ordinal);
+
         // 已有 sidecar 的值回填编辑器：用户第二次补全时能看到并继续编辑上一轮的输入。
-        NidByte = _existing?.NidByte;
-        CbvByte = _existing?.CbvByte;
-        UserDataOffset = _existing?.UserDataOffset;
-        UserDataLength = _existing?.UserDataLength;
+        // DBC 已变更时不预填布局类字段（NID/CBV/用户数据），要求用户重新确认。
+        if (!dbcChanged)
+        {
+            NidByte = _existing?.NidByte;
+            CbvByte = _existing?.CbvByte;
+            UserDataOffset = _existing?.UserDataOffset;
+            UserDataLength = _existing?.UserDataLength;
+        }
         PnEnabled = _existing?.Features?.PnEnabled;
         CycleMs = _existing?.Timings?.CycleMs ?? snapshot.Profile.Timings.CycleMs;
         TimeoutMs = _existing?.Timings?.TimeoutMs ?? snapshot.Profile.Timings.TimeoutMs;
+
+        if (dbcChanged)
+            Status = "DBC 已变更：以下输入来自旧 DBC，请重新确认后再保存";
 
         _initialNidByte = NidByte;
         _initialCbvByte = CbvByte;
@@ -87,9 +104,6 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
         _initialTimeoutMs = TimeoutMs;
         _initialPnEnabled = PnEnabled;
 
-        SampleByteTexts = SampleBytes
-            .Select(b => b.ToString("X2", CultureInfo.InvariantCulture))
-            .ToArray();
         MissingItems = snapshot.Report.MissingInputs.ToArray();
 
         MessageCandidates = new ObservableCollection<NmMessageCandidateVm>(
@@ -100,9 +114,49 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
                 .Select(m => new NmMessageCandidateVm(
                     m.CanIdHex,
                     m.Name,
+                    m.IsExtended,
+                    m.Dlc,
                     m.Reasons.Contains("UserSelected")
                     || (_existing?.NmMessageSelectors?.Contains(
                         m.CanIdHex, StringComparer.OrdinalIgnoreCase) == true))));
+
+        // 勾选变化会改变样本预览与 DLC（校验依赖 DLC），逐个订阅并立即算一次。
+        foreach (var candidate in MessageCandidates)
+            candidate.PropertyChanged += OnCandidatePropertyChanged;
+        RefreshSample();
+    }
+
+    private void OnCandidatePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(NmMessageCandidateVm.IsSelected))
+            RefreshSample();
+    }
+
+    /// <summary>
+    /// 重算当前候选与样本帧：优先勾选中的候选，否则取候选列表第一个；
+    /// 完全没有候选（DBC 已完整标记 NM）时回退到第一条 NM 报文。
+    /// </summary>
+    private void RefreshSample()
+    {
+        _selectedCandidate = MessageCandidates.FirstOrDefault(c => c.IsSelected)
+            ?? MessageCandidates.FirstOrDefault();
+
+        _sampleFrame = _selectedCandidate is { } candidate
+            ? FindFrame(candidate.CanIdHex, candidate.IsExtended)
+            : _firstNm is { } nm
+                ? FindFrame(nm.CanIdHex, nm.IsExtended)
+                : null;
+
+        OnPropertyChanged(nameof(SampleBytes));
+        OnPropertyChanged(nameof(SampleByteTexts));
+        OnPropertyChanged(nameof(Dlc));
+    }
+
+    private ReplayFrame? FindFrame(string canIdHex, bool isExtended)
+    {
+        var id = ParseId(canIdHex);
+        return _snapshot.Frames.FirstOrDefault(f =>
+            (f.Id & 0x1FFFFFFFu) == id && f.IsExtended == isExtended);
     }
 
     public IReadOnlyList<NmInputMissing> MissingItems { get; }
@@ -110,13 +164,15 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
     /// <summary>DBC 里尚未标记为 NM 的报文；勾选后会进入 sidecar 的 nm_message_selectors。</summary>
     public ObservableCollection<NmMessageCandidateVm> MessageCandidates { get; }
 
-    /// <summary>取当前 trace 里该 NM 报文的第一帧字节；没有样本时为空。</summary>
+    /// <summary>取当前 trace 里所选候选报文的第一帧字节；没有样本时为空。</summary>
     public IReadOnlyList<byte> SampleBytes => _sampleFrame?.Data ?? Array.Empty<byte>();
 
     /// <summary>样本预览的十六进制文本（每字节两位大写 hex）。</summary>
-    public IReadOnlyList<string> SampleByteTexts { get; }
+    public IReadOnlyList<string> SampleByteTexts
+        => SampleBytes.Select(b => b.ToString("X2", CultureInfo.InvariantCulture)).ToArray();
 
-    public int Dlc => _sampleFrame?.Dlc ?? _firstNm?.Dlc ?? 8;
+    /// <summary>校验用的 DLC：优先实测样本，其次所选候选，最后回落到 8。</summary>
+    public int Dlc => _sampleFrame?.Dlc ?? _selectedCandidate?.Dlc ?? _firstNm?.Dlc ?? 8;
 
     private static uint ParseId(string hex)
         => uint.Parse(hex.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
