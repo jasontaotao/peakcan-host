@@ -187,7 +187,15 @@ public sealed partial class TraceViewerViewModel
         var isCsv = dlg.FilterIndex == 2 ||
             dlg.FileName.EndsWith(csvExt, StringComparison.OrdinalIgnoreCase);
         var path = dlg.FileName;
-        if (!Path.HasExtension(path)) path += isCsv ? csvExt : markdownExt;
+        if (isCsv && path.EndsWith(markdownExt, StringComparison.OrdinalIgnoreCase))
+        {
+            // 用户选了 CSV 但文件名仍带 .md：改写扩展名，避免 CSV 正文写进 .md 文件。
+            path = Path.ChangeExtension(path, csvExt);
+        }
+        else if (!Path.HasExtension(path))
+        {
+            path += isCsv ? csvExt : markdownExt;
+        }
 
         try
         {
@@ -204,6 +212,32 @@ public sealed partial class TraceViewerViewModel
         {
             // 导出失败（无 trace、无写权限等）必须在面板上可见，禁止静默吞掉。
             NmStatus = "导出失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>打开 M1 补全对话框；关闭后清缓存并重算面板，让 sidecar 生效。</summary>
+    [RelayCommand]
+    private async Task OpenNmWizardAsync()
+    {
+        try
+        {
+            var snapshot = await ((IChatToolContext)this).GetNmSnapshotAsync(
+                new NmToolQuery(), CancellationToken.None);
+            var vm = new NmInputWizardViewModel(snapshot);
+            var window = new Views.NmInputWizardWindow(vm)
+            {
+                Owner = System.Windows.Application.Current?.MainWindow,
+            };
+            window.ShowDialog();
+            // 用户可能在对话框里保存了 sidecar；无论是否保存都重算，
+            // 保证面板展示的是当前输入下的结果。
+            _nmCache.Invalidate();
+            await RunNmAnalysisAsync(null);
+        }
+        catch (Exception ex)
+        {
+            // 取快照失败（无 trace）或建窗失败都必须在面板上可见。
+            NmStatus = "打开补全失败：" + ex.Message;
         }
     }
 
