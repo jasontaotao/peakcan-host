@@ -14,13 +14,20 @@ public class NmContentAnalyzerTests
         => new(new NmMessageDef("0x500", false, "NM", "A", 8, true, TestReasons, 500, 2000),
                new ReplayFrame(t, 0x500, (byte)data.Length, data, FrameFlags.None));
 
-    private static NmProfile Profile(NmLayout? layout = null, NmFeatures? features = null) => new(
-        NmProfileSource.Dbc,
-        new[] { new NmMessageDef("0x500", false, "NM", "A", 8, true, TestReasons, 500, 2000) },
-        new NmTimings(500, 2000),
-        new[] { new NmNodeDef("A", 0xF4, null, true) },
-        Array.Empty<NmConfigConflict>(), Array.Empty<string>(), new NmProvenance(),
-        Layout: layout, Features: features);
+    private static NmProfile Profile(
+        NmLayout? layout = null,
+        NmFeatures? features = null,
+        IReadOnlyList<NmNodeDef>? nodes = null)
+    {
+        var effectiveNodes = nodes ?? new[] { new NmNodeDef("A", 0xF4, null, true) };
+        return new(
+            NmProfileSource.Dbc,
+            new[] { new NmMessageDef("0x500", false, "NM", "A", 8, true, TestReasons, 500, 2000) },
+            new NmTimings(500, 2000),
+            effectiveNodes,
+            Array.Empty<NmConfigConflict>(), Array.Empty<string>(), new NmProvenance(),
+            Layout: layout, Features: features);
+    }
 
     [Fact]
     public void Analyze_BurstAfterSilence_EmitsObservedBurstEvent()
@@ -145,6 +152,44 @@ public class NmContentAnalyzerTests
         Assert.Equal(200, truncation.Returned);
         Assert.Equal(207, truncation.Total);
         Assert.Equal(200, result.Events.Count);
+    }
+
+    [Fact]
+    public void Analyze_EightByteClassicCanWithoutBurst_DoesNotTruncate()
+    {
+        // 无突发时每报文事件上限为 9×payload，Classic CAN 最多 72 条，远低于 200。
+        var zeros = new byte[8];
+        var ones = Enumerable.Repeat((byte)0xFF, 8).ToArray();
+        var frames = new[]
+        {
+            Nm(0.0, zeros),
+            Nm(0.5, ones),
+            Nm(1.0, zeros),
+            Nm(1.5, ones),
+        };
+
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(frames, Profile(), 500));
+
+        Assert.Equal(72, result.Events.Count);
+        Assert.Empty(result.Truncations);
+    }
+
+    [Fact]
+    public void Analyze_NodesWithoutStationAddress_EmitsNoUnknownNid()
+    {
+        // 节点表存在但站地址全部缺失：判断输入不齐备，不应推断 NID 未知。
+        var frames = new[]
+        {
+            Nm(0.0, 0x27, 0x00),
+            Nm(0.5, 0x27, 0x00),
+        };
+        var nodes = new[] { new NmNodeDef("A", null, null, true) };
+
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(
+            frames, Profile(new NmLayout(NidByte: 0, CbvByte: 1), nodes: nodes), 500));
+
+        Assert.DoesNotContain(result.Findings, f => f.Code == "NM_UNKNOWN_NID");
+        Assert.DoesNotContain(result.Findings, f => f.Code == "NM_NID_MISMATCH");
     }
 
     [Fact]
