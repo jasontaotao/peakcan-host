@@ -216,6 +216,9 @@ public static class NmAnalyzer
 
         events.Sort((a, b) => a.T.CompareTo(b.T));
 
+        var direction = new NmDirectionCounts(
+            diagnostics.TransmitFrames, diagnostics.ReceiveFrames, diagnostics.DirectionUnknownFrames);
+
         return new NmReport(
             window,
             request.SourceId,
@@ -233,7 +236,8 @@ public static class NmAnalyzer
             StandardId: null,
             ProfileHash: null,
             EngineVersion: EngineVersion,
-            Selection: diagnostics);
+            Selection: diagnostics,
+            Direction: direction);
     }
 
     private static uint ParseId(string hex)

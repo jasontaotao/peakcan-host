@@ -101,4 +101,14 @@ internal sealed class FakeChatToolContext : IChatToolContext
 
     public List<ReplayFrame> Frames { get; } = new();
     public IReadOnlyList<ReplayFrame> GetFrames(string sourceId) => Frames;
+
+    public NmToolSnapshot? NmSnapshotValue { get; set; }
+    public Exception? NmSnapshotException { get; set; }
+
+    Task<NmToolSnapshot> IChatToolContext.GetNmSnapshotAsync(NmToolQuery query, CancellationToken ct)
+    {
+        if (NmSnapshotException is not null) throw NmSnapshotException;
+        if (NmSnapshotValue is null) throw new InvalidOperationException("NmSnapshotValue not set");
+        return Task.FromResult(NmSnapshotValue);
+    }
 }

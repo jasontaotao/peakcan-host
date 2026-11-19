@@ -97,4 +97,11 @@ public interface IChatToolContext
     /// (get_signal_overview, anomaly_scan, search_signal_trace,
     /// analyze_timing_sequence) to decode signal values.</summary>
     IReadOnlyList<ReplayFrame> GetFrames(string sourceId);
+
+    /// <summary>
+    /// 取 NM 分析快照。实现方负责：解析 source/channel、在调用线程取帧/DBC 快照、
+    /// 合并 sidecar、查缓存，缓存未命中时在后台线程跑 <c>NmAnalyzer</c>。
+    /// 失败（source 不存在、多通道未指定）抛 <see cref="InvalidOperationException"/>。
+    /// </summary>
+    Task<NmToolSnapshot> GetNmSnapshotAsync(NmToolQuery query, CancellationToken ct);
 }

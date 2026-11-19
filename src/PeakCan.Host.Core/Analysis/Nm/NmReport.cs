@@ -87,6 +87,8 @@ public sealed record NmCapabilityState(
     bool Available,
     IReadOnlyList<NmInputMissing> Missing);
 
+public sealed record NmDirectionCounts(int Transmit, int Receive, int Unknown);
+
 public sealed record NmReport(
     NmWindow Window,
     string SourceId,
@@ -105,4 +107,5 @@ public sealed record NmReport(
     string? ProfileHash = null,
     string? EngineVersion = null,
     // 选择器丢弃/过滤计数：让"为什么少了很多帧"可复核，而不是算完即丢。
-    NmSelectionDiagnostics? Selection = null);
+    NmSelectionDiagnostics? Selection = null,
+    NmDirectionCounts? Direction = null);

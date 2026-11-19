@@ -13,6 +13,8 @@ public class NmAnalyzerTests
     private static readonly string[] ConflictValues = ["500", "1000"];
     private static readonly string[] ConflictSources = ["dbc", "sidecar"];
     private static readonly string[] MissingDbc = ["dbc"];
+    // CA1861: 共享空载荷，避免每个帧都分配新数组。
+    private static readonly byte[] EmptyPayload = new byte[8];
 
     private static ReplayFrame F(double t, uint id, bool ext, params byte[] data)
         => new(t, id, (byte)data.Length, data, FrameFlags.None, ext);
@@ -303,6 +305,25 @@ BO_ 1280 NM_Message: 8 ECU_A
 
         Assert.NotNull(report.Selection);
         Assert.Equal(2, report.Selection!.DirectionUnknownFrames);
+    }
+
+    [Fact]
+    public void Analyze_ReportsDirectionCountsFromFrames()
+    {
+        var frames = new[]
+        {
+            new ReplayFrame(0.0, 0x500, 8, EmptyPayload, FrameFlags.None, false, 0, IsTransmit: true),
+            new ReplayFrame(0.5, 0x500, 8, EmptyPayload, FrameFlags.None, false, 0, IsTransmit: false),
+            new ReplayFrame(1.0, 0x500, 8, EmptyPayload, FrameFlags.None, false, 0, IsTransmit: null),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, Profile(), 0, 1.5));
+
+        Assert.NotNull(report.Direction);
+        Assert.Equal(1, report.Direction!.Transmit);
+        Assert.Equal(1, report.Direction.Receive);
+        Assert.Equal(1, report.Direction.Unknown);
     }
 
     [Fact]
