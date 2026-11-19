@@ -59,6 +59,53 @@ public class NmSupplementTests
     }
 
     [Fact]
+    public void Merge_NidByteOnly_KeepsNmMessageSelectionMissing()
+    {
+        var baseProfile = EmptyProfile() with
+        {
+            MissingFields = new[] { "dbc", "nm_message_selection" },
+        };
+
+        var merged = NmSupplementMerger.Merge(baseProfile, new NmUserSupplement(NidByte: 0));
+
+        // 只补了布局字段，报文选择缺口仍然未解决。
+        Assert.Contains("nm_message_selection", merged.MissingFields);
+        Assert.Contains("dbc", merged.MissingFields);
+        Assert.Equal((byte?)0, merged.Layout!.NidByte);
+    }
+
+    [Fact]
+    public void Merge_SelectorHittingMessage_ClearsNmMessageSelection()
+    {
+        var baseProfile = EmptyProfile() with
+        {
+            Messages = new[]
+            {
+                new NmMessageDef("0x18FFFAF4", true, "BMS_NWM", "BMS", 8, false, Array.Empty<string>()),
+            },
+            MissingFields = new[] { "dbc", "nm_message_selection" },
+        };
+
+        var merged = NmSupplementMerger.Merge(baseProfile, new NmUserSupplement(
+            NmMessageSelectors: SelectedMessageIds));
+
+        // 选择器命中报文 -> 选择缺口解决；DBC 缺口无法由补充输入解决，必须保留。
+        Assert.DoesNotContain("nm_message_selection", merged.MissingFields);
+        Assert.Contains("dbc", merged.MissingFields);
+    }
+
+    [Fact]
+    public void Merge_TimingsOnly_KeepsLayoutNull()
+    {
+        var merged = NmSupplementMerger.Merge(EmptyProfile(), new NmUserSupplement(
+            Timings: new NmTimings(CycleMs: 500)));
+
+        // 没有任何布局来源时保持 null，而不是物化一个字段全空的 NmLayout。
+        Assert.Null(merged.Layout);
+        Assert.Equal(500, merged.Timings.CycleMs);
+    }
+
+    [Fact]
     public void Sidecar_RoundTripsNextToDbc()
     {
         var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "nm-sidecar-" + Guid.NewGuid().ToString("N"));

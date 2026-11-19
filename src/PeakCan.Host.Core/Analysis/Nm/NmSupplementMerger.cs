@@ -32,11 +32,21 @@ public static class NmSupplementMerger
             })
             .ToArray();
 
-        var layout = new NmLayout(
+        var mergedLayout = new NmLayout(
             NidByte: supplement.NidByte ?? profile.Layout?.NidByte,
             CbvByte: supplement.CbvByte ?? profile.Layout?.CbvByte,
             UserDataOffset: supplement.UserDataOffset ?? profile.Layout?.UserDataOffset,
             UserDataLength: supplement.UserDataLength ?? profile.Layout?.UserDataLength);
+
+        // 原 profile 没有布局信息、且合并后所有字段仍为空时保持 null：
+        // 不能把“无布局信息”伪装成“有布局但字段全空”。
+        var layout = profile.Layout is null
+            && mergedLayout.NidByte is null
+            && mergedLayout.CbvByte is null
+            && mergedLayout.UserDataOffset is null
+            && mergedLayout.UserDataLength is null
+                ? null
+                : mergedLayout;
 
         var timings = supplement.Timings is null
             ? profile.Timings
@@ -50,6 +60,16 @@ public static class NmSupplementMerger
 
         var nodes = supplement.Nodes is { Count: > 0 } ? supplement.Nodes.ToArray() : profile.Nodes;
 
+        // 只清除补充输入真正解决的缺口：
+        // - "dbc"：补充输入无法提供 DBC，始终保留；
+        // - "nm_message_selection"：仅当用户的报文选择器至少命中一条报文才算解决
+        //   （选择器填了但一条都没命中时，缺口依然存在）。
+        var selectionResolved = selected is not null
+            && profile.Messages.Any(m => selected.Contains(m.CanIdHex));
+        var missing = profile.MissingFields
+            .Where(m => !(m == "nm_message_selection" && selectionResolved))
+            .ToArray();
+
         return profile with
         {
             Source = source,
@@ -59,7 +79,7 @@ public static class NmSupplementMerger
             Layout = layout,
             Features = supplement.Features ?? profile.Features,
             IdMapping = supplement.IdMapping ?? profile.IdMapping,
-            MissingFields = Array.Empty<string>(),
+            MissingFields = missing,
         };
     }
 }
