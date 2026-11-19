@@ -181,6 +181,32 @@ public class NmInputWizardViewModelTests
     }
 
     [Fact]
+    public void DbcHashChanged_DoesNotWriteBackOldLayoutOnSave()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var dbcPath = Path.Combine(dir, "net.dbc");
+            NmSidecarStore.Save(dbcPath, new NmUserSupplement(
+                NidByte: 0, CbvByte: 1, UserDataOffset: 2, UserDataLength: 0,
+                DbcHash: "old-hash"));
+
+            // 不触碰编辑器直接保存：旧 DBC 的布局值不得通过 Pick 的 stored 回落写回。
+            var w = Wizard(dbcPath: dbcPath);
+            var s = w.ToSupplement();
+
+            s.NidByte.Should().BeNull();
+            s.CbvByte.Should().BeNull();
+            s.UserDataOffset.Should().BeNull();
+            s.UserDataLength.Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Save_PreservesFieldsFromPriorSidecarAcrossTwoSaves()
     {
         var dir = CreateTempDir();

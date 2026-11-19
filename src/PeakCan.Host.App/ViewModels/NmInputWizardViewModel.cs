@@ -46,6 +46,11 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
     private ReplayFrame? _sampleFrame;
     // 磁盘上已有的 sidecar：保存时按字段合并，避免第二次补全覆盖掉第一轮的输入。
     private readonly NmUserSupplement? _existing;
+    // 保存时允许回落的旧布局值；DBC 哈希不一致时置空，避免「警告了却仍写回旧值」。
+    private readonly byte? _storedNidByte;
+    private readonly byte? _storedCbvByte;
+    private readonly byte? _storedUserDataOffset;
+    private readonly int? _storedUserDataLength;
     // 编辑器预填值。记住它们才能区分「用户改过」与「只是回显」。
     private readonly byte? _initialNidByte;
     private readonly byte? _initialCbvByte;
@@ -95,6 +100,12 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
 
         if (dbcChanged)
             Status = "DBC 已变更：以下输入来自旧 DBC，请重新确认后再保存";
+
+        // DBC 已变更时旧布局不参与保存合并：用户不重新输入就不会把旧 DBC 的值写回去。
+        _storedNidByte = dbcChanged ? null : _existing?.NidByte;
+        _storedCbvByte = dbcChanged ? null : _existing?.CbvByte;
+        _storedUserDataOffset = dbcChanged ? null : _existing?.UserDataOffset;
+        _storedUserDataLength = dbcChanged ? null : _existing?.UserDataLength;
 
         _initialNidByte = NidByte;
         _initialCbvByte = CbvByte;
@@ -193,10 +204,10 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
     public NmUserSupplement ToSupplement() => new(
         NmMessageSelectors: BuildSelectors(),
         IdMapping: _existing?.IdMapping,
-        NidByte: Pick(NidByte, _initialNidByte, _existing?.NidByte),
-        CbvByte: Pick(CbvByte, _initialCbvByte, _existing?.CbvByte),
-        UserDataOffset: Pick(UserDataOffset, _initialUserDataOffset, _existing?.UserDataOffset),
-        UserDataLength: Pick(UserDataLength, _initialUserDataLength, _existing?.UserDataLength),
+        NidByte: Pick(NidByte, _initialNidByte, _storedNidByte),
+        CbvByte: Pick(CbvByte, _initialCbvByte, _storedCbvByte),
+        UserDataOffset: Pick(UserDataOffset, _initialUserDataOffset, _storedUserDataOffset),
+        UserDataLength: Pick(UserDataLength, _initialUserDataLength, _storedUserDataLength),
         Timings: BuildTimings(),
         Features: BuildFeatures(),
         Nodes: _existing?.Nodes,
