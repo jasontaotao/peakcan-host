@@ -167,27 +167,38 @@ public sealed partial class TraceViewerViewModel
         return RunNmAnalysisAsync(vp is null ? null : (vp.XMin, vp.XMax));
     }
 
-    /// <summary>导出 NM 报告：按用户选择的扩展名写 Markdown 或 CSV。</summary>
+    /// <summary>导出 NM 报告：按用户选择的 Filter/扩展名写 Markdown 或 CSV。</summary>
     [RelayCommand]
     private async Task ExportNmReportAsync()
     {
+        const string markdownExt = ".md";
+        const string csvExt = ".csv";
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
             Filter = "Markdown (*.md)|*.md|CSV (*.csv)|*.csv",
             FileName = "nm-report.md",
+            DefaultExt = markdownExt,
+            // 扩展名由下面的 FilterIndex 逻辑补齐；不要让系统一律补 .md。
+            AddExtension = false,
         };
         if (dlg.ShowDialog() != true) return;
+
+        // FilterIndex=2（CSV）或用户手输了 .csv 都按 CSV 导出，否则 Markdown。
+        var isCsv = dlg.FilterIndex == 2 ||
+            dlg.FileName.EndsWith(csvExt, StringComparison.OrdinalIgnoreCase);
+        var path = dlg.FileName;
+        if (!Path.HasExtension(path)) path += isCsv ? csvExt : markdownExt;
 
         try
         {
             // 导出不复用面板的 _nmCts：即使面板分析被取消，导出本身仍应完成。
             var snapshot = await ((IChatToolContext)this).GetNmSnapshotAsync(
                 new NmToolQuery(), CancellationToken.None);
-            var text = dlg.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)
+            var text = isCsv
                 ? NmReportWriter.WriteCsv(snapshot.Report)
                 : NmReportWriter.WriteMarkdown(snapshot);
-            await File.WriteAllTextAsync(dlg.FileName, text, Encoding.UTF8);
-            NmStatus = "已导出：" + dlg.FileName;
+            await File.WriteAllTextAsync(path, text, Encoding.UTF8);
+            NmStatus = "已导出：" + path;
         }
         catch (Exception ex)
         {

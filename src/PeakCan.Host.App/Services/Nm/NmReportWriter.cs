@@ -23,6 +23,27 @@ public static class NmReportWriter
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"- dbc_hash: `{snapshot.DbcHash ?? "—"}`"));
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"- engine: `{r.EngineVersion}`"));
         sb.AppendLine();
+        sb.AppendLine("## Profile");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"- source: `{snapshot.Profile.Source}`"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+            $"- resolved_from: {snapshot.Profile.Provenance.ResolvedFrom}"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+            $"- nm_messages: {snapshot.Profile.Messages.Count(m => m.IsNm)}"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+            $"- cycle_ms: {snapshot.Profile.Timings.CycleMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+            $"- timeout_ms: {snapshot.Profile.Timings.TimeoutMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}"));
+        if (snapshot.Profile.Conflicts.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Conflicts:");
+            foreach (var c in snapshot.Profile.Conflicts)
+            {
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"- {c.Field}: {string.Join(", ", c.Values)} (sources: {string.Join(", ", c.Sources)})"));
+            }
+        }
+        sb.AppendLine();
         sb.AppendLine("## Episodes");
         sb.AppendLine("| # | start | end | kind | participants | boundary |");
         sb.AppendLine("|---|---|---|---|---|---|");
@@ -63,6 +84,20 @@ public static class NmReportWriter
         sb.AppendLine();
         sb.AppendLine("## Assumptions");
         foreach (var a in r.Assumptions) sb.AppendLine(CultureInfo.InvariantCulture, $"- {a}");
+        sb.AppendLine();
+        sb.AppendLine("## Truncations");
+        if (r.Truncations.Count == 0)
+        {
+            sb.AppendLine("- （无）");
+        }
+        else
+        {
+            foreach (var t in r.Truncations)
+            {
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"- {t.Section}: {t.Returned}/{t.Total}"));
+            }
+        }
         return sb.ToString();
     }
 
