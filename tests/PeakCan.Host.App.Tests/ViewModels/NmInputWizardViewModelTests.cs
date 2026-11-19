@@ -16,21 +16,30 @@ public class NmInputWizardViewModelTests
     // CA1861: constant arrays passed as arguments must be static readonly.
     private static readonly string[] SampleReasons = ["x"];
     private static readonly string[] ExistingSelectors = ["0x700"];
+    private static readonly string[] UserSelection = ["0x600"];
     private static readonly byte[] SampleData = [0x01, 0xAB];
+
+    private static NmProfile BuildProfile() => new(
+        NmProfileSource.Dbc,
+        new[]
+        {
+            new NmMessageDef("0x500", false, "NM", "A", 8, true, SampleReasons, 500, 2000),
+            new NmMessageDef("0x600", false, "OTHER", "B", 8, false, Array.Empty<string>()),
+        },
+        new NmTimings(500, 2000), Array.Empty<NmNodeDef>(), Array.Empty<NmConfigConflict>(),
+        Array.Empty<string>(), new NmProvenance());
 
     private static NmInputWizardViewModel Wizard(
         IReadOnlyList<ReplayFrame>? frames = null,
+        string? dbcPath = DefaultDbcPath)
+        => WizardFromProfile(BuildProfile(), frames, dbcPath);
+
+    private static NmInputWizardViewModel WizardFromProfile(
+        NmProfile profile,
+        IReadOnlyList<ReplayFrame>? frames = null,
         string? dbcPath = DefaultDbcPath) => new(
-        new NmToolSnapshot("src", null, dbcPath, "h",
-            new NmProfile(NmProfileSource.Dbc,
-                new[]
-                {
-                    new NmMessageDef("0x500", false, "NM", "A", 8, true, SampleReasons, 500, 2000),
-                    new NmMessageDef("0x600", false, "OTHER", "B", 8, false, Array.Empty<string>()),
-                },
-                new NmTimings(500, 2000), Array.Empty<NmNodeDef>(), Array.Empty<NmConfigConflict>(),
-                Array.Empty<string>(), new NmProvenance()),
-            EmptyReport(), frames ?? Array.Empty<ReplayFrame>()));
+        new NmToolSnapshot("src", null, dbcPath, "h", profile, EmptyReport(),
+            frames ?? Array.Empty<ReplayFrame>()));
 
     private static NmReport EmptyReport() => new(
         new NmWindow(0, 1, "full"), "src", null,
@@ -159,6 +168,33 @@ public class NmInputWizardViewModelTests
 
             // 既有选择器与新勾选取并集。
             w.ToSupplement().NmMessageSelectors.Should().BeEquivalentTo("0x700", "0x600");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PrefetchesUserSelectedMessageFromMergedProfile()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var dbcPath = Path.Combine(dir, "net.dbc");
+            NmSidecarStore.Save(dbcPath, new NmUserSupplement(NmMessageSelectors: UserSelection));
+
+            // 真实链路：GetNmSnapshotAsync 返回的 profile 已与 sidecar 合并，
+            // 0x600 的 IsNm 变为 true 且 Reasons 带 UserSelected。
+            var merged = NmSupplementMerger.Merge(BuildProfile(), NmSidecarStore.Load(dbcPath));
+
+            var w = WizardFromProfile(merged, dbcPath: dbcPath);
+            var candidate = w.MessageCandidates.Single(c => c.CanIdHex == "0x600");
+            candidate.IsSelected.Should().BeTrue();
+
+            // 取消勾选必须从 sidecar 移除，而不是被并集永久保留。
+            candidate.IsSelected = false;
+            w.ToSupplement().NmMessageSelectors.Should().BeNull();
         }
         finally
         {

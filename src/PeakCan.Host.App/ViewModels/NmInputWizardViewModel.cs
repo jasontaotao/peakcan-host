@@ -94,11 +94,15 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
 
         MessageCandidates = new ObservableCollection<NmMessageCandidateVm>(
             snapshot.Profile.Messages
-                .Where(m => !m.IsNm)
+                // 真实链路里 profile 已被 NmSupplementMerger 合并：上次勾选的报文 IsNm 已为 true，
+                // 但 Reasons 带 UserSelected，必须仍作为候选出现，否则无法预勾选/取消勾选。
+                .Where(m => !m.IsNm || m.Reasons.Contains("UserSelected"))
                 .Select(m => new NmMessageCandidateVm(
                     m.CanIdHex,
                     m.Name,
-                    _existing?.NmMessageSelectors?.Contains(m.CanIdHex, StringComparer.OrdinalIgnoreCase) == true)));
+                    m.Reasons.Contains("UserSelected")
+                    || (_existing?.NmMessageSelectors?.Contains(
+                        m.CanIdHex, StringComparer.OrdinalIgnoreCase) == true))));
     }
 
     public IReadOnlyList<NmInputMissing> MissingItems { get; }
@@ -178,16 +182,25 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
             PnEnabled: pn);
     }
 
-    /// <summary>既有选择器 ∪ 当前勾选；为空时返回 null（不写空数组）。</summary>
+    /// <summary>
+    /// 选择器由当前勾选派生，仅保留 DBC 里不存在（候选列表无法展示）的既有选择器。
+    /// 这样取消勾选既有报文会真正把它从 sidecar 移除，而不是被并集永久保留。
+    /// </summary>
     private IReadOnlyList<string>? BuildSelectors()
     {
-        var ids = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var id in _existing?.NmMessageSelectors ?? Array.Empty<string>())
-            if (seen.Add(id)) ids.Add(id);
-        foreach (var candidate in MessageCandidates.Where(c => c.IsSelected))
-            if (seen.Add(candidate.CanIdHex)) ids.Add(candidate.CanIdHex);
-        return ids.Count == 0 ? null : ids;
+        var checkedIds = MessageCandidates
+            .Where(c => c.IsSelected)
+            .Select(c => c.CanIdHex)
+            .ToArray();
+        var unmatched = _existing?.NmMessageSelectors?
+            .Where(id => !MessageCandidates.Any(c =>
+                string.Equals(c.CanIdHex, id, StringComparison.OrdinalIgnoreCase)))
+            .ToArray() ?? Array.Empty<string>();
+        var selectors = checkedIds
+            .Concat(unmatched)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return selectors.Length == 0 ? null : selectors;
     }
 
     [RelayCommand]
