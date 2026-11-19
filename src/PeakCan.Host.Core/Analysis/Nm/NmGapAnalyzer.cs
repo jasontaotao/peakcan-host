@@ -45,6 +45,7 @@ public static class NmGapAnalyzer
                 "正常释放/下电/记录停止；不对单个报文重复报 dropout"));
             events.Add(new NmEvent(gapStart, "all_nm_silent", null, null,
                 $"NM silent until {gapEnd:F3}s", i, "measured"));
+            unknowns.Add("all_nm_silent_reason_unknown（release / 下电 / 记录停止 / bus sleep 无法区分）");
         }
 
         // 2) 单报文静默但其它 NM 仍在发送：区分"持续掉线"与"单个间隔超时"。
@@ -60,6 +61,7 @@ public static class NmGapAnalyzer
 
                 if (lastEpisode is not null
                     && lastEpisode.End - times[^1] > timeoutSec
+                    && !OverlapsAllNmSilent(times[^1], lastEpisode.End, input.Episodes)
                     && OthersActiveBetween(times[^1], lastEpisode.End, group.Key, input.NmFrames))
                 {
                     findings.Add(new NmFinding(
@@ -69,13 +71,14 @@ public static class NmGapAnalyzer
                         "检查该发送节点的复位/掉线/发送停止"));
                     events.Add(new NmEvent(times[^1], "sender_silent", null, group.Key,
                         $"{lastEpisode.End - times[^1]:F2}s", lastEpisode.Index, "inferred"));
+                    unknowns.Add("dropout_receiver_side_or_node_internal_state_not_excluded（只看发送侧）");
                 }
 
                 for (int i = 1; i < times.Length; i++)
                 {
                     var gap = times[i] - times[i - 1];
                     if (gap <= timeoutSec) continue;
-                    if (IsInsideAllNmSilent(times[i - 1], times[i], input.Episodes)) continue;
+                    if (OverlapsAllNmSilent(times[i - 1], times[i], input.Episodes)) continue;
                     if (!OthersActiveBetween(times[i - 1], times[i], group.Key, input.NmFrames)) continue;
 
                     findings.Add(new NmFinding(
@@ -85,6 +88,7 @@ public static class NmGapAnalyzer
                         "检查发送端是否停止发送/掉线"));
                     events.Add(new NmEvent(times[i - 1], "sender_silent", null, group.Key,
                         $"{gap:F2}s", EpisodeIndexOf(times[i - 1], input.Episodes), "inferred"));
+                    unknowns.Add("sender_silent_receiver_side_not_excluded");
                 }
             }
         }
@@ -123,12 +127,15 @@ public static class NmGapAnalyzer
         return new NmGapResult(findings, events, unknowns.Distinct().ToArray());
     }
 
-    /// <summary>区间是否落在两个 episode 之间的"全部 NM 静默"里。</summary>
-    private static bool IsInsideAllNmSilent(double from, double to, IReadOnlyList<NmEpisode> episodes)
+    /// <summary>区间与任意相邻 episode 之间的全静默区间有交集时，不做单报文归因。</summary>
+    private static bool OverlapsAllNmSilent(double from, double to, IReadOnlyList<NmEpisode> episodes)
     {
         for (int i = 0; i + 1 < episodes.Count; i++)
         {
-            if (from >= episodes[i].End && to <= episodes[i + 1].Start) return true;
+            var gapStart = episodes[i].End;
+            var gapEnd = episodes[i + 1].Start;
+            if (gapEnd <= gapStart) continue;
+            if (to > gapStart && from < gapEnd) return true;
         }
         return false;
     }

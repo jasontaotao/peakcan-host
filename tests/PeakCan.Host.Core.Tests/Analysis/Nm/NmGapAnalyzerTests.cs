@@ -1,3 +1,4 @@
+using System.Globalization;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Core.Analysis.Nm;
 using PeakCan.Host.Core.Replay;
@@ -13,7 +14,11 @@ public class NmGapAnalyzerTests
 
     private static NmFrame Nm(double t, string id = "0x500", byte nid = 0xF4)
         => new(new NmMessageDef(id, false, "NM", "A", 8, true, TestReasons, 500, 2000),
-               new ReplayFrame(t, 0x500, 2, new byte[] { nid, 0 }, FrameFlags.None));
+               new ReplayFrame(t, CanId(id), 2, new byte[] { nid, 0 }, FrameFlags.None));
+
+    // CanIdHex 是 "0x..." 文本，解析时去掉 0x 前缀。
+    private static uint CanId(string id)
+        => uint.Parse(id.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
 
     private static NmEpisode[] Episodes(params (double s, double e)[] spans)
         => spans.Select((s, i) => new NmEpisode(i, s.s, s.e, "active", null, SingleParticipant, false, false)).ToArray();
@@ -40,6 +45,7 @@ public class NmGapAnalyzerTests
         Assert.Contains(result.Findings, f => f.Code == "NM_ALL_NM_SILENT");
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_SENDER_SILENT_BEYOND_TIMEOUT");
+        Assert.Contains(result.Unknowns, u => u.Contains("all_nm_silent_reason_unknown"));
     }
 
     [Fact]
@@ -54,6 +60,7 @@ public class NmGapAnalyzerTests
 
         Assert.Contains(result.Findings, f => f.Code == "NM_BUS_WIDE_SILENCE");
         Assert.Contains(result.Unknowns, u => u.Contains("recorder_gap_or_bus_sleep"));
+        Assert.All(result.Findings, f => Assert.NotEmpty(f.EvidenceTimes));
     }
 
     [Fact]
@@ -70,6 +77,7 @@ public class NmGapAnalyzerTests
 
         Assert.Contains(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_ALL_NM_SILENT");
+        Assert.Contains(result.Unknowns, u => u.Contains("dropout_receiver_side_or_node_internal_state_not_excluded"));
     }
 
     [Fact]
@@ -86,6 +94,7 @@ public class NmGapAnalyzerTests
 
         Assert.Contains(result.Findings, f => f.Code == "NM_SENDER_SILENT_BEYOND_TIMEOUT");
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
+        Assert.Contains(result.Unknowns, u => u.Contains("sender_silent_receiver_side_not_excluded"));
     }
 
     [Fact]
@@ -99,5 +108,22 @@ public class NmGapAnalyzerTests
 
         Assert.Contains(result.Findings, f => f.Code == "NM_TIMESTAMP_REGRESSION");
         Assert.Contains(result.Findings, f => f.Code == "NM_LOG_GAP_SUSPECTED");
+    }
+
+    [Fact]
+    public void Analyze_MessageLostAcrossAllNmSilent_DoesNotReportPerMessageFaults()
+    {
+        // 0x500 于 1.0s 后消失；0x501 发到 1.5s 后全网静默，4.0s 才恢复。
+        // 与全静默区间有交集的"没收到"不得归因到单个报文（网络级优先）。
+        var nm = new List<NmFrame> { Nm(0, "0x500"), Nm(0.5, "0x500"), Nm(1.0, "0x500") };
+        foreach (var t in new[] { 0.0, 0.5, 1.0, 1.5, 4.0, 4.5 }) nm.Add(Nm(t, "0x501"));
+        var input = new NmGapInput("src", nm, nm.Select(f => f.Frame).ToArray(), Profile(),
+            Episodes((0, 1.5), (4.0, 4.5)), new NmWindow(0, 5, "full"), Diag());
+
+        var result = NmGapAnalyzer.Analyze(input);
+
+        Assert.Contains(result.Findings, f => f.Code == "NM_ALL_NM_SILENT");
+        Assert.DoesNotContain(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
+        Assert.DoesNotContain(result.Findings, f => f.Code == "NM_SENDER_SILENT_BEYOND_TIMEOUT");
     }
 }
