@@ -378,6 +378,9 @@
                     <TabItem Header="AI 对话">
                         <ContentControl Content="{Binding ChatPanelContent}" />
                     </TabItem>
+                    <TabItem Header="网络管理">
+                        <ContentControl Content="{Binding NmPanelContent}" />
+                    </TabItem>
                     </TabControl>
 
                 <!-- Task 12 (J1939 L2) 重组消息视图（spec §9.2）：双击行 → 跳转 TP.CM 首帧。
