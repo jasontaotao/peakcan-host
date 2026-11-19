@@ -11,11 +11,16 @@ public class NmSignalSummaryTests
     // CA1861: 常量数组不内联，避免每次构造都分配。
     private static readonly string[] TestReasons = ["test"];
     private static readonly byte[] ZeroPayload = [0, 0, 0, 0, 0, 0, 0, 0];
-    private static readonly byte[] WakeReasonTwo = [2, 0, 0, 0, 0, 0, 0, 0];
+    private static readonly byte[] OnePayload = [1, 0, 0, 0, 0, 0, 0, 0];
+    private static readonly byte[] TwoPayload = [2, 0, 0, 0, 0, 0, 0, 0];
+    private static readonly byte[] ThreePayload = [3, 0, 0, 0, 0, 0, 0, 0];
 
     private static NmFrame Nm(double t, byte[] data)
-        => new(new NmMessageDef("0x500", false, "NM_Message", "ECU_A", 8, true, TestReasons),
-               new ReplayFrame(t, 0x500, (byte)data.Length, data, FrameFlags.None));
+        => NmAt(0x500, "0x500", t, data);
+
+    private static NmFrame NmAt(uint id, string idHex, double t, byte[] data)
+        => new(new NmMessageDef(idHex, false, "NM_Message", "ECU_A", 8, true, TestReasons),
+               new ReplayFrame(t, id, (byte)data.Length, data, FrameFlags.None));
 
     [Fact]
     public void Build_DecodedSignalChanges_EmitSignalEvent()
@@ -30,15 +35,16 @@ BO_ 1280 NM_Message: 8 ECU_A
         var frames = new[]
         {
             Nm(0.0, ZeroPayload),
-            Nm(0.5, WakeReasonTwo),
+            Nm(0.5, TwoPayload),
         };
 
         var events = NmSignalSummary.Build(dbc, frames);
 
         var e = Assert.Single(events, x => x.Type == "signal_change");
-        Assert.Contains("WakeReason", e.Detail);
-        Assert.Contains("0", e.Detail);
-        Assert.Contains("2", e.Detail);
+        Assert.Equal("WakeReason: 0 → 2", e.Detail);
+        Assert.Equal("0x500", e.CanIdHex);
+        Assert.Equal(0.5, e.T);
+        Assert.Equal("measured", e.EvidenceKind);
     }
 
     [Fact]
@@ -64,8 +70,61 @@ VERSION ""
 BO_ 1281 Other_Message: 8 ECU_A
  SG_ S1 : 0|8@1+ (1,0) [0|255] "" ECU_B
 """).Value!;
-        var frames = new[] { Nm(0.0, ZeroPayload), Nm(0.5, WakeReasonTwo) };
+        var frames = new[] { Nm(0.0, ZeroPayload), Nm(0.5, TwoPayload) };
 
         Assert.Empty(NmSignalSummary.Build(dbc, frames));
+    }
+
+    [Fact]
+    public void Build_InterleavedMessages_ReturnsEventsInTimeOrder()
+    {
+        var dbc = DbcParser.Parse("""
+VERSION ""
+
+BO_ 1280 NM_Message: 8 ECU_A
+ SG_ WakeReason : 0|8@1+ (1,0) [0|255] "" ECU_B
+
+BO_ 1281 NM_Second: 8 ECU_A
+ SG_ Second : 0|8@1+ (1,0) [0|255] "" ECU_B
+""").Value!;
+
+        // 两个报文交错到达：分组会先产出 0x500 的事件（T=1.0），再产出 0x501（T=0.5）。
+        var frames = new[]
+        {
+            NmAt(0x500, "0x500", 0.0, ZeroPayload),
+            NmAt(0x501, "0x501", 0.2, ZeroPayload),
+            NmAt(0x500, "0x500", 1.0, OnePayload),
+            NmAt(0x501, "0x501", 0.5, OnePayload),
+        };
+
+        var events = NmSignalSummary.Build(dbc, frames);
+
+        Assert.Equal(2, events.Count);
+        Assert.Equal(0.5, events[0].T);
+        Assert.Equal("0x501", events[0].CanIdHex);
+        Assert.Equal(1.0, events[1].T);
+        Assert.Equal("0x500", events[1].CanIdHex);
+    }
+
+    [Fact]
+    public void Build_FractionalFactorChanges_DetailKeepsDecimals()
+    {
+        var dbc = DbcParser.Parse("""
+VERSION ""
+
+BO_ 1280 NM_Message: 8 ECU_A
+ SG_ Temp : 0|8@1+ (0.1,0) [0|25.5] "degC" ECU_B
+""").Value!;
+
+        var frames = new[]
+        {
+            Nm(0.0, ZeroPayload),
+            Nm(0.5, OnePayload),
+        };
+
+        var events = NmSignalSummary.Build(dbc, frames);
+
+        var e = Assert.Single(events, x => x.Type == "signal_change");
+        Assert.Equal("Temp: 0 → 0.1", e.Detail);
     }
 }

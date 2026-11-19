@@ -16,7 +16,10 @@ public static class NmSignalSummary
     /// </summary>
     /// <param name="dbc">Parsed DBC document; <see cref="DbcDocument.MessagesById"/> is keyed by the bare CAN ID.</param>
     /// <param name="frames">NM frames already selected from the trace.</param>
-    /// <returns>Signal-change events; empty when nothing can be decoded.</returns>
+    /// <returns>
+    /// Signal-change events ordered by timestamp ascending (stable). Empty when
+    /// nothing can be decoded.
+    /// </returns>
     public static IReadOnlyList<NmEvent> Build(DbcDocument dbc, IReadOnlyList<NmFrame> frames)
     {
         var events = new List<NmEvent>();
@@ -36,14 +39,21 @@ public static class NmSignalSummary
                     var value = SignalDecoder.Decode(frame.Frame.Data, signal);
                     if (previous.TryGetValue(signal.Name, out var old))
                     {
+                        if (double.IsNaN(old) && double.IsNaN(value)) continue;
                         if (Math.Abs(old - value) < 1e-9) continue;
                         events.Add(new NmEvent(frame.Frame.Timestamp, "signal_change", null, group.Key,
-                            $"{signal.Name}: {old:F0} → {value:F0}", 0, "measured"));
+                            $"{signal.Name}: {Format(old)} → {Format(value)}", 0, "measured"));
                     }
                     previous[signal.Name] = value;
                 }
             }
         }
-        return events;
+        // 契约：返回按时间升序；LINQ OrderBy 是稳定排序。
+        return events.OrderBy(e => e.T).ToList();
     }
+
+    // 定点小数格式：触发判据是 1e-9 绝对容差，文本不能再四舍五入到整数位，
+    // 否则 0.1 级的变化会显示成 "85 → 85"。
+    private static string Format(double value)
+        => value.ToString("0.###", CultureInfo.InvariantCulture);
 }
