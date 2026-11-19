@@ -8,7 +8,9 @@ public sealed record NmCacheKey(
     string SupplementHash,
     double Start,
     double End,
-    string EngineVersion);
+    string EngineVersion,
+    // 同 start/end 但窗口标签不同（如 "full" vs 自定义窗口）也是不同的报告。
+    string WindowRef = "full");
 
 /// <summary>
 /// 进程内报告缓存。线程安全（分析可能在 Task.Run 里完成）。

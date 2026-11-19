@@ -14,10 +14,13 @@ namespace PeakCan.Host.App.ViewModels;
 /// </summary>
 /// <remarks>
 /// All mutators marshal to the UI thread via
-/// <see cref="Application.Current"/>.Dispatcher - tools run on the
-/// thread-pool (sequential for-loop in <c>ChatFlow</c> since v12 C2)
-/// but the state they touch (<c>ObservableCollection</c>, OxyPlot
-/// annotations, <c>ITraceViewerService.Seek</c>) is UI-affined.
+/// <see cref="Application.Current"/>.Dispatcher. Tools execute on the UI
+/// thread (the sequential for-loop in <c>ChatFlow</c> awaits with
+/// <c>ConfigureAwait(true)</c>), so the UI-affined state they touch
+/// (<c>ObservableCollection</c>, OxyPlot annotations,
+/// <c>ITraceViewerService.Seek</c>) is already on the right thread; the
+/// Dispatcher calls keep the helpers correct if a future caller moves to
+/// the thread-pool.
 /// </remarks>
 public sealed partial class TraceViewerViewModel
 {

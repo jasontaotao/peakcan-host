@@ -101,7 +101,8 @@ public interface IChatToolContext
     /// <summary>
     /// 取 NM 分析快照。实现方负责：解析 source/channel、在调用线程取帧/DBC 快照、
     /// 合并 sidecar、查缓存，缓存未命中时在后台线程跑 <c>NmAnalyzer</c>。
-    /// 失败（source 不存在、多通道未指定）抛 <see cref="InvalidOperationException"/>。
+    /// 多通道且未指定 channel 时不抛异常：分析器返回空选择，并在 assumptions 中说明；
+    /// 仅当 source 不存在（未加载或 source_id 未知）才抛 <see cref="InvalidOperationException"/>。
     /// </summary>
     Task<NmToolSnapshot> GetNmSnapshotAsync(NmToolQuery query, CancellationToken ct);
 }

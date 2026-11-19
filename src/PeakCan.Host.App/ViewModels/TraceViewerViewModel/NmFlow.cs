@@ -16,6 +16,8 @@ public sealed partial class TraceViewerViewModel
     private readonly NmReportCache _nmCache = new();
     private string? _nmDbcHash;
     private string? _nmDbcHashPath;
+    private long _nmDbcHashLength;
+    private DateTime _nmDbcHashWriteUtc;
 
     async Task<NmToolSnapshot> IChatToolContext.GetNmSnapshotAsync(NmToolQuery query, CancellationToken ct)
     {
@@ -37,14 +39,15 @@ public sealed partial class TraceViewerViewModel
 
         var start = query.TStart ?? 0.0;
         var end = query.TEnd ?? (frames.Count > 0 ? frames[^1].Timestamp + 1e-9 : 0.0);
+        var windowRef = query.WindowRef ?? "full";
         var key = new NmCacheKey(sourceId, query.Channel, frames.Count, dbcHash,
-            NmSupplementHash(profile), start, end, NmAnalyzer.EngineVersion);
+            NmSupplementHash(profile), start, end, NmAnalyzer.EngineVersion, windowRef);
 
         if (_nmCache.TryGet(key, out var cached))
             return new NmToolSnapshot(sourceId, query.Channel, dbcPath, dbcHash, profile, cached, frames);
 
         var request = new NmAnalysisRequest(
-            sourceId, query.Channel, frames, dbc, profile, start, end, query.WindowRef ?? "full");
+            sourceId, query.Channel, frames, dbc, profile, start, end, windowRef);
 
         var report = await Task.Run(() => NmAnalyzer.Analyze(request, ct), ct).ConfigureAwait(false);
         _nmCache.Put(key, report);
@@ -55,11 +58,23 @@ public sealed partial class TraceViewerViewModel
     {
         if (dbc is null) return "none";
         if (path is null) return "inline";
-        if (_nmDbcHashPath == path && _nmDbcHash is not null) return _nmDbcHash;
         try
         {
+            // memo 必须随文件内容变化失效：同路径重载 DBC 后长度/mtime 会变，
+            // 只比较 path 会把旧 DBC 的 report 复用给新 profile。
+            var info = new FileInfo(path);
+            var length = info.Length;
+            var writeUtc = info.LastWriteTimeUtc;
+            if (_nmDbcHashPath == path && _nmDbcHash is not null
+                && _nmDbcHashLength == length && _nmDbcHashWriteUtc == writeUtc)
+            {
+                return _nmDbcHash;
+            }
+
             _nmDbcHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
             _nmDbcHashPath = path;
+            _nmDbcHashLength = length;
+            _nmDbcHashWriteUtc = writeUtc;
             return _nmDbcHash;
         }
         catch (IOException)
@@ -74,13 +89,31 @@ public sealed partial class TraceViewerViewModel
 
     private static string NmSupplementHash(NmProfile profile)
     {
+        var layout = profile.Layout;
+        var timings = profile.Timings;
+        var features = profile.Features;
+
+        // Nodes / Messages 按稳定顺序拼接，避免集合顺序漂移产生无谓的缓存未命中。
+        var nodes = string.Join(";", profile.Nodes
+            .OrderBy(n => n.Name, StringComparer.Ordinal)
+            .Select(n => $"{n.Name}/{n.StationAddress}/{n.NodeIdentifier}/{n.IsNmNode}"));
+
+        var messages = string.Join(";", profile.Messages
+            .Where(m => m.IsNm)
+            .OrderBy(m => m.CanIdHex, StringComparer.Ordinal)
+            .ThenBy(m => m.IsExtended)
+            .Select(m => $"{m.CanIdHex}/{m.IsExtended}/{m.Name}/{m.Sender}/{m.Dlc}/{m.CycleMs}/{m.TimeoutMs}"));
+
         var payload = string.Join("|",
-            profile.Layout?.NidByte, profile.Layout?.CbvByte,
-            profile.Layout?.UserDataOffset, profile.Layout?.UserDataLength,
-            profile.Timings.CycleMs, profile.Timings.TimeoutMs,
-            profile.Timings.RepeatMessageMs, profile.Timings.WaitBusSleepMs,
-            profile.Features?.PnEnabled, profile.Features?.ActiveWakeupBitEnabled,
-            string.Join(",", profile.Messages.Where(m => m.IsNm).Select(m => m.CanIdHex)));
+            layout?.NidByte, layout?.CbvByte,
+            layout?.UserDataOffset, layout?.UserDataLength,
+            timings.CycleMs, timings.TimeoutMs,
+            timings.RepeatMessageMs, timings.WaitBusSleepMs,
+            timings.ImmediateCycleMs, timings.ImmediateCount,
+            features?.PnEnabled, features?.ActiveWakeupBitEnabled,
+            features?.RepeatMsgIndEnabled,
+            profile.IdMapping,
+            nodes, messages);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 }

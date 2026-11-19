@@ -11,7 +11,7 @@ public sealed record NmToolQuery(
     double? TEnd = null,
     string? WindowRef = null);
 
-/// <summary>一次 NM 查询的快照：profile + 缓存/新算的 report + 已选帧。</summary>
+/// <summary>一次 NM 查询的快照：profile + 缓存/新算的 report + 全部已加载帧。</summary>
 public sealed record NmToolSnapshot(
     string SourceId,
     ushort? Channel,
