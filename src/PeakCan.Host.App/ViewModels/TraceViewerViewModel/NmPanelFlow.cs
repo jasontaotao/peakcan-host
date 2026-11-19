@@ -9,8 +9,6 @@ using PeakCan.Host.Core.Analysis.Nm;
 namespace PeakCan.Host.App.ViewModels;
 
 public sealed record NmCapabilityChipVm(string Name, bool Available, string Tooltip);
-public sealed record NmMessageRowVm(string CanIdHex, string? Name, string? Sender, int FrameCount,
-    string CycleText, string FirstSeenText, string LastSeenText, string Status);
 public sealed record NmTimelineSegmentVm(double Left, double Width, string Kind, double Start, double End);
 public sealed record NmTimelineRowVm(string Label, IReadOnlyList<NmTimelineSegmentVm> Segments);
 public sealed record NmEventRowVm(double T, string TimeText, string Type, string Subject,
@@ -27,7 +25,6 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty] private string _nmMissingText = "";
 
     public ObservableCollection<NmCapabilityChipVm> NmCapabilityChips { get; } = new();
-    public ObservableCollection<NmMessageRowVm> NmMessageRows { get; } = new();
     public ObservableCollection<NmTimelineRowVm> NmTimelineRows { get; } = new();
     public ObservableCollection<NmEventRowVm> NmEventRows { get; } = new();
 
@@ -55,7 +52,8 @@ public sealed partial class TraceViewerViewModel
                 var right = ToX(s.End, report.Window);
                 return new NmTimelineSegmentVm(left, Math.Max(right - left, 1), s.Kind, s.Start, s.End);
             }).ToArray();
-            return new NmTimelineRowVm($"{m.CanIdHex} {m.Name}", segments);
+            // spec §9.1：时间条默认每个 NM 报文一行，行标签按 DBC 发送节点标注。
+            return new NmTimelineRowVm($"{m.CanIdHex} {m.Name} ({m.Sender})", segments);
         }).ToArray();
 
     public static IReadOnlyList<NmCapabilityChipVm> BuildCapabilityChips(NmReport report)
@@ -71,9 +69,11 @@ public sealed partial class TraceViewerViewModel
 
     internal async Task RunNmAnalysisAsync((double Start, double End)? window)
     {
+        // 旧请求只取消不 Dispose：取消令牌仍可能被在途的 Task.Run 使用。
         _nmCts?.Cancel();
-        _nmCts = new CancellationTokenSource();
-        var ct = _nmCts.Token;
+        var cts = new CancellationTokenSource();
+        _nmCts = cts;
+        var ct = cts.Token;
 
         NmIsAnalyzing = true;
         NmStatus = "分析中…";
@@ -82,20 +82,37 @@ public sealed partial class TraceViewerViewModel
             var snapshot = await ((IChatToolContext)this).GetNmSnapshotAsync(new NmToolQuery(
                 TStart: window?.Start, TEnd: window?.End,
                 WindowRef: window is null ? "full" : "viewport"), ct);
-            ApplyNmReport(snapshot);
+            // 被更新一次分析替换（或窗口已关闭）时丢弃结果，避免旧报告覆盖新报告。
+            if (IsCurrentNmRun(cts)) ApplyNmReport(snapshot);
         }
         catch (OperationCanceledException)
         {
-            NmStatus = "分析已取消";
+            if (IsCurrentNmRun(cts)) NmStatus = "分析已取消";
         }
         catch (Exception ex)
         {
-            NmStatus = "分析失败：" + ex.Message;
+            if (IsCurrentNmRun(cts))
+            {
+                NmStatus = "分析失败：" + ex.Message;
+                ClearNmReport();
+            }
         }
         finally
         {
-            NmIsAnalyzing = false;
+            if (IsCurrentNmRun(cts)) NmIsAnalyzing = false;
         }
+    }
+
+    /// <summary>当前分析是否仍是最近一次（窗口 Dispose 后 _nmCts 置 null，一律不算）。</summary>
+    private bool IsCurrentNmRun(CancellationTokenSource cts) => ReferenceEquals(_nmCts, cts);
+
+    /// <summary>失败时清空旧报告，避免换 trace 后残留上一次的段/事件/能力。</summary>
+    private void ClearNmReport()
+    {
+        NmHasReport = false;
+        NmCapabilityChips.Clear();
+        NmTimelineRows.Clear();
+        NmEventRows.Clear();
     }
 
     internal void ApplyNmReport(NmToolSnapshot snapshot)
@@ -110,13 +127,6 @@ public sealed partial class TraceViewerViewModel
 
         NmCapabilityChips.Clear();
         foreach (var chip in BuildCapabilityChips(report)) NmCapabilityChips.Add(chip);
-        NmMessageRows.Clear();
-        foreach (var m in report.Messages)
-            NmMessageRows.Add(new NmMessageRowVm(m.CanIdHex, m.Name, m.Sender, m.FrameCount,
-                m.Cycle.MedianMs is { } med ? $"{med:F0}ms" : "—",
-                TraceTimeFormatter.Format(m.FirstSeen, null),
-                TraceTimeFormatter.Format(m.LastSeen, null),
-                m.SilentBeyondTimeout ? "超出超时" : "正常"));
         NmTimelineRows.Clear();
         foreach (var row in BuildTimelineRows(report)) NmTimelineRows.Add(row);
         NmEventRows.Clear();
