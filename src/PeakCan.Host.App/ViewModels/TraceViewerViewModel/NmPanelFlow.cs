@@ -1,8 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Services.ChatTools;
+using PeakCan.Host.App.Services.Nm;
 using PeakCan.Host.Core.Analysis;
 using PeakCan.Host.Core.Analysis.Nm;
 
@@ -20,6 +23,7 @@ public sealed partial class TraceViewerViewModel
 
     [ObservableProperty] private bool _nmHasReport;
     [ObservableProperty] private bool _nmIsAnalyzing;
+    [ObservableProperty] private bool _nmCanCancel;
     [ObservableProperty] private string _nmStatus = "";
     [ObservableProperty] private string _nmProfileSummary = "";
     [ObservableProperty] private string _nmMissingText = "";
@@ -53,7 +57,10 @@ public sealed partial class TraceViewerViewModel
                 return new NmTimelineSegmentVm(left, Math.Max(right - left, 1), s.Kind, s.Start, s.End);
             }).ToArray();
             // spec §9.1：时间条默认每个 NM 报文一行，行标签按 DBC 发送节点标注。
-            return new NmTimelineRowVm($"{m.CanIdHex} {m.Name} ({m.Sender})", segments);
+            // DBC 未给出 Name/Sender 时不渲染空括号内容，用 "—" 占位。
+            var who = string.IsNullOrEmpty(m.Sender) ? "—" : m.Sender;
+            var name = string.IsNullOrEmpty(m.Name) ? "" : " " + m.Name;
+            return new NmTimelineRowVm($"{m.CanIdHex}{name} ({who})", segments);
         }).ToArray();
 
     public static IReadOnlyList<NmCapabilityChipVm> BuildCapabilityChips(NmReport report)
@@ -76,6 +83,7 @@ public sealed partial class TraceViewerViewModel
         var ct = cts.Token;
 
         NmIsAnalyzing = true;
+        NmCanCancel = true;
         NmStatus = "分析中…";
         try
         {
@@ -99,17 +107,24 @@ public sealed partial class TraceViewerViewModel
         }
         finally
         {
-            if (IsCurrentNmRun(cts)) NmIsAnalyzing = false;
+            // 只有当前分析才回写状态：被新一次分析替换的旧任务不得把按钮/状态改回去。
+            if (IsCurrentNmRun(cts))
+            {
+                NmIsAnalyzing = false;
+                NmCanCancel = false;
+            }
         }
     }
 
     /// <summary>当前分析是否仍是最近一次（窗口 Dispose 后 _nmCts 置 null，一律不算）。</summary>
     private bool IsCurrentNmRun(CancellationTokenSource cts) => ReferenceEquals(_nmCts, cts);
 
-    /// <summary>失败时清空旧报告，避免换 trace 后残留上一次的段/事件/能力。</summary>
+    /// <summary>失败时清空旧报告，避免换 trace 后残留上一次的段/事件/能力/摘要。</summary>
     private void ClearNmReport()
     {
         NmHasReport = false;
+        NmProfileSummary = "";
+        NmMissingText = "";
         NmCapabilityChips.Clear();
         NmTimelineRows.Clear();
         NmEventRows.Clear();
@@ -151,6 +166,39 @@ public sealed partial class TraceViewerViewModel
         var vp = viewports.Count > 0 ? viewports[0] : null;
         return RunNmAnalysisAsync(vp is null ? null : (vp.XMin, vp.XMax));
     }
+
+    /// <summary>导出 NM 报告：按用户选择的扩展名写 Markdown 或 CSV。</summary>
+    [RelayCommand]
+    private async Task ExportNmReportAsync()
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "Markdown (*.md)|*.md|CSV (*.csv)|*.csv",
+            FileName = "nm-report.md",
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            // 导出不复用面板的 _nmCts：即使面板分析被取消，导出本身仍应完成。
+            var snapshot = await ((IChatToolContext)this).GetNmSnapshotAsync(
+                new NmToolQuery(), CancellationToken.None);
+            var text = dlg.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)
+                ? NmReportWriter.WriteCsv(snapshot.Report)
+                : NmReportWriter.WriteMarkdown(snapshot);
+            await File.WriteAllTextAsync(dlg.FileName, text, Encoding.UTF8);
+            NmStatus = "已导出：" + dlg.FileName;
+        }
+        catch (Exception ex)
+        {
+            // 导出失败（无 trace、无写权限等）必须在面板上可见，禁止静默吞掉。
+            NmStatus = "导出失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>取消面板分析；只取消 NM 通道，不影响聊天请求。</summary>
+    [RelayCommand]
+    private void CancelNmAnalysis() => _nmCts?.Cancel();
 
     [RelayCommand]
     private void SeekToNmEvent(NmEventRowVm? row)
