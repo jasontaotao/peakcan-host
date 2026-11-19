@@ -101,4 +101,63 @@ public class NmCapabilityGateTests
         var tooFew = frames.Take(4).ToArray();
         Assert.Null(NmSuggestionEngine.SuggestCycleMs(tooFew, 0x18FFFAF4));
     }
+
+    [Fact]
+    public void SuggestNidByte_ShortFrames_DoesNotThrowAndReturnsNull()
+    {
+        // 全部帧只有 2 字节：逐字节扫描必须在长度守卫之后取值，不能越界。
+        var frames = Enumerable.Range(0, 10)
+            .Select(i => Frame(i * 0.5, 0x18FFFAF4, true, 0x11, 0x22))
+            .ToArray();
+
+        var suggestion = NmSuggestionEngine.SuggestNidByte(frames, 0x18FFFAF4, stationAddress: 0xF4);
+
+        Assert.Null(suggestion.Byte);
+    }
+
+    [Fact]
+    public void SuggestNidByte_UsesModeAndReportsRatio()
+    {
+        // 8/10 帧 byte0=0xF4，其余 2 帧为 0x27；站地址 0xF4。
+        var frames = Enumerable.Range(0, 10)
+            .Select(i => Frame(i * 0.5, 0x18FFFAF4, true, i < 8 ? (byte)0xF4 : (byte)0x27, 0x00))
+            .ToArray();
+
+        var suggestion = NmSuggestionEngine.SuggestNidByte(frames, 0x18FFFAF4, stationAddress: 0xF4);
+
+        Assert.Equal((byte?)0, suggestion.Byte);
+        Assert.Contains("8/10", suggestion.Evidence);
+        Assert.Contains("80%", suggestion.Evidence);
+    }
+
+    [Fact]
+    public void Evaluate_TimingFromProfileTimings_IsAvailable()
+    {
+        var profile = Profile(true) with
+        {
+            Messages = new[]
+            {
+                new NmMessageDef("0x18FFFAF4", true, "BMS_NWM", "BMS", 8, true, Array.Empty<string>()),
+            },
+            Timings = new NmTimings(CycleMs: 500),
+        };
+
+        var (caps, _) = NmCapabilityGate.Evaluate(profile, Frames(), null);
+
+        Assert.True(caps.Single(c => c.Capability == NmCapability.Timing).Available);
+    }
+
+    [Fact]
+    public void Evaluate_NidConfiguredWithoutStationAddress_ReportsNodeMappingMissing()
+    {
+        var profile = Profile(true) with
+        {
+            Nodes = new[] { new NmNodeDef("BMS", null, null, true) },
+        };
+
+        var (caps, missing) = NmCapabilityGate.Evaluate(profile, Frames(), null);
+
+        Assert.False(caps.Single(c => c.Capability == NmCapability.NidCheck).Available);
+        Assert.Contains(missing, m => m.InputKey == "nm_node_mapping");
+    }
 }

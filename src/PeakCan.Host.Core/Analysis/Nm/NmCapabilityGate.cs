@@ -6,6 +6,11 @@ namespace PeakCan.Host.Core.Analysis.Nm;
 
 /// <summary>
 /// 按"所需输入是否齐备"决定每项能力是否可用。缺项不是拒绝分析，而是降级 + 提示。
+/// <para>
+/// M1 已知限制：<see cref="NmLayout"/> 没有 CBV 位角色与 PNI 位定义，因此 CBV 解码只能
+/// 给出原始字节，PNI 判定仅依赖 <see cref="NmFeatures.PnEnabled"/> 声明；位级解读
+/// （如 bit4 即 PNI）在 Task 9 才引入，当前不做门控。
+/// </para>
 /// </summary>
 public static class NmCapabilityGate
 {
@@ -38,7 +43,7 @@ public static class NmCapabilityGate
                 suggestion, "dbc"));
         }
 
-        if (nmMessages.Any(m => m.CycleMs is not null))
+        if (nmMessages.Any(m => m.CycleMs is not null) || profile.Timings.CycleMs is not null)
         {
             Add(NmCapability.Timing, true);
         }
@@ -72,6 +77,15 @@ public static class NmCapabilityGate
                     NmCapability.NidCheck, "nid_byte",
                     $"NID 字节 {nidByte} 超出 DLC", "选择小于 DLC 的字节", "user"));
             }
+            else if (!profile.Nodes.Any(n => n.StationAddress is not null))
+            {
+                // 有 NID 字节但没有任何站地址，无从比对。
+                Add(NmCapability.NidCheck, false, new NmInputMissing(
+                    NmCapability.NidCheck, "nm_node_mapping",
+                    "没有带站地址的节点，无法比对 NID",
+                    "在节点表中补充各节点的 StationAddress",
+                    "user"));
+            }
             else
             {
                 Add(NmCapability.NidCheck, true);
@@ -84,10 +98,11 @@ public static class NmCapabilityGate
                     frames, ParseId(nmMessages[0].CanIdHex),
                     profile.Nodes.FirstOrDefault(n => n.Name == nmMessages[0].Sender)?.StationAddress)
                 : (null, "没有 NM 报文");
+            var what = "未配置 NID 字节，无法校验源节点标识";
             Add(NmCapability.NidCheck, false, new NmInputMissing(
                 NmCapability.NidCheck, "nid_byte",
-                "未配置 NID 字节，无法校验源节点标识",
-                suggestion.Byte is { } b ? $"建议 byte{b}" : suggestion.Evidence,
+                suggestion.Byte is null ? $"{what}（{suggestion.Evidence}）" : what,
+                suggestion.Byte is { } b ? $"建议 byte{b}：{suggestion.Evidence}" : null,
                 suggestion.Byte is null ? null : "measured"));
         }
 

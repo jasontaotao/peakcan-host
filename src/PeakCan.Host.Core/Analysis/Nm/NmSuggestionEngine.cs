@@ -1,4 +1,3 @@
-using System.Globalization;
 using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.Core.Analysis.Nm;
@@ -9,22 +8,47 @@ public static class NmSuggestionEngine
     public static (byte? Byte, string Evidence) SuggestNidByte(
         IReadOnlyList<ReplayFrame> frames, uint canId, byte? stationAddress)
     {
-        var payloads = frames.Where(f => f.Id == canId && f.Data.Length >= 2).ToList();
+        var payloads = frames.Where(f => f.Id == canId).ToList();
         if (payloads.Count < 5) return (null, "样本不足 5 帧");
+
+        var lowByte = (byte)(canId & 0xFF);
+        byte? bestByte = null;
+        var bestRatio = 0.0;
+        var bestEvidence = string.Empty;
 
         for (byte b = 0; b < 8; b++)
         {
-            var first = payloads[0].Data[b];
-            var constant = payloads.All(f => f.Data.Length > b && f.Data[b] == first);
-            if (!constant) continue;
-            var lowByte = (byte)(canId & 0xFF);
-            if ((stationAddress is { } sa && first == sa) || first == lowByte)
-            {
-                return (b, FormattableString.Invariant(
-                    $"byte{b} 在 {payloads.Count} 帧中恒为 0x{first:X2}，且等于站地址或 CAN ID 低字节 0x{lowByte:X2}"));
-            }
+            // 先按帧长度过滤，再取字节值：短帧上直接取 Data[b] 会越界。
+            var usable = payloads.Where(f => f.Data.Length > b).ToList();
+            if (usable.Count == 0) continue;
+
+            // 共享 ID 的多节点总线上 NID 会有少量异常帧，用众数 + 占比而不是"100% 恒定"。
+            var groups = usable
+                .GroupBy(f => f.Data[b])
+                .Select(g => (Value: g.Key, Count: g.Count()))
+                .OrderByDescending(g => g.Count)
+                .ThenBy(g => g.Value)
+                .ToList();
+            var (mode, hitCount) = groups[0];
+            var ratio = (double)hitCount / usable.Count;
+
+            var matchesStation = stationAddress is { } sa && mode == sa;
+            var matchesLowByte = mode == lowByte;
+            if (!matchesStation && !matchesLowByte) continue;
+
+            if (bestByte is not null && ratio <= bestRatio) continue;
+
+            bestByte = b;
+            bestRatio = ratio;
+            var reason = matchesStation ? "与站地址一致" : "与 CAN ID 低字节一致";
+            var percent = (int)Math.Round(ratio * 100, MidpointRounding.AwayFromZero);
+            bestEvidence = FormattableString.Invariant(
+                $"byte{b} 在 {hitCount}/{usable.Count} 帧中为 0x{mode:X2}（{percent}%），{reason}");
         }
-        return (null, "未找到恒定且等于站地址/ID 低字节的字节");
+
+        return bestByte is { } index
+            ? (index, bestEvidence)
+            : (null, "未找到取值等于站地址/ID 低字节的字节");
     }
 
     public static int? SuggestCycleMs(IReadOnlyList<ReplayFrame> frames, uint canId)
