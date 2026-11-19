@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core.Analysis.Chat;
-using PeakCan.Host.Core.Analysis.Nm;
 
 namespace PeakCan.Host.App.Services.ChatTools;
 
@@ -15,7 +14,7 @@ public sealed class GetNmProfileTool : ChatToolBase
     private const string Schema = """
 {"type":"object","properties":{
   "source_id":{"type":"string"},
-  "channel":{"type":"integer"}
+  "channel":{"type":"integer","minimum":0,"maximum":65535}
 },"additionalProperties":false}
 """;
 

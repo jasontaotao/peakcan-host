@@ -15,7 +15,7 @@ public sealed class GetNmOverviewTool : ChatToolBase
     private const string Schema = """
 {"type":"object","properties":{
   "source_id":{"type":"string"},
-  "channel":{"type":"integer"},
+  "channel":{"type":"integer","minimum":0,"maximum":65535},
   "t_start":{"type":"number"},
   "t_end":{"type":"number"},
   "window_ref":{"type":"string"}
@@ -43,15 +43,14 @@ public sealed class GetNmOverviewTool : ChatToolBase
             WindowRef: args["window_ref"]?.GetValue<string>()), ct);
 
         var report = snapshot.Report;
-        var wallClock = (DateTime?)null;
 
         var episodes = report.Episodes.Take(20).Select(e => new JsonObject
         {
             ["index"] = e.Index,
             ["start"] = e.Start,
-            ["start_label"] = TraceTimeFormatter.Format(e.Start, wallClock),
+            ["start_label"] = TraceTimeFormatter.Format(e.Start, null),
             ["end"] = e.End,
-            ["end_label"] = TraceTimeFormatter.Format(e.End, wallClock),
+            ["end_label"] = TraceTimeFormatter.Format(e.End, null),
             ["kind"] = e.Kind,
             ["participants"] = new JsonArray(e.Participants.Select(p => (JsonNode)p).ToArray()),
             ["boundary_start"] = e.BoundaryStart,
@@ -65,9 +64,9 @@ public sealed class GetNmOverviewTool : ChatToolBase
             ["sender"] = m.Sender,
             ["frame_count"] = m.FrameCount,
             ["first_seen"] = m.FirstSeen,
-            ["first_seen_label"] = TraceTimeFormatter.Format(m.FirstSeen, wallClock),
+            ["first_seen_label"] = TraceTimeFormatter.Format(m.FirstSeen, null),
             ["last_seen"] = m.LastSeen,
-            ["last_seen_label"] = TraceTimeFormatter.Format(m.LastSeen, wallClock),
+            ["last_seen_label"] = TraceTimeFormatter.Format(m.LastSeen, null),
             ["cycle"] = CycleJson(m.Cycle),
             ["silent_beyond_timeout"] = m.SilentBeyondTimeout,
         });
@@ -115,6 +114,13 @@ public sealed class GetNmOverviewTool : ChatToolBase
             }).ToArray()),
             ["unknowns"] = new JsonArray(report.Unknowns.Select(u => (JsonNode)u).ToArray()),
             ["assumptions"] = new JsonArray(report.Assumptions.Select(a => (JsonNode)a).ToArray()),
+            // 分析器自身的截断（如 signal_change 事件超上限），让模型知道结果并非全量。
+            ["truncations"] = new JsonArray(report.Truncations.Select(t => (JsonNode)new JsonObject
+            {
+                ["section"] = t.Section,
+                ["returned"] = t.Returned,
+                ["total"] = t.Total,
+            }).ToArray()),
         };
 
         var truncated = new JsonArray();
@@ -122,6 +128,8 @@ public sealed class GetNmOverviewTool : ChatToolBase
             truncated.Add(new JsonObject { ["section"] = "episodes", ["returned"] = 20, ["total"] = report.Episodes.Count });
         if (report.Messages.Count > 50)
             truncated.Add(new JsonObject { ["section"] = "messages", ["returned"] = 50, ["total"] = report.Messages.Count });
+        if (report.Findings.Count > 30)
+            truncated.Add(new JsonObject { ["section"] = "findings", ["returned"] = 30, ["total"] = report.Findings.Count });
         root["truncated"] = truncated;
 
         return root.ToJsonString();

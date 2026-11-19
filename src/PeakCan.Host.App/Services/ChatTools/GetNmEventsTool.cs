@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core.Analysis.Chat;
 using PeakCan.Host.Core.Analysis;
+using PeakCan.Host.Core.Analysis.Nm;
 
 namespace PeakCan.Host.App.Services.ChatTools;
 
@@ -17,7 +18,7 @@ public sealed class GetNmEventsTool : ChatToolBase
     private const string Schema = """
 {"type":"object","properties":{
   "source_id":{"type":"string"},
-  "channel":{"type":"integer"},
+  "channel":{"type":"integer","minimum":0,"maximum":65535},
   "episode_index":{"type":"integer"},
   "subject":{"type":"string","description":"sender/node name or CAN ID hex"},
   "types":{"type":"string","description":"comma-separated event types"},
@@ -51,22 +52,45 @@ public sealed class GetNmEventsTool : ChatToolBase
             ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // subject 既可以是节点/发送者名，也可以是 CAN ID。按名字过滤时把该
+        // sender 名下所有报文的 CAN ID 一并纳入，否则 content 事件
+        // （byte_change/signal_change，Node 为 null）和 sender_silent
+        // （Node 存 CAN ID）会被漏掉。
+        HashSet<string>? subjectIds = null;
+        if (!string.IsNullOrEmpty(subject))
+        {
+            subjectIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { subject };
+            foreach (var message in snapshot.Profile.Messages)
+            {
+                if (string.Equals(message.Sender, subject, StringComparison.OrdinalIgnoreCase))
+                    subjectIds.Add(message.CanIdHex);
+            }
+        }
+
+        bool MatchesSubject(NmEvent e)
+        {
+            if (subjectIds is null) return true;
+            if (string.Equals(e.Node, subject, StringComparison.OrdinalIgnoreCase)) return true;
+            return e.CanIdHex is not null && subjectIds.Contains(e.CanIdHex);
+        }
+
         var filtered = snapshot.Report.Events
             .Where(e => episode is null || e.EpisodeIndex == episode)
-            .Where(e => string.IsNullOrEmpty(subject)
-                        || string.Equals(e.Node, subject, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(e.CanIdHex, subject, StringComparison.OrdinalIgnoreCase))
+            .Where(MatchesSubject)
             .Where(e => types is null || types.Contains(e.Type))
             .ToArray();
 
-        var rows = filtered.Skip((page - 1) * pageSize).Take(pageSize).Select(e => new JsonObject
+        // 极大 page 时 (page-1)*pageSize 会溢出 int：用 long 计算并把起点夹到总数。
+        var skip = (int)Math.Min((long)(page - 1) * pageSize, filtered.Length);
+        var rows = filtered.Skip(skip).Take(pageSize).Select(e => new JsonObject
         {
             ["t"] = e.T,
             ["t_label"] = TraceTimeFormatter.Format(e.T, null),
             ["type"] = e.Type,
             ["node"] = e.Node,
             ["can_id"] = e.CanIdHex,
-            ["detail"] = e.Detail,
+            // detail 可能含原始 payload 取值：发给模型前脱敏，面板本地仍显示原文。
+            ["detail"] = NmEventPrivacy.RedactDetail(e.Type, e.Detail),
             ["episode_index"] = e.EpisodeIndex,
             ["evidence_kind"] = e.EvidenceKind,
         });
@@ -77,6 +101,7 @@ public sealed class GetNmEventsTool : ChatToolBase
         {
             ["source_id"] = snapshot.Report.SourceId,
             ["channel"] = snapshot.Report.Channel,
+            ["detail_redacted"] = true,
             ["total"] = filtered.Length,
             ["page"] = page,
             ["page_size"] = pageSize,
