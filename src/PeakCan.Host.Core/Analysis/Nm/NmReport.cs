@@ -11,7 +11,8 @@ public sealed record NmCycleStats(
     int DeviationCount,
     int IntervalCount = 0,
     int? ExpectedMs = null,
-    int? ToleranceMs = null);
+    int? ToleranceMs = null,
+    int ConsecutiveDeviationCount = 0);
 
 public sealed record NmSegment(double Start, double End, string Kind);
 

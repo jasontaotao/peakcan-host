@@ -42,13 +42,28 @@ public static class NmCycleAnalyzer
         var p95 = Percentile(sorted, 0.95);
 
         int deviations = 0;
+        int longestConsecutive = 0;
         if (def.CycleMs is { } expected)
         {
             var toleranceMs = Tolerance(expected)!.Value;
             var expectedSec = expected / 1000.0;
             var toleranceSec = toleranceMs / 1000.0;
-            // 偏差判据是严格大于容差：恰好等于容差不计。
-            deviations = intervals.Count(x => Math.Abs(x - expectedSec) > toleranceSec);
+            // 一次遍历同时统计总偏差间隔数与最长连续偏差间隔数。
+            var run = 0;
+            foreach (var interval in intervals)
+            {
+                // 偏差判据是严格大于容差：恰好等于容差不计。
+                if (Math.Abs(interval - expectedSec) > toleranceSec)
+                {
+                    deviations++;
+                    run++;
+                    if (run > longestConsecutive) longestConsecutive = run;
+                }
+                else
+                {
+                    run = 0;
+                }
+            }
         }
 
         // 相位：首个报文相对首个 episode 起点的偏移。
@@ -65,8 +80,15 @@ public static class NmCycleAnalyzer
             DeviationCount: deviations,
             IntervalCount: intervals.Count,
             ExpectedMs: def.CycleMs,
-            ToleranceMs: Tolerance(def.CycleMs));
+            ToleranceMs: Tolerance(def.CycleMs),
+            ConsecutiveDeviationCount: longestConsecutive);
     }
+
+    /// <summary>spec §7.4: deviation ratio > 5% or 3 consecutive deviating intervals.</summary>
+    public static bool IsDeviationSignificant(NmCycleStats stats)
+        => stats.IntervalCount > 0
+           && (stats.DeviationCount * 20 > stats.IntervalCount
+               || stats.ConsecutiveDeviationCount >= 3);
 
     private static bool CrossesEpisodeBoundary(double from, double to, IReadOnlyList<NmEpisode> episodes)
         => episodes.Any(e => from < e.Start && to >= e.Start || from <= e.End && to > e.End);
