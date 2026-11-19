@@ -56,4 +56,57 @@ public class NmEpisodeBuilderTests
 
         Assert.Contains("0x500", episode.Participants);
     }
+
+    [Fact]
+    public void Build_SharedIdParticipants_AreDeduplicated()
+    {
+        var frames = new[] { F(0), F(0.5) };
+
+        var episode = Assert.Single(NmEpisodeBuilder.Build(frames, 2000, 0, 1));
+
+        Assert.Single(episode.Participants);
+        Assert.Equal("0x500", episode.Participants[0]);
+    }
+
+    [Fact]
+    public void Build_SilenceExactlyAtTimeout_IsNotWindowTruncation()
+    {
+        // 最后一帧 5.0、窗口 7.0、timeout 2s：gap 恰好等于阈值，按切分判据 episode 已结束。
+        var frames = new[] { F(4.5), F(5.0) };
+
+        var episode = Assert.Single(NmEpisodeBuilder.Build(frames, 2000, 0, 7.0));
+
+        Assert.False(episode.BoundaryEnd);
+    }
+
+    [Fact]
+    public void Build_WindowEndsInsideSilenceBelowTimeout_IsWindowTruncation()
+    {
+        // 最后一帧 5.0、窗口 6.0、timeout 2s：尚未静默满阈值，窗口提前结束。
+        var frames = new[] { F(4.5), F(5.0) };
+
+        var episode = Assert.Single(NmEpisodeBuilder.Build(frames, 2000, 0, 6.0));
+
+        Assert.True(episode.BoundaryEnd);
+    }
+
+    [Fact]
+    public void Build_SingleFrame_ProducesZeroLengthEpisode()
+    {
+        var episode = Assert.Single(NmEpisodeBuilder.Build(new[] { F(1.0) }, 2000, 0, 10));
+
+        Assert.Equal(1.0, episode.Start);
+        Assert.Equal(1.0, episode.End);
+    }
+
+    [Fact]
+    public void Build_SortsOutOfOrderFrames()
+    {
+        var frames = new[] { F(1.0), F(0.5) };
+
+        var episode = Assert.Single(NmEpisodeBuilder.Build(frames, 2000, 0, 10));
+
+        Assert.Equal(0.5, episode.Start);
+        Assert.Equal(1.0, episode.End);
+    }
 }

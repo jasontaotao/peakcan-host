@@ -43,7 +43,8 @@ public static class NmEpisodeBuilder
         episodes.Add(new NmEpisode(index, start, last, "active", null,
             participants.OrderBy(p => p, StringComparer.Ordinal).ToArray(),
             BoundaryStart: start <= windowStart,
-            BoundaryEnd: windowEnd - last <= timeout));
+            // 窗口结束时若静默已 ≥ timeout，按切分判据该 episode 已自然结束，不算截断。
+            BoundaryEnd: windowEnd - last < timeout));
         return episodes;
     }
 }
