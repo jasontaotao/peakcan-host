@@ -5,6 +5,8 @@
     <UserControl.Resources>
         <conv:NmChipBrushConverter x:Key="NmChipBrush" />
         <conv:NmSegmentBrushConverter x:Key="NmSegmentBrush" />
+        <conv:NmEventShapeConverter x:Key="NmEventShape" />
+        <conv:NmTimelinePixelXConverter x:Key="NmPixelX" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
     </UserControl.Resources>
     <Grid>
@@ -30,7 +32,12 @@
                 <Button DockPanel.Dock="Right" Content="{Binding NmMissingText}"
                         ToolTip="打开补全对话框：选择 NM 报文、NID/CBV、站地址与时序"
                         Command="{Binding OpenNmWizardCommand}" Margin="6,0,0,0" />
-                <TextBlock Text="{Binding NmProfileSummary}" TextWrapping="Wrap" />
+                <StackPanel>
+                    <TextBlock Text="{Binding NmProfileSummary}" TextWrapping="Wrap" />
+                    <!-- 时间条只给窗口内观测到的报文建行：缺哪些必须在这里说明。 -->
+                    <TextBlock Text="{Binding NmObservedSummary}" TextWrapping="Wrap"
+                               FontSize="11" Foreground="#666666" Margin="0,2,0,0" />
+                </StackPanel>
             </DockPanel>
         </Border>
 
@@ -99,49 +106,159 @@
         <!-- Timeline (design width 1000, Viewbox scales to panel) -->
         <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
-            <ItemsControl ItemsSource="{Binding NmTimelineRows}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Margin="2">
-                            <!-- 报文名/发送者可很长：省略号 + ToolTip，不让它把行撑出面板。 -->
-                            <TextBlock Text="{Binding Label}" FontSize="11"
-                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}" />
-                            <Viewbox Stretch="Fill" Height="14">
-                                <Canvas Width="1000" Height="14">
-                                    <ItemsControl ItemsSource="{Binding Segments}">
+            <StackPanel>
+                <ItemsControl ItemsSource="{Binding NmTimelineRows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="2,3,2,3">
+                                <!-- 报文名/发送者可很长：省略号 + ToolTip，不让它把行撑出面板。 -->
+                                <TextBlock Text="{Binding Label}" FontSize="11"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}" />
+                                <!-- 活动条：设计坐标经 Viewbox 横向缩放，只承载区间，不放标记。 -->
+                                <Viewbox Stretch="Fill" Height="12">
+                                    <Canvas Width="1000" Height="12">
+                                        <ItemsControl ItemsSource="{Binding Segments}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <!-- Canvas.Left 必须设在容器 ContentPresenter 上：
+                                                 ItemsControl 会为每项包一层容器，写在 Rectangle 上不生效。 -->
+                                            <ItemsControl.ItemContainerStyle>
+                                                <Style TargetType="ContentPresenter">
+                                                    <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                                    <Setter Property="Canvas.Top" Value="0" />
+                                                </Style>
+                                            </ItemsControl.ItemContainerStyle>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Rectangle Height="12"
+                                                               Fill="{Binding Kind, Converter={StaticResource NmSegmentBrush}}"
+                                                               Width="{Binding Width}"
+                                                               ToolTip="{Binding Tooltip}">
+                                                        <Rectangle.InputBindings>
+                                                            <MouseBinding MouseAction="LeftClick"
+                                                                          Command="{Binding DataContext.SeekToNmTimeCommand,
+                                                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                          CommandParameter="{Binding Start}" />
+                                                        </Rectangle.InputBindings>
+                                                    </Rectangle>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Canvas>
+                                </Viewbox>
+
+                                <!-- 事件轨道：固定在像素空间，不经 Viewbox 横向缩放。
+                                     否则 9px 标记在 360px 面板里会被压成约 1px，tooltip/点击都失效。 -->
+                                <Canvas Height="14" Margin="0,1,0,0"
+                                        Width="{Binding ActualWidth,
+                                                       RelativeSource={RelativeSource AncestorType=StackPanel}}"
+                                        Visibility="{Binding HasMarkers, Converter={StaticResource BoolToVis}}">
+                                    <ItemsControl ItemsSource="{Binding Markers}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
-                                        <!-- Canvas.Left 必须设在容器 ContentPresenter 上：
-                                             ItemsControl 会为每项包一层容器，写在 Rectangle 上不生效。 -->
                                         <ItemsControl.ItemContainerStyle>
                                             <Style TargetType="ContentPresenter">
-                                                <Setter Property="Canvas.Left" Value="{Binding Left}" />
-                                                <Setter Property="Canvas.Top" Value="0" />
+                                                <Setter Property="Canvas.Top" Value="1" />
+                                                <Setter Property="Canvas.Left">
+                                                    <Setter.Value>
+                                                        <!-- (设计X, 轨道实际宽度) → 像素左缘，居中并钳制在轨道内。
+                                                             宽度必须取行根 StackPanel：最近的 Canvas 祖先是
+                                                             ItemsPanel 生成的内层 Canvas，其 ActualWidth 恒为 0。 -->
+                                                        <MultiBinding Converter="{StaticResource NmPixelX}">
+                                                            <Binding Path="X" />
+                                                            <Binding Path="ActualWidth"
+                                                                     RelativeSource="{RelativeSource AncestorType=StackPanel}" />
+                                                        </MultiBinding>
+                                                    </Setter.Value>
+                                                </Setter>
                                             </Style>
                                         </ItemsControl.ItemContainerStyle>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Rectangle Height="14"
-                                                           Fill="{Binding Kind, Converter={StaticResource NmSegmentBrush}}"
-                                                           Width="{Binding Width}"
-                                                           ToolTip="{Binding Tooltip}">
-                                                    <Rectangle.InputBindings>
+                                                <Grid Width="9" Height="12" Background="Transparent"
+                                                      ToolTip="{Binding Tooltip}">
+                                                    <Path x:Name="Shape" Width="9" Height="9"
+                                                          Stretch="Uniform"
+                                                          Data="{Binding Kind, Converter={StaticResource NmEventShape}}"
+                                                          Fill="{Binding Kind, Converter={StaticResource NmSegmentBrush}}" />
+                                                    <!-- 记录边界是竖线而不是形状标记。 -->
+                                                    <Rectangle x:Name="Bar" Width="2" Height="12"
+                                                               Visibility="Collapsed"
+                                                               Fill="{Binding Kind, Converter={StaticResource NmSegmentBrush}}" />
+                                                    <Grid.InputBindings>
                                                         <MouseBinding MouseAction="LeftClick"
                                                                       Command="{Binding DataContext.SeekToNmTimeCommand,
                                                                                 RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                      CommandParameter="{Binding Start}" />
-                                                    </Rectangle.InputBindings>
-                                                </Rectangle>
+                                                                      CommandParameter="{Binding T}" />
+                                                    </Grid.InputBindings>
+                                                </Grid>
+                                                <DataTemplate.Triggers>
+                                                    <DataTrigger Binding="{Binding Kind}" Value="boundary">
+                                                        <Setter TargetName="Shape" Property="Visibility" Value="Collapsed" />
+                                                        <Setter TargetName="Bar" Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </DataTemplate.Triggers>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
                                 </Canvas>
-                            </Viewbox>
-                        </StackPanel>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- 时间轴：设计坐标把窗口起止映射到 0/1000，中点正好 50%，
+                     因此左/中/右三个标签与轨道位置天然对齐。 -->
+                <Grid Margin="2,6,2,0">
+                    <Border Height="1" Background="#DDDDDD" VerticalAlignment="Top" />
+                    <TextBlock Text="{Binding NmTimeAxisStart}" HorizontalAlignment="Left"
+                               FontSize="9" Foreground="#666666" Margin="0,4,0,0" />
+                    <TextBlock Text="{Binding NmTimeAxisMid}" HorizontalAlignment="Center"
+                               FontSize="9" Foreground="#666666" Margin="0,4,0,0" />
+                    <TextBlock Text="{Binding NmTimeAxisEnd}" HorizontalAlignment="Right"
+                               FontSize="9" Foreground="#666666" Margin="0,4,0,0" />
+                </Grid>
+
+                <!-- 常驻图例：颜色/形状与轨道同源（x:Static 引用转换器笔刷）。 -->
+                <StackPanel Margin="2,6,2,4">
+                    <TextBlock Text="图例" FontWeight="SemiBold" FontSize="10" Foreground="#555555" />
+                    <TextBlock FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0">
+                        <Run Text="报文条  " Foreground="#666666" />
+                        <Run Text="■ 唤醒  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.WakeupBrush}" />
+                        <Run Text="■ 发送中  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.ActiveBrush}" />
+                        <Run Text="■ 已释放  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.ReleasedBrush}" />
+                        <Run Text="■ 静默"
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.SilentBrush}" />
+                    </TextBlock>
+                    <TextBlock FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0">
+                        <Run Text="事件  " Foreground="#666666" />
+                        <Run Text="▲ 突发  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.BurstBrush}" />
+                        <Run Text="▼ 空档/漏帧  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.GapBrush}" />
+                        <Run Text="■ 字节变化  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.ByteBrush}" />
+                        <Run Text="◆ 位变化  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.BitBrush}" />
+                        <Run Text="● 信号变化"
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.SignalBrush}" />
+                    </TextBlock>
+                    <TextBlock FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0">
+                        <Run Text="整网行  " Foreground="#666666" />
+                        <Run Text="■ 活跃区间  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.EpisodeBrush}" />
+                        <Run Text="■ 静默（无 NM 报文）  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.SilentBrush}" />
+                        <Run Text="│ 记录边界"
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.BoundaryBrush}" />
+                    </TextBlock>
+                </StackPanel>
+            </StackPanel>
         </ScrollViewer>
 
         <!-- Event filters (spec §9.1) -->
@@ -189,7 +306,7 @@
                 <!-- 360px 面板下 80+110+90+70 会把“详情”挤成 0 宽：
                      固定列收窄，详情保留 * 并加省略号 + ToolTip。 -->
                 <DataGridTextColumn Header="时间" Binding="{Binding TimeText}" Width="64" />
-                <DataGridTextColumn Header="类型" Binding="{Binding Type}" Width="82" />
+                <DataGridTextColumn Header="类型" Binding="{Binding TypeLabel}" Width="82" />
                 <DataGridTextColumn Header="对象" Binding="{Binding Subject}" Width="70" />
                 <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*">
                     <DataGridTextColumn.ElementStyle>
@@ -199,7 +316,7 @@
                         </Style>
                     </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-                <DataGridTextColumn Header="证据" Binding="{Binding EvidenceKind}" Width="52" />
+                <DataGridTextColumn Header="证据" Binding="{Binding EvidenceLabel}" Width="52" />
             </DataGrid.Columns>
         </DataGrid>
     </Grid>

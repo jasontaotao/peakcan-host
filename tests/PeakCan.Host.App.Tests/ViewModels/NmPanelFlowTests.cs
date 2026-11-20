@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using PeakCan.HIL.Core;
 using PeakCan.HIL.Core.Dbc;
+using PeakCan.Host.App.Converters;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.ChatTools;
 using PeakCan.Host.App.Services.Trace;
@@ -25,6 +26,8 @@ public class NmPanelFlowTests
     private static readonly string[] ConflictSources = { "NmAsrCanMsgCycleTime", "GenMsgCycleTime" };
     private static readonly string[] MissingSelection = { "nm_message_selection" };
     private static readonly string[] NmParticipants = { "0x500" };
+    private static readonly double[] HeadSilenceEvidence = { 0d, 4d };
+    private static readonly double[] WholeWindowBoundaryEvidence = { 0d, 10d };
 
     [Fact]
     public void BuildTimeline_UsesDesignWidth1000()
@@ -276,7 +279,9 @@ public class NmPanelFlowTests
 
         // 每报文一行（spec §9.1），Kind 原样保留给着色转换器。
         row.Segments.Select(s => s.Kind).Should().Equal("wakeup", "active", "released", "silent");
-        row.Segments[0].Tooltip.Should().Contain("wakeup");
+        // 面向用户的 tooltip 必须是中文，内部 kind 不作为文案泄漏。
+        row.Segments[0].Tooltip.Should().Contain("唤醒");
+        row.Segments[0].Tooltip.Should().NotContain("wakeup");
         row.Segments[0].Tooltip.Should().Contain("0.000");
     }
 
@@ -663,20 +668,313 @@ public class NmPanelFlowTests
         var rows = TraceViewerViewModel.BuildTimelineRows(report);
 
         rows.Should().HaveCount(2);
-        var messageKinds = rows[0].Segments.Select(s => s.Kind).ToArray();
-        messageKinds.Should().Contain("burst");
-        messageKinds.Should().Contain("byte");
-        messageKinds.Should().Contain("gap");
-        // 网络行：episode 活动段 + 4s–7s 静默段 + 两个边界标记。
-        rows[1].Label.Should().Contain("网络");
+        // 事件标记独立成轨道：不再混进活动段（否则 3px 标记被 Viewbox 压成 1px）。
+        var messageMarkers = rows[0].Markers.Select(m => m.Kind).ToArray();
+        messageMarkers.Should().Contain("burst");
+        messageMarkers.Should().Contain("byte");
+        messageMarkers.Should().Contain("gap");
+        rows[0].Segments.Select(s => s.Kind).Should().Equal("active");
+        rows[0].Markers.Should().OnlyContain(m => m.Tooltip.Contains('s'));
+
+        // 网络行：episode 活动段 + 4s–7s 静默段 + 边界标记。
+        rows[1].Label.Should().Be("整网状态");
         var networkKinds = rows[1].Segments.Select(s => s.Kind).ToArray();
         networkKinds.Should().Contain("episode");
         networkKinds.Should().Contain("silence");
-        networkKinds.Should().Contain("boundary");
+        rows[1].Markers.Select(m => m.Kind).Should().Contain("boundary")
+            .And.NotContain("silence", "静默是区间不是标记");
         var silence = rows[1].Segments.Single(s => s.Kind == "silence");
         silence.Start.Should().Be(4.0);
         silence.End.Should().Be(7.0);
+        silence.Tooltip.Should().Contain("无 NM 报文");
     }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_BusWideSilenceInsideEpisode_IsMarkerNotBand()
+    {
+        // 全网断帧 5s 但短于 NM 超时 → episode 不切分，事件落在 [0,10] 内部。
+        // 旧实现把 2s→窗口末尾涂成静默，覆盖了 2s–10s 的真实活动段。
+        var report = MakeNetworkReport(
+            episodes: new[] { new NmEpisode(0, 0, 10, "active", null, NmParticipants, false, false) },
+            events: new[] { new NmEvent(2.0, "bus_wide_silence", null, null, "5.00s", 0, "measured") });
+
+        var network = Assert.Single(TraceViewerViewModel.BuildTimelineRows(report));
+
+        // 静默带与 episode 无交集时必须整段丢弃，不能覆盖活动区间。
+        network.Segments.Select(s => s.Kind).Should().Equal("episode");
+        var marker = Assert.Single(network.Markers);
+        marker.Kind.Should().Be("bus_gap");
+        marker.X.Should().BeApproximately(200, 0.001);
+        marker.Tooltip.Should().Contain("总线无帧");
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_BusWideSilenceInsideLastEpisode_IsMarkerOnly_NoTailBand()
+    {
+        // 尾部 episode 到窗口终点，内部 1s 处有总线断帧；尾段静默 1s < 超时，
+        // 引擎不会产 all_nm_silent。旧实现用「到窗口末尾」补区间，凭空画出
+        // 9–10s 静默带；该残段与这次断帧无关，必须丢弃。
+        var report = MakeNetworkReport(
+            episodes: new[]
+            {
+                new NmEpisode(0, 0, 9, "active", null, NmParticipants, false, true),
+            },
+            events: new[] { new NmEvent(1.0, "bus_wide_silence", null, null, "1.00s", 0, "measured") });
+
+        var network = Assert.Single(TraceViewerViewModel.BuildTimelineRows(report));
+
+        network.Segments.Select(s => s.Kind).Should().Equal("episode");
+        network.Segments.Should().NotContain(s => s.Kind == "silence");
+        network.Markers.Select(m => m.Kind).Should().Contain("bus_gap")
+            .And.Contain("boundary");
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_BusWideSilenceAtEpisodeStart_IsMarkerOnly()
+    {
+        // 断帧起点恰好等于 episode 首帧时刻（T == episode.Start）：仍属 episode
+        // 内部，不能当作「episode 之间」去补尾段静默带。
+        var report = MakeNetworkReport(
+            window: new NmWindow(0, 12, "full"),
+            episodes: new[]
+            {
+                new NmEpisode(0, 10, 11.5, "active", null, NmParticipants, false, true),
+            },
+            events: new[] { new NmEvent(10.0, "bus_wide_silence", null, null, "1.00s", 0, "measured") });
+
+        var network = Assert.Single(TraceViewerViewModel.BuildTimelineRows(report));
+
+        network.Segments.Select(s => s.Kind).Should().Equal("episode");
+        network.Markers.Select(m => m.Kind).Should().Contain("bus_gap");
+    }
+
+    [Fact]
+    public void SubtractEpisodes_RemovesCoveredPiecesAndKeepsResiduals()
+    {
+        var episodes = new[]
+        {
+            new NmEpisode(0, 0, 3, "active", null, NmParticipants, false, false),
+            new NmEpisode(1, 5, 6, "active", null, NmParticipants, false, false),
+        };
+
+        var pieces = TraceViewerViewModel.SubtractEpisodes(2, 8, episodes);
+
+        pieces.Should().Equal((3.0, 5.0), (6.0, 8.0));
+        TraceViewerViewModel.SubtractEpisodes(1, 2, episodes).Should().BeEmpty(
+            "完全被 episode 覆盖的区间不能留下零宽残段");
+        // episode 之间的空隙不属于任何 episode，必须保留。
+        TraceViewerViewModel.SubtractEpisodes(3, 5, episodes).Should().Equal((3.0, 5.0));
+    }
+
+    [Fact]
+    public void MergeSilenceBands_OverlappingHeadAndEventBand_KeepsEarliestTooltip()
+    {
+        var merged = TraceViewerViewModel.MergeSilenceBands(new[]
+        {
+            (1.0, 4.0, "无 NM 报文"),
+            (0.0, 4.0, "记录边界"),
+            (5.0, 6.0, "无 NM 报文"),
+        });
+
+        merged.Should().HaveCount(2);
+        merged[0].Start.Should().Be(0.0);
+        merged[0].End.Should().Be(4.0);
+        merged[0].Tooltip.Should().Be("记录边界", "起点更早的头部边界说明优先");
+        merged[1].Start.Should().Be(5.0);
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_HeadSilenceAndBusGap_MergeIntoSingleBand()
+    {
+        // 头部静默 [0,4] 与总线断帧派生的 [1,4] 重叠：只能画一条带，
+        // 否则半透明灰叠深、且同一段时间有两个可点区间。
+        var report = MakeNetworkReport(
+            episodes: new[] { new NmEpisode(0, 4, 9, "active", null, NmParticipants, false, false) },
+            events: new[] { new NmEvent(1.0, "bus_wide_silence", null, null, "2.00s", 0, "measured") },
+            findings: new[]
+            {
+                new NmFinding("NM_TRACE_BOUNDARY", "info", "窗口开头静默", HeadSilenceEvidence,
+                    false, null),
+            });
+
+        var network = Assert.Single(TraceViewerViewModel.BuildTimelineRows(report));
+
+        var silence = network.Segments.Where(s => s.Kind == "silence").Should().ContainSingle().Which;
+        silence.Start.Should().Be(0.0);
+        silence.End.Should().Be(4.0);
+        silence.Tooltip.Should().Contain("记录边界");
+    }
+
+    [Fact]
+    public void BuildTimelineRows_EmitsOnlyDeclaredKinds()
+    {
+        // 生产者覆盖守卫：转换器测试只能证明常量表都有笔刷；这里喂一份覆盖
+        // 全部阶段/事件/网络状态的报告，断言面板发射的 kind 与常量表完全一致。
+        var stats = new NmCycleStats(500, 500, 500, 500, 0, 0, 2, 500, 100);
+        var report = new NmReport(
+            new NmWindow(0, 10, "full"), "src", null,
+            new[]
+            {
+                new NmEpisode(0, 0, 3, "active", null, NmParticipants, true, false),
+                new NmEpisode(1, 7, 10, "active", null, NmParticipants, false, true),
+            },
+            new[]
+            {
+                new NmMessageReport("0x500", false, "NM", "A", 4, 0, 10, stats,
+                    new[]
+                    {
+                        new NmSegment(0, 1, "wakeup"),
+                        new NmSegment(1, 6, "active"),
+                        new NmSegment(6, 8, "released"),
+                        new NmSegment(8, 10, "silent"),
+                    }, false),
+            },
+            Array.Empty<NmNodeReport>(),
+            new[]
+            {
+                new NmEvent(0.5, "burst_observed", "A", "0x500", "3 帧短间隔", 0, "measured"),
+                new NmEvent(1.5, "missed_frame", null, "0x500", "缺 1 帧", 0, "inferred"),
+                new NmEvent(2.5, "sender_silent", null, "0x500", "2.00s", 0, "inferred"),
+                new NmEvent(4.0, "byte_change", null, "0x500", "byte0 变化", 0, "measured"),
+                new NmEvent(5.0, "bit_change", null, "0x500", "bit3 变化", 0, "measured"),
+                new NmEvent(6.0, "signal_change", null, "0x500", "sig 变化", 0, "measured"),
+                new NmEvent(1.0, "bus_wide_silence", null, null, "1.00s", 0, "measured"),
+                new NmEvent(3.0, "all_nm_silent", null, null, "NM silent until 7.000s", 0, "measured"),
+            },
+            Array.Empty<NmFinding>(),
+            Array.Empty<string>(), Array.Empty<string>(),
+            Array.Empty<NmCapabilityState>(), Array.Empty<NmInputMissing>(),
+            Array.Empty<NmTruncation>());
+
+        var emitted = TraceViewerViewModel.BuildTimelineRows(report)
+            .SelectMany(r => r.Segments.Select(s => s.Kind)
+                .Concat(r.Markers.Select(m => m.Kind)))
+            .Distinct()
+            .ToArray();
+
+        emitted.Should().BeEquivalentTo(NmTimelineKinds.All,
+            "面板发射的每个 kind 都必须进常量表，才能被转换器/图例覆盖");
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_HeadSilenceDrawnFromGapAnalyzerFinding()
+    {
+        // NmGapAnalyzer 的头部静默 finding 证据是 [窗口起点, 首 episode 起点]；
+        // NmAnalyzer 的整窗边界 finding 证据是 [窗口起点, 窗口终点]，必须忽略。
+        var report = MakeNetworkReport(
+            episodes: new[] { new NmEpisode(0, 4, 9, "active", null, NmParticipants, false, false) },
+            findings: new[]
+            {
+                new NmFinding("NM_TRACE_BOUNDARY", "info", "窗口开头静默", HeadSilenceEvidence,
+                    false, null),
+                new NmFinding("NM_TRACE_BOUNDARY", "info", "NM 活动触及 trace 边界",
+                    WholeWindowBoundaryEvidence, false, null),
+            });
+
+        var network = Assert.Single(TraceViewerViewModel.BuildTimelineRows(report));
+
+        var silence = network.Segments.Where(s => s.Kind == "silence").Should().ContainSingle().Which;
+        silence.Start.Should().Be(0.0);
+        silence.End.Should().Be(4.0);
+        silence.Tooltip.Should().Contain("记录边界");
+        network.Segments.Should().NotContain(s => s.Kind == "silence" && s.End > 4.0,
+            "整窗边界 finding 不能被画成静默带");
+    }
+
+    [Fact]
+    public void ApplyNmReport_ShowsObservedAndMissingNmMessages()
+    {
+        var profile = MakeProfile(messages: new[]
+        {
+            new NmMessageDef("0x500", false, "NM_A", "A", 8, true, CannmReasons),
+            new NmMessageDef("0x501", false, "NM_B", "B", 8, true, CannmReasons),
+        });
+        var report = MakeReport(messages: new[]
+        {
+            new NmMessageReport("0x500", false, "NM_A", "A", 4, 0, 10,
+                new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
+                new[] { new NmSegment(0, 10, "active") }, false),
+        });
+
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(report, profile));
+
+        vm.NmObservedSummary.Should().Contain("1/2");
+        vm.NmObservedSummary.Should().Contain("0x501");
+        vm.NmObservedSummary.Should().Contain("NM_B");
+    }
+
+    [Fact]
+    public void ApplyNmReport_AllMessagesObserved_SaysSo()
+    {
+        var profile = MakeProfile(messages: new[]
+        {
+            new NmMessageDef("0x500", false, "NM_A", "A", 8, true, CannmReasons),
+        });
+        var report = MakeReport(messages: new[]
+        {
+            new NmMessageReport("0x500", false, "NM_A", "A", 4, 0, 10,
+                new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
+                new[] { new NmSegment(0, 10, "active") }, false),
+        });
+
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(report, profile));
+
+        vm.NmObservedSummary.Should().Contain("1/1");
+        vm.NmObservedSummary.Should().Contain("全部出现");
+    }
+
+    [Fact]
+    public void ApplyNmReport_SetsTimeAxisLabelsFromWindow()
+    {
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(MakeReport(messages: new[]
+        {
+            new NmMessageReport("0x500", false, "NM", "A", 4, 0, 10,
+                new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
+                new[] { new NmSegment(0, 10, "active") }, false),
+        }), MakeProfile()));
+
+        vm.NmTimeAxisStart.Should().Be("0.00s");
+        vm.NmTimeAxisMid.Should().Be("5.00s");
+        vm.NmTimeAxisEnd.Should().Be("10.00s");
+    }
+
+    [Fact]
+    public void EventRows_ExposeChineseTypeLabel()
+    {
+        var report = MakeReport(events: new[]
+        {
+            new NmEvent(1.0, "burst_observed", "A", "0x500", "3 帧短间隔", 0, "measured"),
+        });
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(report, MakeProfile()));
+
+        var row = Assert.Single(vm.NmEventRows);
+        row.Type.Should().Be("burst_observed", "筛选契约仍用原始 snake_case");
+        row.TypeLabel.Should().Be("突发");
+        row.EvidenceLabel.Should().Be("实测");
+    }
+
+    [Theory]
+    [InlineData("burst_observed", "突发")]
+    [InlineData("missed_frame", "漏帧")]
+    [InlineData("sender_silent", "发送静默")]
+    [InlineData("byte_change", "字节变化")]
+    [InlineData("bit_change", "位变化")]
+    [InlineData("signal_change", "信号变化")]
+    [InlineData("all_nm_silent", "全网 NM 静默")]
+    [InlineData("bus_wide_silence", "总线无帧")]
+    public void EventTypeLabel_IsChinese(string type, string expected)
+        => NmTimelineText.EventType(type).Should().Be(expected);
+
+    [Theory]
+    [InlineData("measured", "实测")]
+    [InlineData("inferred", "推断")]
+    [InlineData("boundary", "边界")]
+    public void EvidenceKindLabel_IsChinese(string kind, string expected)
+        => NmTimelineText.EvidenceKind(kind).Should().Be(expected);
 
     [Fact]
     public void SemanticsBanner_ListsOnlyUnavailableCapabilities()
@@ -741,6 +1039,26 @@ public class NmPanelFlowTests
             Array.Empty<NmTruncation>(),
             EngineVersion: NmAnalyzer.EngineVersion,
             IsPartial: isPartial);
+
+    /// <summary>网络行测试用最小报告：只需要 episodes / events / findings。</summary>
+    private static NmReport MakeNetworkReport(
+        NmEpisode[]? episodes = null,
+        NmEvent[]? events = null,
+        NmFinding[]? findings = null,
+        NmWindow? window = null)
+        => new(
+            window ?? new NmWindow(0, 10, "full"), "src", null,
+            episodes ?? Array.Empty<NmEpisode>(),
+            Array.Empty<NmMessageReport>(),
+            Array.Empty<NmNodeReport>(),
+            events ?? Array.Empty<NmEvent>(),
+            findings ?? Array.Empty<NmFinding>(),
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            Array.Empty<NmCapabilityState>(),
+            Array.Empty<NmInputMissing>(),
+            Array.Empty<NmTruncation>(),
+            EngineVersion: NmAnalyzer.EngineVersion);
 
     private static NmProfile MakeProfile(
         NmProfileSource source = NmProfileSource.Dbc,

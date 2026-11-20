@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PeakCan.Host.App.Converters;
 using PeakCan.Host.App.Services.ChatTools;
 using PeakCan.Host.App.Services.Nm;
 using PeakCan.Host.Core.Analysis;
@@ -14,9 +15,86 @@ namespace PeakCan.Host.App.ViewModels;
 public sealed record NmCapabilityChipVm(string Name, bool Available, string Tooltip);
 public sealed record NmTimelineSegmentVm(double Left, double Width, string Kind,
     double Start, double End, string Tooltip = "");
-public sealed record NmTimelineRowVm(string Label, IReadOnlyList<NmTimelineSegmentVm> Segments);
+
+/// <summary>时间条事件标记：设计坐标 X + 形状/颜色 kind；像素换算在 XAML 层完成。</summary>
+public sealed record NmTimelineMarkerVm(double X, string Kind, double T, string Tooltip);
+
+public sealed record NmTimelineRowVm(
+    string Label,
+    IReadOnlyList<NmTimelineSegmentVm> Segments,
+    IReadOnlyList<NmTimelineMarkerVm> Markers)
+{
+    public NmTimelineRowVm(string label, IReadOnlyList<NmTimelineSegmentVm> segments)
+        : this(label, segments, Array.Empty<NmTimelineMarkerVm>())
+    {
+    }
+
+    /// <summary>无标记时折叠轨道，避免每行白白多出 12px。</summary>
+    public bool HasMarkers => Markers.Count > 0;
+}
+
 public sealed record NmEventRowVm(double T, string TimeText, string Type, string Subject,
-    string Detail, string EvidenceKind, int EpisodeIndex, string? CanIdHex = null);
+    string Detail, string EvidenceKind, int EpisodeIndex, string? CanIdHex = null)
+{
+    /// <summary>事件表展示用的中文类型名；筛选仍按原始 snake_case 契约。</summary>
+    public string TypeLabel => NmTimelineText.EventType(Type);
+
+    /// <summary>事件表展示用的中文证据级别；数据契约仍保留 measured/inferred。</summary>
+    public string EvidenceLabel => NmTimelineText.EvidenceKind(EvidenceKind);
+}
+
+/// <summary>
+/// 时间条/事件表的中文文案。引擎契约仍是 snake_case，只在展示层翻译，
+/// 不把 UI 文案写进分析引擎。
+/// </summary>
+public static class NmTimelineText
+{
+    public static string SegmentKind(string kind) => kind switch
+    {
+        NmTimelineKinds.Wakeup => "唤醒",
+        NmTimelineKinds.Active => "发送中",
+        NmTimelineKinds.Released => "已释放",
+        NmTimelineKinds.Silent or NmTimelineKinds.Silence => "静默",
+        NmTimelineKinds.Episode => "活跃区间",
+        NmTimelineKinds.Burst => "突发",
+        NmTimelineKinds.Gap => "超时空档",
+        NmTimelineKinds.BusGap => "总线无帧",
+        NmTimelineKinds.Byte => "字节变化",
+        NmTimelineKinds.Bit => "位变化",
+        NmTimelineKinds.Signal => "信号变化",
+        NmTimelineKinds.Boundary => "记录边界",
+        _ => kind,
+    };
+
+    public static string EventType(string type) => type switch
+    {
+        "burst_observed" => "突发",
+        "missed_frame" => "漏帧",
+        "sender_silent" => "发送静默",
+        "byte_change" => "字节变化",
+        "bit_change" => "位变化",
+        "signal_change" => "信号变化",
+        "all_nm_silent" => "全网 NM 静默",
+        "bus_wide_silence" => "总线无帧",
+        _ => type,
+    };
+
+    public static string EvidenceKind(string kind) => kind switch
+    {
+        "measured" => "实测",
+        "inferred" => "推断",
+        "boundary" => "边界",
+        _ => kind,
+    };
+
+    /// <summary>profile 来源标识（引擎契约）；未知值原样显示，不猜测。</summary>
+    public static string Provenance(string resolvedFrom) => resolvedFrom switch
+    {
+        "dbc" => "DBC",
+        "none" => "无",
+        _ => resolvedFrom,
+    };
+}
 
 /// <summary>
 /// 事件表筛选（spec §9.1「筛选」）：类型分类 + 对象/详情关键字。
@@ -70,8 +148,6 @@ public static class NmEventFilters
 public sealed partial class TraceViewerViewModel
 {
     private const double NmTimelineWidth = 1000.0;
-    /// <summary>事件/边界标记的像素宽度：窄到不遮挡活动段，又能点中 seek。</summary>
-    private const double NmMarkerWidth = 3.0;
     /// <summary>spec §9.4：分析超过该时长按超时结束，保留 partial 结果。</summary>
     internal static readonly TimeSpan NmAnalysisTimeout = TimeSpan.FromSeconds(30);
 
@@ -87,6 +163,13 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty] private bool _nmHasSemanticsBanner;
     [ObservableProperty] private string _nmStatus = "";
     [ObservableProperty] private string _nmProfileSummary = "";
+    /// <summary>窗口内观测/未出现的 NM 报文明细：解释为什么时间条只有部分报文行。</summary>
+    [ObservableProperty] private string _nmObservedSummary = "";
+    // 时间轴三档刻度：设计坐标把窗口起止映射到 0/1000，中点正好 50%，
+    // 因此左/中/右对齐的三个标签与轨道位置一致，无需像素换算。
+    [ObservableProperty] private string _nmTimeAxisStart = "";
+    [ObservableProperty] private string _nmTimeAxisMid = "";
+    [ObservableProperty] private string _nmTimeAxisEnd = "";
     /// <summary>补全按钮文案；分析前也有可读标签，避免空按钮被压成一条缝。</summary>
     [ObservableProperty] private string _nmMissingText = "补全";
     [ObservableProperty] private string _nmSelectedEventTypeFilter = NmEventFilters.All;
@@ -141,31 +224,31 @@ public sealed partial class TraceViewerViewModel
                 var left = ToX(s.Start, report.Window);
                 var right = ToX(s.End, report.Window);
                 var tooltip = string.Create(CultureInfo.InvariantCulture,
-                    $"{s.Kind}  {s.Start:F3}s – {s.End:F3}s");
+                    $"{NmTimelineText.SegmentKind(s.Kind)}  {s.Start:F3}s – {s.End:F3}s");
                 return new NmTimelineSegmentVm(
                     left, Math.Max(right - left, 1), s.Kind, s.Start, s.End, tooltip);
             }).ToList();
 
             // spec §9.1：时间条要标记观察突发、超时空档与原始字节/位变化。
-            // 事件本身仍留在事件表里，这里只加窄标记，便于在轴上定位。
+            // 事件本身仍留在事件表里；标记独立成轨道（形状+颜色），不再塞进活动条。
+            var markers = new List<NmTimelineMarkerVm>();
             foreach (var e in report.Events)
             {
                 if (MarkerKind(e.Type) is not { } kind) continue;
                 if (!string.Equals(e.CanIdHex, m.CanIdHex, StringComparison.Ordinal)) continue;
                 if (e.IsExtended != m.IsExtended) continue;
 
-                var left = ToX(e.T, report.Window);
-                var tooltip = string.Create(CultureInfo.InvariantCulture,
-                    $"{e.Type} {e.T:F3}s  {e.Detail}");
-                segments.Add(new NmTimelineSegmentVm(
-                    left, NmMarkerWidth, kind, e.T, e.T, tooltip));
+                markers.Add(new NmTimelineMarkerVm(
+                    ToX(e.T, report.Window), kind, e.T,
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"{NmTimelineText.EventType(e.Type)}  {e.T:F3}s  {e.Detail}")));
             }
 
             // spec §9.1：时间条默认每个 NM 报文一行，行标签按 DBC 发送节点标注。
             // DBC 未给出 Name/Sender 时不渲染空括号内容，用 "—" 占位。
             var who = string.IsNullOrEmpty(m.Sender) ? "—" : m.Sender;
             var name = string.IsNullOrEmpty(m.Name) ? "" : " " + m.Name;
-            rows.Add(new NmTimelineRowVm($"{m.CanIdHex}{name} ({who})", segments));
+            rows.Add(new NmTimelineRowVm($"{m.CanIdHex}{name} ({who})", segments, markers));
         }
 
         if (BuildNetworkTimelineRow(report) is { } network)
@@ -177,42 +260,87 @@ public sealed partial class TraceViewerViewModel
     /// <summary>事件→时间条标记的 Kind；不参与时间条的事件返回 null。</summary>
     private static string? MarkerKind(string type) => type switch
     {
-        "burst_observed" => "burst",
-        "missed_frame" or "sender_silent" => "gap",
-        "byte_change" => "byte",
-        "bit_change" => "bit",
-        "signal_change" => "signal",
+        "burst_observed" => NmTimelineKinds.Burst,
+        "missed_frame" or "sender_silent" => NmTimelineKinds.Gap,
+        "byte_change" => NmTimelineKinds.Byte,
+        "bit_change" => NmTimelineKinds.Bit,
+        "signal_change" => NmTimelineKinds.Signal,
         _ => null,
     };
 
     /// <summary>
-    /// 网络级时间条：episode 活动段、episode 间/窗口首尾静默、边界标记。
+    /// 网络级时间条：episode 活动段、静默带、边界/空档标记。
     /// spec §9.1 要求「活动段/静默段/边界」可见；这些不属于单条报文行。
+    /// <para>
+    /// 2026-11-20 PATCH：<c>bus_wide_silence</c> 可以落在 episode 内部（全网
+    /// 断帧短于 NM 超时时 episode 不切分）。这种事件只留「总线无帧」标记：
+    /// 事件没有结构化的结束时间，若按「到下个 episode/窗口末尾」补区间，会
+    /// 画出一条与本次空档无关的尾段静默（引擎并未判定该尾段静默）。
+    /// </para>
+    /// <para>
+    /// 同一段静默可能有多个来源（头部边界带 + 事件带）；统一合并，避免半透明
+    /// 灰叠加成更深的色块，也避免出现两个可点击的重复区间。
+    /// </para>
     /// </summary>
     private static NmTimelineRowVm? BuildNetworkTimelineRow(NmReport report)
     {
         var segments = new List<NmTimelineSegmentVm>();
+        var markers = new List<NmTimelineMarkerVm>();
+        var silenceBands = new List<(double Start, double End, string Tooltip)>();
 
         foreach (var episode in report.Episodes)
         {
             var left = ToX(episode.Start, report.Window);
             var right = ToX(episode.End, report.Window);
             segments.Add(new NmTimelineSegmentVm(
-                left, Math.Max(right - left, 1), "episode", episode.Start, episode.End,
+                left, Math.Max(right - left, 1), NmTimelineKinds.Episode,
+                episode.Start, episode.End,
                 string.Create(CultureInfo.InvariantCulture,
-                    $"episode {episode.Index}  {episode.Start:F3}s – {episode.End:F3}s")));
+                    $"活跃区间 {episode.Index}  {episode.Start:F3}s – {episode.End:F3}s")));
 
             if (episode.BoundaryStart)
-                segments.Add(BoundaryMarker(episode.Start, report.Window, "边界：窗口开始时 NM 已在活动"));
+                markers.Add(BoundaryMarker(episode.Start, report.Window, "边界：窗口开始时 NM 已在活动"));
             if (episode.BoundaryEnd)
-                segments.Add(BoundaryMarker(episode.End, report.Window, "边界：窗口结束时 NM 仍未静默"));
+                markers.Add(BoundaryMarker(episode.End, report.Window, "边界：窗口结束时 NM 仍未静默"));
         }
 
-        // 网络级静默：all_nm_silent / bus_wide_silence 的起点到下一个 episode
-        // （或窗口结束）。空档若短于超时，引擎不产事件，这里自然不画。
+        // 头部静默：NmGapAnalyzer 在「窗口开头到首个 NM 帧 ≥ 超时」时产
+        // NM_TRACE_BOUNDARY，证据正是 [窗口起点, 首个 episode 起点]。
+        // 同名 finding 还有一条整窗边界（证据 [窗口起点, 窗口终点]），用
+        // 「证据终点 == 首个 episode 起点」把它排除，不依赖文案。
+        // 首帧恰在窗口终点时两条 finding 证据相同；此时画 [起点, 终点] 仍是
+        // 事实（该区间内没有任何 NM 帧），不会产生错误信息。
+        foreach (var finding in report.Findings)
+        {
+            if (!string.Equals(finding.Code, "NM_TRACE_BOUNDARY", StringComparison.Ordinal)) continue;
+            if (finding.EvidenceTimes.Count < 2 || report.Episodes.Count == 0) continue;
+
+            var from = finding.EvidenceTimes[0];
+            var to = finding.EvidenceTimes[1];
+            if (to <= from) continue;
+            if (Math.Abs(to - report.Episodes[0].Start) > 1e-6) continue;
+
+            silenceBands.Add((from, to, string.Create(CultureInfo.InvariantCulture,
+                $"记录边界：窗口开头无 NM 报文  {from:F3}s – {to:F3}s")));
+        }
+
         foreach (var e in report.Events)
         {
             if (e.Type is not ("all_nm_silent" or "bus_wide_silence")) continue;
+
+            // 用闭开区间 [Start, End)：断帧起点恰好等于 episode 首帧时刻时也
+            // 属于 episode 内部，只留标记，不得派生与该空档无关的尾段静默带。
+            if (report.Episodes.Any(ep => ep.Start <= e.T && e.T < ep.End))
+            {
+                var kind = e.Type == "bus_wide_silence"
+                    ? NmTimelineKinds.BusGap
+                    : NmTimelineKinds.Gap;
+                markers.Add(new NmTimelineMarkerVm(
+                    ToX(e.T, report.Window), kind, e.T,
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"{NmTimelineText.EventType(e.Type)}  起点 {e.T:F3}s  {e.Detail}")));
+                continue;
+            }
 
             var end = report.Episodes
                 .Where(ep => ep.Start > e.T)
@@ -221,20 +349,78 @@ public sealed partial class TraceViewerViewModel
                 .Min();
             if (end <= e.T) end = report.Window.End;
 
-            var left = ToX(e.T, report.Window);
-            var right = ToX(end, report.Window);
-            segments.Add(new NmTimelineSegmentVm(
-                left, Math.Max(right - left, 1), "silence", e.T, end,
-                string.Create(CultureInfo.InvariantCulture,
-                    $"{e.Type} {e.T:F3}s – {end:F3}s  {e.Detail}")));
+            // all_nm_silent 契约上只出现在 episode 间隙/尾部；减法作为防御，
+            // 保证任何未来事件类型都不会把静默带画到活动段上。
+            foreach (var (pieceStart, pieceEnd) in SubtractEpisodes(e.T, end, report.Episodes))
+            {
+                silenceBands.Add((pieceStart, pieceEnd, string.Create(CultureInfo.InvariantCulture,
+                    $"无 NM 报文  {pieceStart:F3}s – {pieceEnd:F3}s")));
+            }
         }
 
-        if (segments.Count == 0) return null;
-        return new NmTimelineRowVm("网络（episode / 静默 / 边界）", segments);
+        foreach (var (start, end, tooltip) in MergeSilenceBands(silenceBands))
+        {
+            var left = ToX(start, report.Window);
+            var right = ToX(end, report.Window);
+            segments.Add(new NmTimelineSegmentVm(
+                left, Math.Max(right - left, 1), NmTimelineKinds.Silence, start, end, tooltip));
+        }
+
+        if (segments.Count == 0 && markers.Count == 0) return null;
+        return new NmTimelineRowVm("整网状态", segments, markers);
     }
 
-    private static NmTimelineSegmentVm BoundaryMarker(double t, NmWindow window, string tooltip)
-        => new(ToX(t, window), NmMarkerWidth, "boundary", t, t, tooltip);
+    /// <summary>区间减去 episode 覆盖后的剩余片段（静默带不能压在活动段上）。</summary>
+    internal static IReadOnlyList<(double Start, double End)> SubtractEpisodes(
+        double start, double end, IReadOnlyList<NmEpisode> episodes)
+    {
+        var pieces = new List<(double Start, double End)> { (start, end) };
+        foreach (var episode in episodes)
+        {
+            if (episode.End <= start || episode.Start >= end) continue;
+
+            var next = new List<(double Start, double End)>(pieces.Count + 1);
+            foreach (var (pieceStart, pieceEnd) in pieces)
+            {
+                if (episode.End <= pieceStart || episode.Start >= pieceEnd)
+                {
+                    next.Add((pieceStart, pieceEnd));
+                    continue;
+                }
+                if (pieceStart < episode.Start) next.Add((pieceStart, episode.Start));
+                if (episode.End < pieceEnd) next.Add((episode.End, pieceEnd));
+            }
+            pieces = next;
+        }
+
+        return pieces.Where(p => p.End - p.Start > 1e-9).ToArray();
+    }
+
+    /// <summary>
+    /// 按起点排序并合并重叠/首尾相接的静默带，保留起点更早那条的说明。
+    /// 头部边界带（「记录边界」）与事件带可能覆盖同一段；不合并会被半透明灰
+    /// 叠加成更深的色块，并产生两个可点击的重复区间。
+    /// </summary>
+    internal static IReadOnlyList<(double Start, double End, string Tooltip)> MergeSilenceBands(
+        IEnumerable<(double Start, double End, string Tooltip)> bands)
+    {
+        var merged = new List<(double Start, double End, string Tooltip)>();
+        foreach (var band in bands.OrderBy(b => b.Start).ThenBy(b => b.End))
+        {
+            if (merged.Count == 0 || band.Start > merged[^1].End + 1e-9)
+            {
+                merged.Add(band);
+                continue;
+            }
+
+            var last = merged[^1];
+            merged[^1] = (last.Start, Math.Max(last.End, band.End), last.Tooltip);
+        }
+        return merged;
+    }
+
+    private static NmTimelineMarkerVm BoundaryMarker(double t, NmWindow window, string tooltip)
+        => new(ToX(t, window), NmTimelineKinds.Boundary, t, tooltip);
 
     /// <summary>能力 chip 的中文短名（spec §9.1）；枚举名只用于数据契约。</summary>
     public static string CapabilityShortName(NmCapability capability) => capability switch
@@ -274,6 +460,38 @@ public sealed partial class TraceViewerViewModel
 
     private static string ReasonLabel(string reason)
         => string.Equals(reason, "UserSelected", StringComparison.Ordinal) ? "用户勾选" : reason;
+
+    /// <summary>
+    /// 窗口内观测到多少条已识别 NM 报文、哪些没出现。
+    /// <para>
+    /// 时间条只对 <see cref="NmReport.Messages"/> 建行（引擎对从未出现的报文
+    /// 只产 NM_MESSAGE_ABSENT finding），摘要行把差额补上，避免「2 个节点却
+    /// 只有 1 行」看起来像绘图丢失。
+    /// </para>
+    /// </summary>
+    internal static string BuildObservedSummary(NmProfile profile, NmReport report)
+    {
+        var defs = profile.Messages.Where(m => m.IsNm).ToArray();
+        if (defs.Length == 0) return "";
+
+        var observed = report.Messages
+            .Select(m => (m.CanIdHex, m.IsExtended))
+            .ToHashSet();
+        var present = defs.Count(d => observed.Contains((d.CanIdHex, d.IsExtended)));
+        var missing = defs
+            .Where(d => !observed.Contains((d.CanIdHex, d.IsExtended)))
+            .Select(DescribeNmMessage)
+            .ToArray();
+
+        var tail = missing.Length == 0 ? " · 全部出现" : " · 未出现：" + string.Join("、", missing);
+        return $"窗口内观测 {present}/{defs.Length} 条 NM 报文{tail}";
+    }
+
+    private static string DescribeNmMessage(NmMessageDef def)
+    {
+        var name = string.IsNullOrEmpty(def.Name) ? "" : " " + def.Name;
+        return def.CanIdHex + name + (def.IsExtended ? "(ext)" : "");
+    }
 
 
     private static double ToX(double t, NmWindow w)
@@ -353,6 +571,10 @@ public sealed partial class TraceViewerViewModel
         NmPartialText = "";
         NmHasConflicts = false;
         NmProfileSummary = "";
+        NmObservedSummary = "";
+        NmTimeAxisStart = "";
+        NmTimeAxisMid = "";
+        NmTimeAxisEnd = "";
         NmMissingText = "补全";
         NmSemanticsBanner = "";
         NmHasSemanticsBanner = false;
@@ -375,12 +597,19 @@ public sealed partial class TraceViewerViewModel
         NmPartialText = report.IsPartial
             ? (_nmCancelledByUser ? "部分结果（分析已取消）" : "部分结果（分析超时）")
             : "";
-        NmProfileSummary = $"来源 {profile.Provenance.ResolvedFrom} · NM 报文 {profile.Messages.Count(m => m.IsNm)} · " +
+        NmProfileSummary = $"来源 {NmTimelineText.Provenance(profile.Provenance.ResolvedFrom)} · NM 报文 {profile.Messages.Count(m => m.IsNm)} · " +
             $"周期 {profile.Timings.CycleMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}ms · 超时 {profile.Timings.TimeoutMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}ms · " +
             $"识别依据 {BuildReasonsSummary(profile.Messages)}";
         NmMissingText = report.MissingInputs.Count == 0
             ? "输入齐备"
             : $"缺项 {report.MissingInputs.Count} → 补全";
+        // 时间条只给「窗口内观测到」的报文建行；缺报文必须在同一区域说清楚，
+        // 否则用户会以为面板漏画了节点。
+        NmObservedSummary = BuildObservedSummary(profile, report);
+        var mid = (report.Window.Start + report.Window.End) / 2;
+        NmTimeAxisStart = string.Create(CultureInfo.InvariantCulture, $"{report.Window.Start:F2}s");
+        NmTimeAxisMid = string.Create(CultureInfo.InvariantCulture, $"{mid:F2}s");
+        NmTimeAxisEnd = string.Create(CultureInfo.InvariantCulture, $"{report.Window.End:F2}s");
 
         // spec §9.1：顶部黄色条展示 DBC/补全输入之间的配置冲突；无冲突隐藏。
         NmHasConflicts = profile.Conflicts.Count > 0;

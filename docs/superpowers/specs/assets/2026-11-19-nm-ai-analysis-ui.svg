@@ -120,66 +120,97 @@
 
   <!-- axis ticks -->
   <g stroke="#E5E9ED">
-    <line x1="900" y1="252" x2="900" y2="430"/>
-    <line x1="1000" y1="252" x2="1000" y2="430"/>
-    <line x1="1100" y1="252" x2="1100" y2="430"/>
-    <line x1="1200" y1="252" x2="1200" y2="430"/>
+    <line x1="900" y1="250" x2="900" y2="400"/>
+    <line x1="1000" y1="250" x2="1000" y2="400"/>
+    <line x1="1100" y1="250" x2="1100" y2="400"/>
+    <line x1="1200" y1="250" x2="1200" y2="400"/>
   </g>
 
-  <!-- BMS row -->
-  <text x="816" y="278" font-size="11" fill="#33414F" font-weight="600">BMS_NWM</text>
-  <text x="816" y="291" font-size="9.5" fill="#8794A2">0x18FFFAF4 · BMS</text>
+  <!-- BMS row: 上层活动条（发送状态），下层事件轨道（形状 + 颜色） -->
+  <text x="816" y="270" font-size="11" fill="#33414F" font-weight="600">BMS_NWM</text>
+  <text x="816" y="283" font-size="9.5" fill="#8794A2">0x18FFFAF4 · BMS</text>
   <g>
-    <rect x="900" y="264" width="140" height="20" rx="3" fill="#8CC9A5"/>
-    <rect x="1040" y="264" width="44" height="20" rx="3" fill="url(#hatch)" stroke="#E05B5B"/>
-    <rect x="1084" y="264" width="52" height="20" rx="3" fill="#8CC9A5"/>
-    <rect x="1136" y="264" width="84" height="20" rx="3" fill="#EDF0F3"/>
+    <rect x="900" y="256" width="140" height="14" rx="2" fill="#4C9AFF"/>
+    <rect x="1040" y="256" width="44" height="14" rx="2" fill="#B0B4BA" fill-opacity="0.55"/>
+    <rect x="1084" y="256" width="52" height="14" rx="2" fill="#4C9AFF"/>
+    <rect x="1136" y="256" width="84" height="14" rx="2" fill="#B0B4BA" fill-opacity="0.55"/>
   </g>
-  <!-- burst marker -->
-  <polygon points="900,258 906,264 900,270 894,264" fill="#E0B34F"/>
-  <text x="910" y="258" font-size="9" fill="#B8860B">突发 5 帧</text>
-  <!-- timeout gap label -->
-  <text x="1062" y="256" text-anchor="middle" font-size="9" fill="#C0392B">2.2s</text>
-  <!-- dropout marker -->
-  <line x1="1100" y1="258" x2="1100" y2="292" stroke="#C0392B" stroke-width="1.2" stroke-dasharray="3 2"/>
-  <text x="1102" y="304" font-size="9" fill="#C0392B">报文静默</text>
-  <!-- NID mismatch -->
-  <circle cx="1020" cy="274" r="4" fill="#8E5CC7"/>
-  <text x="1008" y="304" font-size="9" fill="#8E5CC7">byte0 变化</text>
+  <g>
+    <polygon points="900,272 906,284 894,284" fill="#E67E22"/>
+    <rect x="1015" y="273" width="10" height="10" rx="1" fill="#8E24AA"/>
+    <polygon points="1040,284 1046,272 1034,272" fill="#C62828"/>
+    <circle cx="1128" cy="278" r="5" fill="#43A047"/>
+  </g>
 
   <!-- PMS row -->
-  <text x="816" y="332" font-size="11" fill="#33414F" font-weight="600">PMS_NWM</text>
-  <text x="816" y="345" font-size="9.5" fill="#8794A2">0x18FFFA27 · PMS</text>
+  <text x="816" y="316" font-size="11" fill="#33414F" font-weight="600">PMS_NWM</text>
+  <text x="816" y="329" font-size="9.5" fill="#8794A2">0x18FFFA27 · PMS</text>
   <g>
-    <rect x="906" y="318" width="118" height="20" rx="3" fill="#9CC3EA"/>
-    <rect x="1024" y="318" width="112" height="20" rx="3" fill="#9CC3EA"/>
-    <rect x="1136" y="318" width="84" height="20" rx="3" fill="#EDF0F3"/>
+    <rect x="906" y="302" width="230" height="14" rx="2" fill="#4C9AFF"/>
+    <rect x="1136" y="302" width="84" height="14" rx="2" fill="#B0B4BA" fill-opacity="0.55"/>
+  </g>
+  <g>
+    <polygon points="1000,318 1006,330 994,330" fill="#C62828"/>
+    <circle cx="1120" cy="324" r="5" fill="#43A047"/>
   </g>
 
   <!-- VCU row -->
-  <text x="816" y="386" font-size="11" fill="#33414F" font-weight="600">VCU_NWM</text>
-  <text x="816" y="399" font-size="9.5" fill="#8794A2">0x18FFFA12 · VCU</text>
+  <text x="816" y="362" font-size="11" fill="#33414F" font-weight="600">VCU_NWM</text>
+  <text x="816" y="375" font-size="9.5" fill="#8794A2">0x18FFFA12 · VCU</text>
   <g>
-    <rect x="916" y="372" width="96" height="20" rx="3" fill="#B9D6B0"/>
-    <rect x="1012" y="372" width="124" height="20" rx="3" fill="#B9D6B0"/>
-    <rect x="1136" y="372" width="84" height="20" rx="3" fill="#EDF0F3"/>
+    <rect x="916" y="348" width="220" height="14" rx="2" fill="#4C9AFF"/>
+    <rect x="1136" y="348" width="84" height="14" rx="2" fill="#B0B4BA" fill-opacity="0.55"/>
   </g>
-  <text x="1178" y="386" text-anchor="middle" font-size="9" fill="#8794A2">无 NM</text>
+  <g>
+    <polygon points="916,364 922,376 910,376" fill="#E67E22"/>
+    <polygon points="1100,376 1106,364 1094,364" fill="#C62828"/>
+  </g>
 
-  <!-- legend -->
-  <g font-size="9.5" fill="#8794A2">
-    <rect x="816" y="412" width="12" height="8" rx="2" fill="#8CC9A5"/>
-    <text x="833" y="420">活动</text>
-    <rect x="870" y="412" width="12" height="8" rx="2" fill="url(#hatch)" stroke="#E05B5B"/>
-    <text x="887" y="420">超时空档</text>
-    <rect x="950" y="412" width="12" height="8" rx="2" fill="#EDF0F3"/>
-    <text x="967" y="420">静默</text>
-    <circle cx="1013" cy="416" r="4" fill="#8E5CC7"/>
-    <text x="1022" y="420">字节/位变化</text>
-    <polygon points="1085,412 1091,416 1085,420 1079,416" fill="#E0B34F"/>
-    <text x="1096" y="420">唤醒突发</text>
+  <!-- 整网状态行：原「网络（episode / 静默 / 边界）」改中文 -->
+  <text x="816" y="396" font-size="11" fill="#33414F" font-weight="600">整网状态</text>
+  <g>
+    <rect x="900" y="386" width="110" height="14" fill="#2E7DD2" fill-opacity="0.25"/>
+    <rect x="1010" y="386" width="74" height="14" fill="#B0B4BA" fill-opacity="0.35"/>
+    <rect x="1084" y="386" width="52" height="14" fill="#2E7DD2" fill-opacity="0.25"/>
+    <rect x="1136" y="386" width="84" height="14" fill="#B0B4BA" fill-opacity="0.35"/>
+    <rect x="899" y="383" width="2" height="20" fill="#212121"/>
+    <rect x="1219" y="383" width="2" height="20" fill="#212121"/>
   </g>
-  <text x="816" y="441" font-size="9.5" fill="#9AA6B2">点击色块/事件 → 图表 seek；边界段用虚线标出</text>
+
+  <!-- 常驻图例：报文条 / 事件形状 / 整网行 -->
+  <g font-size="9.5" fill="#5B6B7B">
+    <text x="816" y="418">报文条</text>
+    <rect x="856" y="411" width="12" height="8" rx="2" fill="#F0A030"/>
+    <text x="872" y="418">唤醒</text>
+    <rect x="916" y="411" width="12" height="8" rx="2" fill="#4C9AFF"/>
+    <text x="932" y="418">发送中</text>
+    <rect x="980" y="411" width="12" height="8" rx="2" fill="#66B2A0"/>
+    <text x="996" y="418">已释放</text>
+    <rect x="1042" y="411" width="12" height="8" rx="2" fill="#B0B4BA" fill-opacity="0.55"/>
+    <text x="1058" y="418">静默</text>
+
+    <text x="816" y="432">事件标记</text>
+    <polygon points="864,422 869,430 859,430" fill="#E67E22"/>
+    <text x="874" y="431">突发</text>
+    <polygon points="914,430 919,422 909,422" fill="#C62828"/>
+    <text x="924" y="431">空档/漏帧</text>
+    <rect x="986" y="423" width="9" height="8" rx="1" fill="#8E24AA"/>
+    <text x="1001" y="431">字节变化</text>
+    <polygon points="1066,422 1071,427 1066,432 1061,427" fill="#009688"/>
+    <text x="1078" y="431">位变化</text>
+    <circle cx="1120" cy="427" r="4" fill="#43A047"/>
+    <text x="1130" y="431">信号变化</text>
+
+    <text x="816" y="446">整网行</text>
+    <rect x="856" y="439" width="12" height="8" fill="#2E7DD2" fill-opacity="0.25"/>
+    <text x="872" y="446">活跃区间</text>
+    <rect x="930" y="439" width="12" height="8" fill="#B0B4BA" fill-opacity="0.35"/>
+    <text x="946" y="446">静默（无 NM 报文）</text>
+    <rect x="1042" y="436" width="2" height="11" fill="#212121"/>
+    <text x="1050" y="446">记录边界</text>
+    <text x="1222" y="446" text-anchor="end" fill="#9AA6B2" font-size="9">点击色块/标记 → seek；悬停看详情</text>
+  </g>
+
 
   <!-- event table -->
   <rect x="802" y="462" width="432" height="214" rx="6" fill="#FFFFFF" stroke="#D5DBE1"/>
@@ -237,7 +268,7 @@
   <rect x="36" y="770" width="1204" height="34" rx="6" fill="#F7F9FA" stroke="#E5E9ED"/>
   <g font-size="10.5" fill="#5B6B7B">
     <text x="52" y="791">① Profile / 冲突</text>
-    <text x="200" y="791">② Episode 时间条（节点活动/静默/空档/突发）</text>
+    <text x="200" y="791">② 时间条：活动条 + 事件轨道（形状+颜色，含整网行）</text>
     <text x="520" y="791">③ 事件表（点击 seek，按证据级别着色）</text>
     <text x="860" y="791">④ 分析 / 导出 / AI 解读</text>
     <text x="1224" y="791" text-anchor="end" fill="#8794A2">线框示意，非最终视觉</text>
