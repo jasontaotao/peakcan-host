@@ -19,7 +19,7 @@ namespace PeakCan.Host.App.ViewModels;
 public sealed partial class TraceViewerViewModel
 {
     /// <summary>Max provider rounds per user message. v12: 8 -> 12 to
-    /// accommodate 19-tool workflows (spec §6).</summary>
+    /// accommodate 22-tool workflows (spec §6).</summary>
     private const int ChatMaxRounds = 12;
 
     // Injected via ctor (Step 5 DI). Nullable defaults keep the legacy
@@ -97,6 +97,12 @@ public sealed partial class TraceViewerViewModel
         if (SendMessageCommand.CanExecute(null))
             SendMessageCommand.Execute(null);
     }
+
+    /// <summary>
+    /// NM 面板「在 AI 中解读选中事件」的接线：只预填输入框，不自动发送。
+    /// 单独抽出便于单测验证「生成提示」与「未发送」两件事。
+    /// </summary>
+    internal void PrefillChatInput(string text) => ChatInput = text;
 
     private bool CanSendChat() => !IsChatBusy && !string.IsNullOrWhiteSpace(ChatInput);
 
@@ -295,13 +301,16 @@ public sealed partial class TraceViewerViewModel
         sb.AppendLine("- 图表 X 轴与工具返回的 *_label 字段统一使用秒数（保留4位小数，如 158340.5101）");
         sb.AppendLine("- 向用户提及任何时间戳时，必须引用 *_label 字段或本消息已格式化的时间字符串，禁止自行换算成 Xd hh:mm:ss 等其他形式");
         sb.AppendLine();
-        sb.AppendLine("可用工具（19 个）：");
+        sb.AppendLine("可用工具（22 个）：");
         sb.AppendLine("发现类: search_signals, get_signal_overview, anomaly_scan");
         sb.AppendLine("查询类: get_dbc_signal, get_dbc_message, find_related_signals");
         sb.AppendLine("操作类: propose_to_watch_list, remove_from_watch_list, seek_to");
         sb.AppendLine("分析类: search_signal_trace, get_anchor_info, analyze_timing_sequence");
         sb.AppendLine("上下文类: get_trace_info, get_dbc_info");
         sb.AppendLine("组织类: create_group, add_to_group, remove_from_group, set_group_notes, set_signal_alias");
+        sb.AppendLine("网络管理: get_nm_profile, get_nm_overview, get_nm_events");
+        sb.AppendLine();
+        sb.AppendLine(NmPromptRules.BuildM1());
         sb.AppendLine();
         sb.AppendLine("分析原则:");
         sb.AppendLine("1. 信息不足时问用户，不编造");
@@ -333,7 +342,7 @@ public sealed partial class TraceViewerViewModel
     private static string FormatTraceTime(double seconds, DateTime? wallClockOrigin)
         => TraceTimeFormatter.Format(seconds, wallClockOrigin);
 
-    /// <summary>Construct the 19 chat tools bound to this VM as
+    /// <summary>Construct the 22 chat tools bound to this VM as
     /// <see cref="IChatToolContext"/>. Production path (no DI - avoids the
     /// VM↔IChatTool cycle). Tests inject fakes via ctor instead.</summary>
     private IReadOnlyList<IChatTool> BuildChatTools()
@@ -367,6 +376,10 @@ public sealed partial class TraceViewerViewModel
             new RemoveFromGroupTool(ctx, lf.CreateLogger<RemoveFromGroupTool>()),
             new SetGroupNotesTool(ctx, lf.CreateLogger<SetGroupNotesTool>()),
             new SetSignalAliasTool(ctx, lf.CreateLogger<SetSignalAliasTool>()),
+            // Network management (M1)
+            new GetNmProfileTool(ctx, lf.CreateLogger<GetNmProfileTool>()),
+            new GetNmOverviewTool(ctx, lf.CreateLogger<GetNmOverviewTool>()),
+            new GetNmEventsTool(ctx, lf.CreateLogger<GetNmEventsTool>()),
         };
     }
 }

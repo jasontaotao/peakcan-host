@@ -14,10 +14,13 @@ namespace PeakCan.Host.App.ViewModels;
 /// </summary>
 /// <remarks>
 /// All mutators marshal to the UI thread via
-/// <see cref="Application.Current"/>.Dispatcher - tools run on the
-/// thread-pool (sequential for-loop in <c>ChatFlow</c> since v12 C2)
-/// but the state they touch (<c>ObservableCollection</c>, OxyPlot
-/// annotations, <c>ITraceViewerService.Seek</c>) is UI-affined.
+/// <see cref="Application.Current"/>.Dispatcher. Tools execute on the UI
+/// thread (the sequential for-loop in <c>ChatFlow</c> awaits with
+/// <c>ConfigureAwait(true)</c>), so the UI-affined state they touch
+/// (<c>ObservableCollection</c>, OxyPlot annotations,
+/// <c>ITraceViewerService.Seek</c>) is already on the right thread; the
+/// Dispatcher calls keep the helpers correct if a future caller moves to
+/// the thread-pool.
 /// </remarks>
 public sealed partial class TraceViewerViewModel
 {
@@ -243,4 +246,8 @@ public sealed partial class TraceViewerViewModel
         if (_j1939VirtualFrames.Count == 0) return raw;
         return raw.Concat(_j1939VirtualFrames).ToList();
     }
+
+    /// <summary>spec §8.1：NM 工具据此判断是否需要强制显式 source_id。</summary>
+    IReadOnlyList<string> IChatToolContext.LoadedSourceIds
+        => _registry.Sources.Select(s => s.SourceId).ToArray();
 }

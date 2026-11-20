@@ -1,0 +1,121 @@
+namespace PeakCan.Host.Core.Analysis.Nm;
+
+/// <summary>
+/// 逐报文周期统计。规则见 spec §7.4：剔除跨 episode 边界、超过超时阈值以及
+/// missed_frame（1.5×cycle &lt; 间隔 ≤ timeout，见 §7.5.6）的间隔；
+/// 有效样本 &lt; 5 时只报样本不足，不下偏差结论。
+/// </summary>
+public static class NmCycleAnalyzer
+{
+    private const int MinimumSamples = 5;
+
+    public static NmCycleStats Analyze(
+        IReadOnlyList<double> timestamps,
+        NmMessageDef def,
+        IReadOnlyList<NmEpisode> episodes)
+    {
+        var ordered = timestamps.OrderBy(t => t).ToArray();
+        var timeoutSec = (def.TimeoutMs ?? int.MaxValue) / 1000.0;
+        var cycleSec = def.CycleMs is { } cycle ? cycle / 1000.0 : (double?)null;
+
+        var intervals = new List<double>();
+        for (int i = 1; i < ordered.Length; i++)
+        {
+            var delta = ordered[i] - ordered[i - 1];
+            // 同一时间戳的重复帧不构成周期样本。
+            if (delta <= 0) continue;
+            // 静默超过超时阈值的间隔已被 episode 切分吃掉，不算周期样本。
+            if (delta > timeoutSec) continue;
+            // spec §7.5.6：1.5×cycle < 间隔 ≤ timeout 属于 missed_frame（漏发一次），
+            // 不是周期本身的变化；纳入统计会把一次漏发误报成周期偏差。
+            if (cycleSec is { } expectedCycle && delta > 1.5 * expectedCycle) continue;
+            if (CrossesEpisodeBoundary(ordered[i - 1], ordered[i], episodes)) continue;
+            intervals.Add(delta);
+        }
+
+        if (intervals.Count < MinimumSamples)
+        {
+            // 样本不足：只报计数，中位数/相位/偏差一律留空，避免下结论。
+            return new NmCycleStats(null, null, null, null, null, 0,
+                IntervalCount: intervals.Count,
+                ExpectedMs: def.CycleMs,
+                ToleranceMs: Tolerance(def.CycleMs),
+                InsufficientSamples: true);
+        }
+
+        var sorted = intervals.OrderBy(x => x).ToArray();
+        var median = Percentile(sorted, 0.5);
+        var p95 = Percentile(sorted, 0.95);
+
+        int deviations = 0;
+        int longestConsecutive = 0;
+        if (def.CycleMs is { } expected)
+        {
+            var toleranceMs = Tolerance(expected)!.Value;
+            var expectedSec = expected / 1000.0;
+            var toleranceSec = toleranceMs / 1000.0;
+            // 一次遍历同时统计总偏差间隔数与最长连续偏差间隔数。
+            var run = 0;
+            foreach (var interval in intervals)
+            {
+                // 偏差判据是严格大于容差：恰好等于容差不计。
+                if (Math.Abs(interval - expectedSec) > toleranceSec)
+                {
+                    deviations++;
+                    run++;
+                    if (run > longestConsecutive) longestConsecutive = run;
+                }
+                else
+                {
+                    run = 0;
+                }
+            }
+        }
+
+        // 相位：首帧相对"包含首帧的那个 episode"起点的偏移。
+        // 不能固定用 episodes[0]：报文首次出现在后续 episode 时，会把 episode 之间的
+        // 空档也算进相位，数值会偏出几十秒。
+        NmEpisode? firstEpisode = null;
+        foreach (var episode in episodes)
+        {
+            if (episode.Start <= ordered[0] && ordered[0] <= episode.End)
+            {
+                firstEpisode = episode;
+                break;
+            }
+        }
+        var phase = firstEpisode is null
+            ? (double?)null
+            : (ordered[0] - firstEpisode.Start) * 1000.0;
+
+        return new NmCycleStats(
+            MedianMs: median * 1000.0,
+            P95Ms: p95 * 1000.0,
+            MinMs: sorted[0] * 1000.0,
+            MaxMs: sorted[^1] * 1000.0,
+            PhaseMs: phase,
+            DeviationCount: deviations,
+            IntervalCount: intervals.Count,
+            ExpectedMs: def.CycleMs,
+            ToleranceMs: Tolerance(def.CycleMs),
+            ConsecutiveDeviationCount: longestConsecutive);
+    }
+
+    /// <summary>spec §7.4: deviation ratio > 5% or 3 consecutive deviating intervals.</summary>
+    public static bool IsDeviationSignificant(NmCycleStats stats)
+        => stats.IntervalCount > 0
+           && (stats.DeviationCount * 20 > stats.IntervalCount
+               || stats.ConsecutiveDeviationCount >= 3);
+
+    private static bool CrossesEpisodeBoundary(double from, double to, IReadOnlyList<NmEpisode> episodes)
+        => episodes.Any(e => from < e.Start && to >= e.Start || from <= e.End && to > e.End);
+
+    private static int? Tolerance(int? cycleMs)
+        => cycleMs is { } c ? Math.Max((int)Math.Round(c * 0.2), 30) : null;
+
+    private static double Percentile(double[] sorted, double p)
+    {
+        var index = (int)Math.Round((sorted.Length - 1) * p);
+        return sorted[Math.Clamp(index, 0, sorted.Length - 1)];
+    }
+}

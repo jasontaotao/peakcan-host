@@ -97,4 +97,19 @@ public interface IChatToolContext
     /// (get_signal_overview, anomaly_scan, search_signal_trace,
     /// analyze_timing_sequence) to decode signal values.</summary>
     IReadOnlyList<ReplayFrame> GetFrames(string sourceId);
+
+    /// <summary>
+    /// 已加载 trace source 的 id 列表。NM 工具用它落实 spec §8.1：
+    /// 多源且未显式给 <c>source_id</c> 时必须报错，不能静默取 master。
+    /// 未加载任何源时返回空列表。
+    /// </summary>
+    IReadOnlyList<string> LoadedSourceIds { get; }
+
+    /// <summary>
+    /// 取 NM 分析快照。实现方负责：解析 source/channel、在调用线程取帧/DBC 快照、
+    /// 合并 sidecar、查缓存，缓存未命中时在后台线程跑 <c>NmAnalyzer</c>。
+    /// 多通道 trace 且未指定 channel 时抛 <see cref="InvalidOperationException"/>（提示可用 channel），
+    /// 不返回空选择让调用方误以为「没有 NM」；source 不存在（未加载或 source_id 未知）也抛异常。
+    /// </summary>
+    Task<NmToolSnapshot> GetNmSnapshotAsync(NmToolQuery query, CancellationToken ct);
 }

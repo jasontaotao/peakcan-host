@@ -101,4 +101,38 @@ internal sealed class FakeChatToolContext : IChatToolContext
 
     public List<ReplayFrame> Frames { get; } = new();
     public IReadOnlyList<ReplayFrame> GetFrames(string sourceId) => Frames;
+
+    public NmToolSnapshot? NmSnapshotValue { get; set; }
+    public Exception? NmSnapshotException { get; set; }
+
+    /// <summary>每次 <see cref="IChatToolContext.GetNmSnapshotAsync"/> 的入参，
+    /// 用于断言工具是否把窗口参数原样透传。</summary>
+    public List<NmToolQuery> NmQueries { get; } = new();
+
+    /// <summary>模拟 NmFlow 的按查询缓存：开启后同一 query 只"分析"一次，
+    /// 用于断言钻取不会重新扫帧。</summary>
+    public bool CacheNmSnapshotsByQuery { get; set; }
+
+    /// <summary>缓存未命中的次数（= 真正取快照/分析的次数）。</summary>
+    public int NmAnalysisCount { get; private set; }
+
+    /// <summary>已加载 trace source 的 id 列表（spec §8.1 多源显式校验）。</summary>
+    public List<string> LoadedSourceIds { get; } = new();
+    IReadOnlyList<string> IChatToolContext.LoadedSourceIds => LoadedSourceIds;
+
+    private readonly Dictionary<NmToolQuery, NmToolSnapshot> _nmByQuery = new();
+
+    Task<NmToolSnapshot> IChatToolContext.GetNmSnapshotAsync(NmToolQuery query, CancellationToken ct)
+    {
+        NmQueries.Add(query);
+        if (NmSnapshotException is not null) throw NmSnapshotException;
+
+        if (CacheNmSnapshotsByQuery && _nmByQuery.TryGetValue(query, out var cached))
+            return Task.FromResult(cached);
+
+        NmAnalysisCount++;
+        if (NmSnapshotValue is null) throw new InvalidOperationException("NmSnapshotValue not set");
+        if (CacheNmSnapshotsByQuery) _nmByQuery[query] = NmSnapshotValue;
+        return Task.FromResult(NmSnapshotValue);
+    }
 }

@@ -430,6 +430,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _chatCts?.Cancel();
         _chatCts?.Dispose();
         _chatCts = null;
+        // NM 面板分析同样在后台跑：Cancel + Dispose，防止关窗后继续回写绑定集合。
+        _nmCts?.Cancel();
+        _nmCts?.Dispose();
+        _nmCts = null;
         GC.SuppressFinalize(this);
     }
 }

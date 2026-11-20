@@ -1,0 +1,188 @@
+<UserControl x:Class="PeakCan.Host.App.Views.TraceViewerViewNmPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:PeakCan.Host.App.Converters">
+    <UserControl.Resources>
+        <conv:NmChipBrushConverter x:Key="NmChipBrush" />
+        <conv:NmSegmentBrushConverter x:Key="NmSegmentBrush" />
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <!-- 时间条与事件表按比例分配剩余高度：窗口高时表能多显示，
+                 窗口矮时时间条保留最小可视高度，避免被固定 160px 挤没。 -->
+            <RowDefinition Height="2*" MinHeight="72" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" MinHeight="120" />
+        </Grid.RowDefinitions>
+
+        <!-- Profile bar -->
+        <Border Grid.Row="0" Padding="6" Background="#FFF7E6" BorderBrush="#E0C080" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="{Binding NmMissingText}"
+                        Command="{Binding OpenNmWizardCommand}" Margin="6,0,0,0" />
+                <TextBlock Text="{Binding NmProfileSummary}" TextWrapping="Wrap" />
+            </DockPanel>
+        </Border>
+
+        <!-- Conflicts bar (spec §9.1；无冲突隐藏) -->
+        <Border Grid.Row="1" Padding="6" Background="#FFF4CE" BorderBrush="#E0C080"
+                BorderThickness="0,0,0,1"
+                Visibility="{Binding NmHasConflicts, Converter={StaticResource BoolToVis}}">
+            <StackPanel>
+                <TextBlock Text="配置冲突（多个来源给出不同值）" FontWeight="SemiBold" Foreground="#6B5200" />
+                <!-- 冲突条数不可控：限高 + 内部滚动，避免把时间条挤到看不见。 -->
+                <ScrollViewer MaxHeight="72" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding NmConflictLines}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" FontSize="11" Foreground="#6B5200" TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </Border>
+
+        <!-- M1 semantics banner：只有能力不可用时才显示（补全后自动消失） -->
+        <TextBlock Grid.Row="2" Margin="6,4" Foreground="#8A6D00"
+                   Text="{Binding NmSemanticsBanner}"
+                   Visibility="{Binding NmHasSemanticsBanner, Converter={StaticResource BoolToVis}}" />
+
+        <!-- Partial result badge (spec §9.4；分析取消/超时) -->
+        <Border Grid.Row="3" Padding="6" Background="#FFE0B2" BorderBrush="#E0A060"
+                BorderThickness="0,0,0,1"
+                Visibility="{Binding NmIsPartial, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="{Binding NmPartialText}" FontWeight="SemiBold" Foreground="#7A4300" />
+        </Border>
+
+        <!-- Capability chips -->
+        <ItemsControl Grid.Row="4" ItemsSource="{Binding NmCapabilityChips}" Margin="6,2">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="0,0,4,4" Padding="6,1" CornerRadius="8"
+                            ToolTip="{Binding Tooltip}"
+                            Background="{Binding Available, Converter={StaticResource NmChipBrush}}">
+                        <TextBlock Text="{Binding Name}" FontSize="11" />
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- Timeline (design width 1000, Viewbox scales to panel) -->
+        <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
+            <ItemsControl ItemsSource="{Binding NmTimelineRows}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="2">
+                            <!-- 报文名/发送者可很长：省略号 + ToolTip，不让它把行撑出面板。 -->
+                            <TextBlock Text="{Binding Label}" FontSize="11"
+                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}" />
+                            <Viewbox Stretch="Fill" Height="14">
+                                <Canvas Width="1000" Height="14">
+                                    <ItemsControl ItemsSource="{Binding Segments}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <!-- Canvas.Left 必须设在容器 ContentPresenter 上：
+                                             ItemsControl 会为每项包一层容器，写在 Rectangle 上不生效。 -->
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="ContentPresenter">
+                                                <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                                <Setter Property="Canvas.Top" Value="0" />
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Rectangle Height="14"
+                                                           Fill="{Binding Kind, Converter={StaticResource NmSegmentBrush}}"
+                                                           Width="{Binding Width}"
+                                                           ToolTip="{Binding Tooltip}">
+                                                    <Rectangle.InputBindings>
+                                                        <MouseBinding MouseAction="LeftClick"
+                                                                      Command="{Binding DataContext.SeekToNmTimeCommand,
+                                                                                RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                      CommandParameter="{Binding Start}" />
+                                                    </Rectangle.InputBindings>
+                                                </Rectangle>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Canvas>
+                            </Viewbox>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Event filters (spec §9.1) -->
+        <!-- 右侧面板只有 360px：用 WrapPanel，窄宽度时换行而不是裁掉右侧计数。 -->
+        <WrapPanel Grid.Row="6" Margin="6,2"
+                   Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="筛选" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <ComboBox ItemsSource="{Binding NmEventTypeFilters}"
+                      SelectedItem="{Binding NmSelectedEventTypeFilter}"
+                      Width="86" Margin="0,0,6,4" />
+            <TextBox Text="{Binding NmEventKeyword, UpdateSourceTrigger=PropertyChanged}"
+                     Width="120" ToolTip="按对象/详情关键字筛选" Margin="0,0,8,4" />
+            <TextBlock Text="{Binding NmEventFilterSummary}" VerticalAlignment="Center"
+                       FontSize="11" Margin="0,0,0,4" />
+        </WrapPanel>
+
+        <!-- Actions：按钮换行时状态文案独立成行，避免被挤到面板外。 -->
+        <StackPanel Grid.Row="7" Margin="6">
+            <WrapPanel>
+                <Button Content="分析全 trace" Command="{Binding AnalyzeNmFullCommand}" Margin="0,0,6,4" />
+                <Button Content="分析当前窗口" Command="{Binding AnalyzeNmWindowCommand}" Margin="0,0,6,4" />
+                <Button Content="取消分析" Command="{Binding CancelNmAnalysisCommand}"
+                        IsEnabled="{Binding NmCanCancel}" Margin="0,0,6,4" />
+                <Button Content="导出报告" Command="{Binding ExportNmReportCommand}" Margin="0,0,6,4" />
+                <Button Content="在 AI 中解读选中事件" Command="{Binding InterpretNmEventInAiCommand}"
+                        Margin="0,0,6,4" />
+                <ProgressBar IsIndeterminate="True" Width="70" Height="6" Margin="0,0,6,4"
+                             VerticalAlignment="Center"
+                             Visibility="{Binding NmIsAnalyzing, Converter={StaticResource BoolToVis}}" />
+                <TextBlock Text="分析中…（可取消）" VerticalAlignment="Center" Foreground="#8A6D00"
+                           Margin="0,0,8,4"
+                           Visibility="{Binding NmIsAnalyzing, Converter={StaticResource BoolToVis}}" />
+            </WrapPanel>
+            <TextBlock Text="{Binding NmStatus}" TextWrapping="Wrap" Foreground="#444444" />
+        </StackPanel>
+
+        <!-- Event table -->
+        <DataGrid Grid.Row="8" ItemsSource="{Binding NmEventRows}" IsReadOnly="True"
+                  AutoGenerateColumns="False" SelectionMode="Single"
+                  SelectedItem="{Binding NmSelectedEvent}"
+                  PreviewMouseLeftButtonUp="OnEventRowClick"
+                  MouseDoubleClick="OnEventRowDoubleClick"
+                  Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
+            <DataGrid.Columns>
+                <!-- 360px 面板下 80+110+90+70 会把“详情”挤成 0 宽：
+                     固定列收窄，详情保留 * 并加省略号 + ToolTip。 -->
+                <DataGridTextColumn Header="时间" Binding="{Binding TimeText}" Width="64" />
+                <DataGridTextColumn Header="类型" Binding="{Binding Type}" Width="82" />
+                <DataGridTextColumn Header="对象" Binding="{Binding Subject}" Width="70" />
+                <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                            <Setter Property="ToolTip" Value="{Binding Detail}" />
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn Header="证据" Binding="{Binding EvidenceKind}" Width="52" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>
