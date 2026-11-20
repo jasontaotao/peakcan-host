@@ -1,0 +1,245 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#E05B5B" stroke-width="2" opacity="0.55"/>
+    </pattern>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#1F2933" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#5B6B7B"/>
+    </marker>
+  </defs>
+
+  <!-- canvas -->
+  <rect width="1280" height="820" fill="#EEF1F4"/>
+
+  <!-- window -->
+  <rect x="20" y="18" width="1240" height="760" rx="10" fill="#FFFFFF" stroke="#D5DBE1" filter="url(#shadow)"/>
+
+  <!-- title bar -->
+  <rect x="20" y="18" width="1240" height="36" rx="10" fill="#F7F9FA"/>
+  <rect x="20" y="44" width="1240" height="10" fill="#F7F9FA"/>
+  <circle cx="42" cy="36" r="5" fill="#E05B5B"/>
+  <circle cx="60" cy="36" r="5" fill="#E0B34F"/>
+  <circle cx="78" cy="36" r="5" fill="#5BBE7F"/>
+  <text x="640" y="41" text-anchor="middle" font-size="13" fill="#5B6B7B">PeakCan Host — Trace Viewer · 网络管理分析</text>
+
+  <!-- toolbar -->
+  <line x1="20" y1="54" x2="1260" y2="54" stroke="#E5E9ED"/>
+  <g font-size="12" fill="#5B6B7B">
+    <rect x="36" y="66" width="86" height="26" rx="5" fill="#F2F4F6" stroke="#D5DBE1"/>
+    <text x="79" y="83" text-anchor="middle">打开 trace</text>
+    <rect x="130" y="66" width="86" height="26" rx="5" fill="#F2F4F6" stroke="#D5DBE1"/>
+    <text x="173" y="83" text-anchor="middle">加载 DBC</text>
+    <rect x="224" y="66" width="96" height="26" rx="5" fill="#F2F4F6" stroke="#D5DBE1"/>
+    <text x="272" y="83" text-anchor="middle">会话配置</text>
+  </g>
+  <text x="1240" y="83" text-anchor="end" font-size="12" fill="#8794A2">BMS_Matrix_V2.1.dbc · 2 sources · 1 184 320 frames</text>
+
+  <!-- left chart -->
+  <rect x="36" y="106" width="736" height="648" rx="8" fill="#FBFCFD" stroke="#D5DBE1"/>
+  <text x="52" y="130" font-size="13" font-weight="600" fill="#33414F">信号曲线（示意）</text>
+  <text x="756" y="130" text-anchor="end" font-size="11" fill="#8794A2">X 轴：秒 · 与 NM 事件共用时间轴</text>
+
+  <!-- chart plot -->
+  <rect x="64" y="150" width="676" height="548" fill="#FFFFFF" stroke="#E5E9ED"/>
+  <g stroke="#EDF0F3" stroke-width="1">
+    <line x1="64" y1="150" x2="64" y2="698"/>
+    <line x1="64" y1="250" x2="740" y2="250"/>
+    <line x1="64" y1="350" x2="740" y2="350"/>
+    <line x1="64" y1="450" x2="740" y2="450"/>
+    <line x1="64" y1="550" x2="740" y2="550"/>
+    <line x1="64" y1="698" x2="740" y2="698"/>
+    <line x1="200" y1="150" x2="200" y2="698"/>
+    <line x1="335" y1="150" x2="335" y2="698"/>
+    <line x1="470" y1="150" x2="470" y2="698"/>
+    <line x1="605" y1="150" x2="605" y2="698"/>
+    <line x1="740" y1="150" x2="740" y2="698"/>
+  </g>
+  <g font-size="10" fill="#9AA6B2">
+    <text x="64" y="714">0s</text>
+    <text x="200" y="714" text-anchor="middle">3s</text>
+    <text x="335" y="714" text-anchor="middle">6s</text>
+    <text x="470" y="714" text-anchor="middle">9s</text>
+    <text x="605" y="714" text-anchor="middle">12s</text>
+    <text x="740" y="714" text-anchor="end">15s</text>
+  </g>
+  <!-- curves -->
+  <polyline fill="none" stroke="#2E8B57" stroke-width="2.2" opacity="0.9"
+    points="64,560 120,558 180,555 240,556 300,552 360,554 420,550 480,553 540,551 600,556 660,554 720,557 740,558"/>
+  <polyline fill="none" stroke="#2F6FD0" stroke-width="2.2" opacity="0.9"
+    points="64,430 110,432 160,428 210,430 260,426 310,429 360,431 410,427 460,425 510,430 560,426 610,428 660,424 720,427 740,426"/>
+  <rect x="64" y="590" width="676" height="108" fill="#F7F9FA" stroke="#E5E9ED"/>
+  <text x="76" y="612" font-size="10" fill="#9AA6B2">底部：信号/报文概览（示意）</text>
+  <!-- vertical playhead -->
+  <line x1="335" y1="150" x2="335" y2="698" stroke="#E0B34F" stroke-width="1.2" stroke-dasharray="4 4"/>
+  <text x="339" y="166" font-size="10" fill="#B8860B">当前播放</text>
+
+  <!-- right panel -->
+  <rect x="790" y="106" width="456" height="648" rx="8" fill="#FBFCFD" stroke="#D5DBE1"/>
+
+  <!-- tabs -->
+  <g font-size="12">
+    <rect x="790" y="106" width="456" height="34" rx="8" fill="#F2F4F6"/>
+    <rect x="790" y="132" width="456" height="8" fill="#F2F4F6"/>
+    <rect x="800" y="112" width="78" height="26" rx="5" fill="#FFFFFF" stroke="#D5DBE1"/>
+    <text x="839" y="130" text-anchor="middle" fill="#5B6B7B">监视列表</text>
+    <rect x="884" y="112" width="66" height="26" rx="5" fill="#FFFFFF" stroke="#D5DBE1"/>
+    <text x="917" y="130" text-anchor="middle" fill="#5B6B7B">采样表</text>
+    <rect x="956" y="112" width="66" height="26" rx="5" fill="#FFFFFF" stroke="#D5DBE1"/>
+    <text x="989" y="130" text-anchor="middle" fill="#5B6B7B">AI 对话</text>
+    <rect x="1028" y="112" width="86" height="26" rx="5" fill="#2F6FD0"/>
+    <text x="1071" y="130" text-anchor="middle" fill="#FFFFFF" font-weight="600">网络管理</text>
+  </g>
+
+  <!-- profile bar -->
+  <rect x="802" y="150" width="432" height="62" rx="6" fill="#FFFFFF" stroke="#D5DBE1"/>
+  <text x="816" y="168" font-size="11" fill="#8794A2">NM Profile</text>
+  <text x="1222" y="168" text-anchor="end" font-size="10" fill="#9AA6B2">源 BMS_trace.asc · CH1</text>
+  <g font-size="10.5">
+    <rect x="816" y="175" width="104" height="22" rx="11" fill="#EAF1FB" stroke="#C9D9F2"/>
+    <text x="868" y="190" text-anchor="middle" fill="#2F6FD0">DBC · CANNM</text>
+    <rect x="926" y="175" width="82" height="22" rx="11" fill="#EAF6EE" stroke="#C9E6D3"/>
+    <text x="967" y="190" text-anchor="middle" fill="#2E8B57">cycle 500ms</text>
+    <rect x="1014" y="175" width="88" height="22" rx="11" fill="#FDF0E6" stroke="#F2D6BF"/>
+    <text x="1058" y="190" text-anchor="middle" fill="#B4692B">timeout 2000ms</text>
+    <rect x="1108" y="175" width="112" height="22" rx="11" fill="#F2F4F6" stroke="#D5DBE1"/>
+    <text x="1164" y="190" text-anchor="middle" fill="#5B6B7B">布局/位义未配置</text>
+  </g>
+  <g font-size="10.5">
+    <text x="816" y="205" fill="#8794A2">识别：MsgType=CANNM · 语义未配置</text>
+    <text x="1222" y="205" text-anchor="end" fill="#C0392B">⚠ 周期冲突</text>
+  </g>
+
+  <!-- episode strip -->
+  <rect x="802" y="222" width="432" height="228" rx="6" fill="#FFFFFF" stroke="#D5DBE1"/>
+  <text x="816" y="242" font-size="12" font-weight="600" fill="#33414F">Episode 1</text>
+  <text x="886" y="242" font-size="11" fill="#8794A2">0.30s – 10.00s · 边界结束</text>
+  <text x="1222" y="242" text-anchor="end" font-size="10.5" fill="#8794A2">0s ─ 3s ─ 6s ─ 9s ─ 12s</text>
+
+  <!-- axis ticks -->
+  <g stroke="#E5E9ED">
+    <line x1="900" y1="252" x2="900" y2="430"/>
+    <line x1="1000" y1="252" x2="1000" y2="430"/>
+    <line x1="1100" y1="252" x2="1100" y2="430"/>
+    <line x1="1200" y1="252" x2="1200" y2="430"/>
+  </g>
+
+  <!-- BMS row -->
+  <text x="816" y="278" font-size="11" fill="#33414F" font-weight="600">BMS_NWM</text>
+  <text x="816" y="291" font-size="9.5" fill="#8794A2">0x18FFFAF4 · BMS</text>
+  <g>
+    <rect x="900" y="264" width="140" height="20" rx="3" fill="#8CC9A5"/>
+    <rect x="1040" y="264" width="44" height="20" rx="3" fill="url(#hatch)" stroke="#E05B5B"/>
+    <rect x="1084" y="264" width="52" height="20" rx="3" fill="#8CC9A5"/>
+    <rect x="1136" y="264" width="84" height="20" rx="3" fill="#EDF0F3"/>
+  </g>
+  <!-- burst marker -->
+  <polygon points="900,258 906,264 900,270 894,264" fill="#E0B34F"/>
+  <text x="910" y="258" font-size="9" fill="#B8860B">突发 5 帧</text>
+  <!-- timeout gap label -->
+  <text x="1062" y="256" text-anchor="middle" font-size="9" fill="#C0392B">2.2s</text>
+  <!-- dropout marker -->
+  <line x1="1100" y1="258" x2="1100" y2="292" stroke="#C0392B" stroke-width="1.2" stroke-dasharray="3 2"/>
+  <text x="1102" y="304" font-size="9" fill="#C0392B">报文静默</text>
+  <!-- NID mismatch -->
+  <circle cx="1020" cy="274" r="4" fill="#8E5CC7"/>
+  <text x="1008" y="304" font-size="9" fill="#8E5CC7">byte0 变化</text>
+
+  <!-- PMS row -->
+  <text x="816" y="332" font-size="11" fill="#33414F" font-weight="600">PMS_NWM</text>
+  <text x="816" y="345" font-size="9.5" fill="#8794A2">0x18FFFA27 · PMS</text>
+  <g>
+    <rect x="906" y="318" width="118" height="20" rx="3" fill="#9CC3EA"/>
+    <rect x="1024" y="318" width="112" height="20" rx="3" fill="#9CC3EA"/>
+    <rect x="1136" y="318" width="84" height="20" rx="3" fill="#EDF0F3"/>
+  </g>
+
+  <!-- VCU row -->
+  <text x="816" y="386" font-size="11" fill="#33414F" font-weight="600">VCU_NWM</text>
+  <text x="816" y="399" font-size="9.5" fill="#8794A2">0x18FFFA12 · VCU</text>
+  <g>
+    <rect x="916" y="372" width="96" height="20" rx="3" fill="#B9D6B0"/>
+    <rect x="1012" y="372" width="124" height="20" rx="3" fill="#B9D6B0"/>
+    <rect x="1136" y="372" width="84" height="20" rx="3" fill="#EDF0F3"/>
+  </g>
+  <text x="1178" y="386" text-anchor="middle" font-size="9" fill="#8794A2">无 NM</text>
+
+  <!-- legend -->
+  <g font-size="9.5" fill="#8794A2">
+    <rect x="816" y="412" width="12" height="8" rx="2" fill="#8CC9A5"/>
+    <text x="833" y="420">活动</text>
+    <rect x="870" y="412" width="12" height="8" rx="2" fill="url(#hatch)" stroke="#E05B5B"/>
+    <text x="887" y="420">超时空档</text>
+    <rect x="950" y="412" width="12" height="8" rx="2" fill="#EDF0F3"/>
+    <text x="967" y="420">静默</text>
+    <circle cx="1013" cy="416" r="4" fill="#8E5CC7"/>
+    <text x="1022" y="420">字节/位变化</text>
+    <polygon points="1085,412 1091,416 1085,420 1079,416" fill="#E0B34F"/>
+    <text x="1096" y="420">唤醒突发</text>
+  </g>
+  <text x="816" y="441" font-size="9.5" fill="#9AA6B2">点击色块/事件 → 图表 seek；边界段用虚线标出</text>
+
+  <!-- event table -->
+  <rect x="802" y="462" width="432" height="214" rx="6" fill="#FFFFFF" stroke="#D5DBE1"/>
+  <text x="816" y="482" font-size="12" font-weight="600" fill="#33414F">事件</text>
+  <text x="1222" y="482" text-anchor="end" font-size="10.5" fill="#8794A2">证据：measured / inferred / boundary</text>
+  <line x1="816" y1="490" x2="1222" y2="490" stroke="#E5E9ED"/>
+  <g font-size="10" fill="#5B6B7B">
+    <text x="816" y="508" font-weight="600">时间</text>
+    <text x="858" y="508" font-weight="600">节点</text>
+    <text x="920" y="508" font-weight="600">类型</text>
+    <text x="1040" y="508" font-weight="600">详情</text>
+    <text x="1222" y="508" text-anchor="end" font-weight="600">证据</text>
+  </g>
+  <g font-size="10" fill="#33414F">
+    <text x="816" y="530">0.30s</text><text x="858" y="530">BMS_NWM</text><text x="920" y="530">wakeup_burst</text><text x="1040" y="530">观察突发：5 帧 / 中位 50ms</text><text x="1222" y="530" text-anchor="end" fill="#2E8B57">measured</text>
+    <line x1="816" y1="537" x2="1222" y2="537" stroke="#F0F2F4"/>
+    <text x="816" y="554">3.20s</text><text x="858" y="554">BMS_NWM</text><text x="920" y="554">bit_changed</text><text x="1040" y="554">byte1.bit3 0→1</text><text x="1222" y="554" text-anchor="end" fill="#2E8B57">measured</text>
+    <line x1="816" y1="561" x2="1222" y2="561" stroke="#F0F2F4"/>
+    <text x="816" y="578">5.00s</text><text x="858" y="578">BMS_NWM</text><text x="920" y="578">silent_timeout</text><text x="1040" y="578">2.2s &gt; 2000ms</text><text x="1222" y="578" text-anchor="end" fill="#2E8B57">measured</text>
+    <line x1="816" y1="585" x2="1222" y2="585" stroke="#F0F2F4"/>
+    <text x="816" y="602">6.10s</text><text x="858" y="602">BMS_NWM</text><text x="920" y="602">byte_changed</text><text x="1040" y="602">byte0 0xF4→0x27</text><text x="1222" y="602" text-anchor="end" fill="#2E8B57">measured</text>
+    <line x1="816" y1="609" x2="1222" y2="609" stroke="#F0F2F4"/>
+    <text x="816" y="626">9.80s</text><text x="858" y="626">BMS_NWM</text><text x="920" y="626">node_dropout</text><text x="1040" y="626">其它 NM 仍在发送</text><text x="1222" y="626" text-anchor="end" fill="#B4692B">inferred</text>
+    <line x1="816" y1="633" x2="1222" y2="633" stroke="#F0F2F4"/>
+    <text x="816" y="650">10.00s</text><text x="862" y="650">网络</text><text x="908" y="650">all_silent</text><text x="1040" y="650">trace 结束，边界</text><text x="1222" y="650" text-anchor="end" fill="#8794A2">boundary</text>
+  </g>
+
+  <!-- action bar -->
+  <rect x="802" y="686" width="432" height="52" rx="6" fill="#F2F4F6" stroke="#D5DBE1"/>
+  <g font-size="10.5">
+    <rect x="814" y="700" width="92" height="24" rx="5" fill="#2F6FD0"/>
+    <text x="860" y="716" text-anchor="middle" fill="#FFFFFF" font-weight="600">分析全 trace</text>
+    <rect x="912" y="700" width="96" height="24" rx="5" fill="#FFFFFF" stroke="#C9D1DA"/>
+    <text x="960" y="716" text-anchor="middle" fill="#5B6B7B">分析当前窗口</text>
+    <rect x="1014" y="700" width="72" height="24" rx="5" fill="#FFFFFF" stroke="#C9D1DA"/>
+    <text x="1050" y="716" text-anchor="middle" fill="#5B6B7B">导出</text>
+    <rect x="1092" y="700" width="130" height="24" rx="5" fill="#EAF1FB" stroke="#C9D9F2"/>
+    <text x="1157" y="716" text-anchor="middle" fill="#2F6FD0">在 AI 中解读选中事件</text>
+  </g>
+  <text x="816" y="733" font-size="9" fill="#9AA6B2">全 trace 分析在后台执行，可取消；结果缓存，AI 追问不重扫</text>
+
+  <!-- callouts -->
+  <g font-size="11" fill="#5B6B7B">
+    <circle cx="794" cy="150" r="9" fill="#2F6FD0"/>
+    <text x="794" y="154" text-anchor="middle" fill="#FFFFFF" font-size="10">1</text>
+    <circle cx="794" cy="222" r="9" fill="#2F6FD0"/>
+    <text x="794" y="226" text-anchor="middle" fill="#FFFFFF" font-size="10">2</text>
+    <circle cx="794" cy="462" r="9" fill="#2F6FD0"/>
+    <text x="794" y="466" text-anchor="middle" fill="#FFFFFF" font-size="10">3</text>
+    <circle cx="794" cy="700" r="9" fill="#2F6FD0"/>
+    <text x="794" y="704" text-anchor="middle" fill="#FFFFFF" font-size="10">4</text>
+  </g>
+
+  <!-- footer legend -->
+  <rect x="36" y="770" width="1204" height="34" rx="6" fill="#F7F9FA" stroke="#E5E9ED"/>
+  <g font-size="10.5" fill="#5B6B7B">
+    <text x="52" y="791">① Profile / 冲突</text>
+    <text x="200" y="791">② Episode 时间条（节点活动/静默/空档/突发）</text>
+    <text x="520" y="791">③ 事件表（点击 seek，按证据级别着色）</text>
+    <text x="860" y="791">④ 分析 / 导出 / AI 解读</text>
+    <text x="1224" y="791" text-anchor="end" fill="#8794A2">线框示意，非最终视觉</text>
+  </g>
+</svg>
