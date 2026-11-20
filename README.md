@@ -6,12 +6,13 @@ Windows 专用 WPF 桌面主机，适配 **PEAK PCAN-USB FD / Pro FD** 与 **ZLG
 通用 CAN 总线监控工具，支持 DBC 解码、手动/循环/多帧发送、实时信号视图、
 ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
 
-> **状态:** v3.65.0。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
+> **状态:** v3.67.0。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
 > UDS 诊断栈 + Flash Pipeline、脚本引擎、HIL 测试执行（单/多通道）、
-> 多通道录制与回放、报告侧 per-channel DBC 解码。
+> 多通道录制与回放、报告侧 per-channel DBC 解码、**网络管理（NM）分析**。
 > **3732 个单元测试通过、11 跳过**（Core 1132 / Infrastructure 716 / App 1465 / Cli 73 /
-> Mobile.Core 275 / Security 48 / PromptCacheProbe 23，2026-09-15 全绿）；
-> 依赖 **PeakCan.HIL.Core 0.21.0**（控制流/参数化/多通道模型；sibling 仓库存在时走 ProjectReference，
+> Mobile.Core 275 / Security 48 / PromptCacheProbe 23，2026-09-15 全量基线）；
+> NM M1 定向测试 Core 190 / App 225 通过（2026-11-20）；
+> 依赖 **PeakCan.HIL.Core 0.23.1**（控制流/参数化/多通道模型 + DBC NM 属性；sibling 仓库存在时走 ProjectReference，
 > 否则 NuGet 包，host / studio 双侧 pin 已对齐）；NetArchTest 强制执行架构规则；
 > 每次推送 `main` 自动运行 CI。
 
@@ -33,8 +34,13 @@ ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
   `ITraceSessionService` 持久化）。
 - **回放** — 支持 **ASC + BLF**（v3.51.0，Vector 二进制日志）两种格式；循环 / 速度 / 进度条 /
   CAN-ID 过滤器 / 帧级步进 / Ctrl+B 书签 / 命名循环区域。
-- **Trace Viewer AI 聊天 Agent（v3.55.0+）** — 20+ 工具（信号搜索、时序分析、异常扫描、
-  watch list 管理、信号别名、分组等）。
+- **Trace Viewer AI 聊天 Agent（v3.55.0+）** — 22 个工具（信号搜索、时序分析、异常扫描、
+  watch list 管理、信号别名、分组等，含 3 个 NM 工具）。
+- **网络管理（NM）分析（v3.67.0）** — 从 DBC 的 `MsgType=CANNM` / `NmAsrMessage` / 节点站地址
+  读取项目约束；确定性引擎产出 episode、周期/相位、空档归因、唤醒突发、原始字节/位变化与
+  共享 ID 抑制；DBC 缺项时通过补全对话框写入 `*.nmprofile.json`，能力门控返回
+  `missing_inputs`；NM 面板（时间条 + 事件表 + 导出）与 `get_nm_profile` /
+  `get_nm_overview` / `get_nm_events` 三个聊天工具。M1 不做接收端状态机裁决。
 - **AI 推理 v1（v3.52.0）** — 本地证据（DID 数据 + trace 片段）驱动的失败原因分析，AI Analysis 面板。
 
 ### DBC 与信号
@@ -195,7 +201,7 @@ App 层禁止直接引用厂商 SDK（PEAK / ZLG）；所有硬件调用通过 I
 | **.NET 10** | 开发机只有 10.0.x SDK。发布的 exe 自包含，目标机器无需特定运行时。 |
 | **PEAK: `Peak.PCANBasic.NET` 5.0.1** | PEAK-System 官方包（旧 `Peak.Can.Basic` 在 nuget.org 无法找到）。 |
 | **ZLG: `zlgcan.dll` P/Invoke** | 厂商原生库随发布分发，`ZlgNative` 抽象隔离 SDK 细节。 |
-| **`PeakCan.HIL.Core` NuGet 包（0.21.0）** | hil-core 抽包后 host / studio 双 pin 同一模型包，格式冻结由版本号强制。 |
+| **`PeakCan.HIL.Core` NuGet 包（0.23.1）** | hil-core 抽包后 host / studio 双 pin 同一模型包，格式冻结由版本号强制。 |
 | **OxyPlot.Wpf 2.2.0 + ScottPlot.Wpf** | OxyPlot 为时序/统计主引擎；ScottPlot 承接 Trace 图表（v3.16.x 迁移）。 |
 | **ClearScript V8** | 脚本引擎宿主（CodeMirror 6 编辑器 + 沙箱执行）。 |
 | **WebView2** | HIL HTML 报告内嵌展示。 |
@@ -204,6 +210,9 @@ App 层禁止直接引用厂商 SDK（PEAK / ZLG）；所有硬件调用通过 I
 
 ## 路线图
 
+- **v3.66–v3.67（已完成）** — SecOc 收尾与代码健康度整改；**网络管理（NM）M1**：
+  DBC NM 属性解析、确定性分析引擎（episode/周期/空档/内容/信号）、3 个 NM AI 工具、
+  NM 面板 + 补全向导 + sidecar，`PeakCan.HIL.Core` 0.23.1 锁步。
 - **v3.61–v3.65（已完成）** — ZLG USBCAN FD 200U 驱动、BLF 解析器、AI 推理、
   Trace Viewer AI 聊天、ODX 导入 + SecurityAccess 桥接、Flash Pipeline、
   HIL 多通道（spec §3.4 执行接线 + 报告 per-channel DBC 解码）、控制流/参数化 lockstep。
