@@ -340,8 +340,10 @@ public class NmPanelFlowTests
         vm.ApplyNmReport(snapshot);
 
         vm.NmIsPartial.Should().BeTrue();
-        // 直接应用 partial 报告时无法得知是取消还是超时；具体原因由 ResolveStatus 用例覆盖。
+        // 直接应用 partial 报告时无法得知是取消还是超时；默认按取消措辞，
+        // 具体原因由 ResolveStatus 用例覆盖。
         vm.NmStatus.Should().Contain("部分结果");
+        vm.NmPartialText.Should().Contain("取消");
         vm.NmEventFilterSummary.Should().Be("显示 0 / 共 0");
     }
 

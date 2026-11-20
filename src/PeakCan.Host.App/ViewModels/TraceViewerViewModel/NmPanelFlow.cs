@@ -79,6 +79,8 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty] private bool _nmIsAnalyzing;
     [ObservableProperty] private bool _nmCanCancel;
     [ObservableProperty] private bool _nmIsPartial;
+    /// <summary>partial 徽标文案：区分用户取消与分析超时（spec §9.4）。</summary>
+    [ObservableProperty] private string _nmPartialText = "";
     [ObservableProperty] private bool _nmHasConflicts;
     /// <summary>语义能力横幅：只有存在不可用项时才显示（补全后不再谎称“不做判定”）。</summary>
     [ObservableProperty] private string _nmSemanticsBanner = "";
@@ -110,7 +112,8 @@ public sealed partial class TraceViewerViewModel
     private Views.TraceViewerViewNmPanel? _nmPanelContent;
     private CancellationTokenSource? _nmCts;
     /// <summary>本次分析的取消是用户发起还是超时：null 状态文案要据此区分。</summary>
-    private bool _nmCancelledByUser;
+    /// <summary>默认按“用户取消”处理：直接 Apply 外部 partial 报告时无法得知真实原因。</summary>
+    private bool _nmCancelledByUser = true;
     // 面板最近一次成功分析得到的快照：导出优先导出用户正在看的那一份报告。
     private NmToolSnapshot? _lastNmSnapshot;
     public Views.TraceViewerViewNmPanel? NmPanelContent
@@ -346,6 +349,7 @@ public sealed partial class TraceViewerViewModel
         _lastNmSnapshot = null;
         NmHasReport = false;
         NmIsPartial = false;
+        NmPartialText = "";
         NmHasConflicts = false;
         NmProfileSummary = "";
         NmMissingText = "";
@@ -367,6 +371,9 @@ public sealed partial class TraceViewerViewModel
         var profile = snapshot.Profile;
         NmHasReport = true;
         NmIsPartial = report.IsPartial;
+        NmPartialText = report.IsPartial
+            ? (_nmCancelledByUser ? "部分结果（分析已取消）" : "部分结果（分析超时）")
+            : "";
         NmProfileSummary = $"来源 {profile.Provenance.ResolvedFrom} · NM 报文 {profile.Messages.Count(m => m.IsNm)} · " +
             $"周期 {profile.Timings.CycleMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}ms · 超时 {profile.Timings.TimeoutMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}ms · " +
             $"识别依据 {BuildReasonsSummary(profile.Messages)}";

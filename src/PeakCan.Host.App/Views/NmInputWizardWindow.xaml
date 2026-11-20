@@ -1,17 +1,24 @@
 <Window x:Class="PeakCan.Host.App.Views.NmInputWizardWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="补全 NM 输入" Width="1000" Height="700" WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False">
+        Title="补全 NM 输入" Width="1000" Height="700" MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
     <Grid Margin="10">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="230" />
-            <ColumnDefinition Width="330" />
+            <!-- 中栏容纳“标签 86 + 5~6 个 48px 字节按钮”一行；330 会让每帧都换行。 -->
+            <ColumnDefinition Width="360" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
         <!-- 左：缺项列表（每条建议都可「采用建议」，解析不了则要求手动确认） -->
         <ListBox Grid.Column="0" ItemsSource="{Binding MissingItems}" Margin="0,0,8,0">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <!-- 缺项文本必须拿到整列宽度才会换行，否则横向溢出被裁。 -->
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+            </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <StackPanel Margin="0,2">
@@ -32,8 +39,10 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <!-- 中：样本字节预览（同一条 NM 候选的 1–3 帧，HEX，业务侧只看十六进制） -->
-        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+        <!-- 中：样本字节预览（同一条 NM 候选的 1–3 帧，HEX，业务侧只看十六进制）。
+             DPI 放大或窗口缩到最小时字节会多换几行，这里允许纵向滚动而不是裁掉。 -->
+        <ScrollViewer Grid.Column="1" Margin="0,0,8,0" VerticalScrollBarVisibility="Auto">
+        <StackPanel>
             <TextBlock Text="样本预览（HEX，最多 3 帧；点击字节设为 NID/CBV）"
                        FontWeight="SemiBold" TextWrapping="Wrap" />
             <ItemsControl ItemsSource="{Binding SampleRows}" Margin="0,4,0,0">
@@ -84,6 +93,7 @@
             </ItemsControl>
             <TextBlock Text="{Binding Status}" Margin="0,8" TextWrapping="Wrap" Foreground="#8A6D00" />
         </StackPanel>
+        </ScrollViewer>
 
         <!-- 右：报文候选 + 编辑区 -->
         <Grid Grid.Column="2">
@@ -91,6 +101,8 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="120" />
                 <RowDefinition Height="*" />
+                <!-- 主操作固定在底部，不随编辑区滚动消失。 -->
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Text="NM 报文候选（DBC 无 NM 标记时在此勾选）"
@@ -142,16 +154,16 @@
                     <TextBlock Text="试算结果" FontWeight="SemiBold" Margin="0,10,0,2" />
                     <TextBlock Text="{Binding TrialSummary}" FontFamily="Consolas" FontSize="11"
                                TextWrapping="Wrap" Foreground="#333333" />
-
-                    <WrapPanel Margin="0,10,0,0">
-                        <Button Content="试算当前窗口" Command="{Binding TrialCommand}" Margin="0,0,6,4" />
-                        <Button Content="保存到项目" Command="{Binding SaveCommand}" Margin="0,0,6,4" />
-                        <Button Content="导出配置" Command="{Binding ExportProfileCommand}" Margin="0,0,6,4" />
-                        <Button Content="导入配置" Command="{Binding ImportProfileCommand}" Margin="0,0,6,4" />
-                        <Button Content="取消" Click="OnCancelClick" Margin="0,0,0,4" />
-                    </WrapPanel>
                 </StackPanel>
             </ScrollViewer>
+
+            <WrapPanel Grid.Row="3" Margin="0,8,0,0">
+                <Button Content="试算当前窗口" Command="{Binding TrialCommand}" Margin="0,0,6,4" />
+                <Button Content="保存到项目" Command="{Binding SaveCommand}" Margin="0,0,6,4" />
+                <Button Content="导出配置" Command="{Binding ExportProfileCommand}" Margin="0,0,6,4" />
+                <Button Content="导入配置" Command="{Binding ImportProfileCommand}" Margin="0,0,6,4" />
+                <Button Content="取消" Click="OnCancelClick" Margin="0,0,0,4" />
+            </WrapPanel>
         </Grid>
     </Grid>
 </Window>
