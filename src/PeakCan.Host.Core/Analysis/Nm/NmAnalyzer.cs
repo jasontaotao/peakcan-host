@@ -65,11 +65,11 @@ public static class NmAnalyzer
         if (request.Profile.Timings.TimeoutMs is null)
             assumptions.Add("未配置 NM 超时，按 2000ms 处理。");
 
-        // PNI 位角色是硬编码的 AUTOSAR 约定（CBV bit4），不是从矩阵读出的，按推断解释。
+        // PNI 位角色是硬编码的 AUTOSAR 约定（CBV bit6），不是从矩阵读出的，按推断解释。
         if (request.Profile.Layout?.CbvByte is not null
             && request.Profile.Features?.PnEnabled == false)
         {
-            assumptions.Add("PNI 按 AUTOSAR CanNm CBV bit4 解读（M1 已知限制）");
+            assumptions.Add("PNI 按 AUTOSAR CanNm CBV bit6 解读（M1 已知限制）");
         }
 
         // spec §6.2：消费 hil-core 的 NM 属性越界告警。值越界不阻断分析，只是把

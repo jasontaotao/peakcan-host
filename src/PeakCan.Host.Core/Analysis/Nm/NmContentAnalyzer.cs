@@ -256,10 +256,11 @@ public static class NmContentAnalyzer
         if (input.Profile.Layout?.CbvByte is not { } cbvByte) return;
         if (input.Profile.Features?.PnEnabled != false) return;
 
-        // AUTOSAR CanNm 的 PNI 位于 CBV bit4；只在用户明确配置 CBV 字节时解释。
-        // 位角色是硬编码的（M1 的 NmLayout 没有位定义），所以结论按推断输出。
+        // AUTOSAR CanNm 的 PNI 位于 CBV bit6（0x40），bit4（0x10）是 Active Wakeup，不得混淆。
+        // 只在用户明确配置 CBV 字节时解释；位角色是硬编码的（M1 的 NmLayout 没有位定义），
+        // 所以结论按推断输出。
         var hit = ordered.FirstOrDefault(f => f.Frame.Data.Length > cbvByte &&
-                                              (f.Frame.Data[cbvByte] & 0x10) != 0);
+                                              (f.Frame.Data[cbvByte] & 0x40) != 0);
         if (hit is not null)
         {
             findings.Add(new NmFinding("NM_PNI_WHILE_PN_DISABLED", "warn",

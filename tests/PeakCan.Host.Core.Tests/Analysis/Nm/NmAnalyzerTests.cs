@@ -292,15 +292,16 @@ BO_ 1280 NM_Message: 8 ECU_A
         };
         var frames = new[]
         {
-            F(0.0, 0x500, false, 0xF4, 0x10, 0, 0, 0, 0, 0, 0, 0),
-            F(0.5, 0x500, false, 0xF4, 0x10, 0, 0, 0, 0, 0, 0, 0),
+            // AUTOSAR CanNm CBV：bit6 = PNI（0x40）。
+            F(0.0, 0x500, false, 0xF4, 0x40, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0xF4, 0x40, 0, 0, 0, 0, 0, 0, 0),
         };
 
         var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
             "src", null, frames, null, profile, 0, 1));
 
         Assert.Contains(report.Assumptions,
-            a => a.Contains("PNI 按 AUTOSAR CanNm CBV bit4 解读"));
+            a => a.Contains("PNI 按 AUTOSAR CanNm CBV bit6 解读"));
         Assert.Contains(report.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
     }
 

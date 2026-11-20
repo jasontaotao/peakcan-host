@@ -722,7 +722,7 @@ profile 加载/保存时校验：
   - `NM_NID_MISMATCH`（NID ≠ 期望）、`NM_NID_CHANGED`（同一发送者中途变化）、`NM_UNKNOWN_NID`（不在 DBC 节点表）。
 - CBV：
   - 逐位翻转事件（bit 0–7）；原始位永远照报。
-  - 仅在 `Features` 明确时附带标准位名（bit0 RMR、bit3 Active Wakeup、bit4 PNI 等，AUTOSAR 版本差异需注明）。
+  - 仅在 `Features` 明确时附带标准位名（bit0 Repeat Message Request、bit3 NM Coordinator Sleep Ready、bit4 Active Wakeup、bit6 PNI，AUTOSAR 版本差异需注明）。
   - `NM_PNI_WHILE_PN_DISABLED`：PN 关闭但 PNI 位置 1。
 - 用户数据：
   - `UserDataLength` 已知为 0：字节 2–7 非零 → `NM_USER_DATA_UNUSED_NONZERO`。
@@ -1152,3 +1152,4 @@ M1 与 M2 使用两套提示词；M1 不引用企标/profile/NID/CBV。
 | §13.2 fixture #2 `nm-log-gap.asc` | 期望“所有 ID 消失 → `NM_LOG_GAP_SUSPECTED`，而非节点掉线”，与 §7.5.4“只有时间戳跳变/回退等可验证证据才报 LOG_GAP”冲突 | 修正期望：所有 ID 消失 ≥ `max(2×cycle, 500ms)` → `NM_BUS_WIDE_SILENCE` + `unknowns: recorder_gap_or_bus_sleep`，不判 dropout；仅在带时间戳回归证据的样本上另报 `NM_LOG_GAP_SUSPECTED` | §7.5.3、§7.5.4 |
 | §11 “允许发送原始 payload”开关 | 未标阶段，M1 无任何发送原始取值的路径 | M1 固定关闭（工具输出脱敏，含 `nodes[].station_address`）；开关随 M2 的取值分析开放 | §11 默认隐私 |
 | §9.1 状态“顶部固定显示语义未配置” | 与 §7.8 注解“补全 NID/CBV/PN/用户数据后能力可启用”冲突；补全后引擎已产 finding，固定文案会自相矛盾 | 改为条件横幅：仅当 NID/CBV/PN/用户数据中存在不可用能力时显示，并列出具体缺项 | §7.8 注解 |
+| §7.7 CBV 标准位名 | 写作“bit3 Active Wakeup、bit4 PNI”，位号与位名错位；实现按 bit4 掩码 0x10 判 PNI，把主动唤醒帧误报成 `NM_PNI_WHILE_PN_DISABLED` | 更正为 bit3 NM Coordinator Sleep Ready、bit4 Active Wakeup、bit6 PNI；`CheckCbv` 掩码改为 0x40，并补 Active Wakeup 不触发 PNI 的回归测试 | AUTOSAR CanNm SWS；`NmContentAnalyzer.CheckCbv` |

@@ -109,8 +109,9 @@ public class NmContentAnalyzerTests
     {
         var frames = new[]
         {
-            Nm(0.0, 0xF4, 0x10),
-            Nm(0.5, 0xF4, 0x10),
+            // AUTOSAR CanNm CBV：bit6 = PNI（0x40）。
+            Nm(0.0, 0xF4, 0x40),
+            Nm(0.5, 0xF4, 0x40),
         };
 
         var result = NmContentAnalyzer.Analyze(new NmContentInput(
@@ -119,6 +120,23 @@ public class NmContentAnalyzerTests
         var finding = Assert.Single(result.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
         // 位角色是硬编码的 AUTOSAR 约定，不是从矩阵读出的，必须标为推断。
         Assert.True(finding.IsInference);
+    }
+
+    [Fact]
+    public void Analyze_ActiveWakeupBitOnly_DoesNotReportPniFinding()
+    {
+        // AUTOSAR CanNm CBV：bit4 = Active Wakeup（0x10），与 PNI 无关；
+        // 曾把 0x10 误当 PNI，导致主动唤醒帧被报成「PN 关闭但 PNI 置 1」。
+        var frames = new[]
+        {
+            Nm(0.0, 0xF4, 0x10),
+            Nm(0.5, 0xF4, 0x10),
+        };
+
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(
+            frames, Profile(new NmLayout(NidByte: 0, CbvByte: 1), new NmFeatures(PnEnabled: false)), 500));
+
+        Assert.DoesNotContain(result.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
     }
 
     [Fact]
