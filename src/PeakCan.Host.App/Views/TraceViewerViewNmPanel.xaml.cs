@@ -32,7 +32,11 @@ public partial class TraceViewerViewNmPanel : UserControl
         _nmBoundVm = DataContext as TraceViewerViewModel;
         if (_nmBoundVm is not null)
             _nmBoundVm.NmTimelineRows.CollectionChanged += OnNmTimelineRowsChanged;
-        NmSegmentPopup.DataContext = DataContext;
+        // 换 DataContext 时收起已打开的卡片，避免停留在旧 VM 的内容。
+        // 注意：这里不能预置 NmSegmentPopup.DataContext——加载期预置会让 Popup
+        // 打开时重建的弹出子树继承链失效（子元素 DataContext=null → 空卡片）；
+        // DataContext 由 ShowCard 在每次打开时显式设置。
+        CloseSegmentPopup();
     }
 
     /// <summary>
@@ -94,9 +98,7 @@ public partial class TraceViewerViewNmPanel : UserControl
         _nmHoveredSegment = segment;
         vm.SetNmSegmentHover(segment.Kind, FindRowVm((DependencyObject)sender)?.Label ?? "",
             segment.Start, segment.End);
-        NmSegmentPopup.DataContext = vm;
-        NmSegmentPopup.PlacementTarget = (UIElement)sender;
-        NmSegmentPopup.IsOpen = true;
+        ShowCard((UIElement)sender, vm);
     }
 
     private void OnNmSegmentMouseLeave(object sender, MouseEventArgs e)
@@ -124,9 +126,7 @@ public partial class TraceViewerViewNmPanel : UserControl
         vm.SetNmMarkerHover(marker.Kind,
             FindRowVm((DependencyObject)sender)?.Label ?? "",
             marker.T, marker.TypeLabel, marker.Detail);
-        NmSegmentPopup.DataContext = vm;
-        NmSegmentPopup.PlacementTarget = (UIElement)sender;
-        NmSegmentPopup.IsOpen = true;
+        ShowCard((UIElement)sender, vm);
     }
 
     private void OnNmMarkerMouseLeave(object sender, MouseEventArgs e)
@@ -136,6 +136,23 @@ public partial class TraceViewerViewNmPanel : UserControl
         if (!ReferenceEquals(_nmHoveredMarker, marker)) return;
         _nmHoveredMarker = null;
         CloseSegmentPopup();
+    }
+
+    /// <summary>
+    /// 打开共享信息卡，并在每次打开时显式绑定 VM。
+    /// <para>
+    /// 2026-11-20 修复（用户报告：悬停标记文字弹不出来）：不要把 DataContext
+    /// 在加载期预置到 <see cref="NmSegmentPopup"/>（旧的 OnDataContextChanged 写法）。
+    /// 预置后 Popup 打开时重建的弹出子树继承链失效——实测 Popup 与 Child 的
+    /// DataContext 都是 VM，但内部 TextBlock.DataContext 为 null，绑定停在
+    /// PathError，卡片空白。改为只在打开时赋值，红绿测试见 NmHoverCardTests。
+    /// </para>
+    /// </summary>
+    private void ShowCard(UIElement target, TraceViewerViewModel vm)
+    {
+        NmSegmentPopup.PlacementTarget = target;
+        NmSegmentPopup.DataContext = vm;
+        NmSegmentPopup.IsOpen = true;
     }
 
     private void CloseSegmentPopup()
