@@ -18,9 +18,9 @@ public class NmSignalSummaryTests
     private static NmFrame Nm(double t, byte[] data)
         => NmAt(0x500, "0x500", t, data);
 
-    private static NmFrame NmAt(uint id, string idHex, double t, byte[] data)
-        => new(new NmMessageDef(idHex, false, "NM_Message", "ECU_A", 8, true, TestReasons),
-               new ReplayFrame(t, id, (byte)data.Length, data, FrameFlags.None));
+    private static NmFrame NmAt(uint id, string idHex, double t, byte[] data, bool ext = false)
+        => new(new NmMessageDef(idHex, ext, "NM_Message", "ECU_A", 8, true, TestReasons),
+               new ReplayFrame(t, id, (byte)data.Length, data, FrameFlags.None, ext));
 
     [Fact]
     public void Build_DecodedSignalChanges_EmitSignalEvent()
@@ -171,5 +171,32 @@ BO_ 1280 NM_Message: 8 ECU_A
 
         Assert.Single(events);
         Assert.Null(truncation);
+    }
+
+    [Fact]
+    public void Build_SameNumericIdDifferentFormat_DoesNotMixSignalGroups()
+    {
+        // DBC 里 0x500 是标准帧；扩展 0x500 不能借用它的信号表，否则两组的取值会串。
+        var dbc = DbcParser.Parse("""
+VERSION ""
+
+BO_ 1280 NM_Message: 8 ECU_A
+ SG_ WakeReason : 0|8@1+ (1,0) [0|255] "" ECU_B
+""").Value!;
+
+        var frames = new[]
+        {
+            NmAt(0x500, "0x500", 0.0, ZeroPayload),
+            NmAt(0x500, "0x500", 0.2, ZeroPayload, ext: true),
+            NmAt(0x500, "0x500", 0.5, TwoPayload),
+            NmAt(0x500, "0x500", 0.7, ThreePayload, ext: true),
+        };
+
+        var events = NmSignalSummary.Build(dbc, frames);
+
+        // 只有标准帧组产出信号变化；扩展帧组因格式不符被跳过。
+        var e = Assert.Single(events);
+        Assert.Equal("WakeReason: 0 → 2", e.Detail);
+        Assert.Equal(0.5, e.T);
     }
 }

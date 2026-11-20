@@ -33,9 +33,13 @@ public static class NmCapabilityGate
         }
         else
         {
-            var candidates = NmSuggestionEngine.SuggestNmMessageCandidates(profile);
-            var suggestion = candidates.Count > 0
-                ? "按名称候选：" + string.Join(", ", candidates)
+            // 名称候选 + 实测周期稳定的 8 字节报文候选（spec §6.6.4）。
+            var candidates = NmSuggestionEngine.SuggestNmMessageCandidates(profile)
+                .Concat(NmSuggestionEngine.SuggestNmMessageCandidatesByObservedCycle(frames))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var suggestion = candidates.Length > 0
+                ? "按名称/实测周期候选：" + string.Join(", ", candidates)
                 : "从 DBC 报文清单勾选，或按名称/区间/实测周期选择";
             Add(NmCapability.IdentifyMessages, false, new NmInputMissing(
                 NmCapability.IdentifyMessages, "nm_message_selection",
@@ -43,21 +47,40 @@ public static class NmCapabilityGate
                 suggestion, "dbc"));
         }
 
-        if (nmMessages.Any(m => m.CycleMs is not null) || profile.Timings.CycleMs is not null)
+        // Timing：周期与超时是两个可补字段。缺超时时给 3×cycle 建议并明确标注“假设”。
+        var profileCycle = profile.Timings.CycleMs;
+        var messageCycle = nmMessages.Select(m => m.CycleMs).FirstOrDefault(c => c is not null);
+        var measuredCycle = nmMessages.Length > 0
+            ? NmSuggestionEngine.SuggestCycleMs(
+                frames, ParseId(nmMessages[0].CanIdHex), nmMessages[0].IsExtended)
+            : null;
+        var knownCycle = profileCycle ?? messageCycle ?? measuredCycle;
+        var configuredCycle = profileCycle ?? messageCycle;
+        var knownTimeout = profile.Timings.TimeoutMs
+            ?? nmMessages.Select(m => m.TimeoutMs).FirstOrDefault(t => t is not null);
+
+        var timingMissing = new List<NmInputMissing>();
+        if (knownCycle is null)
         {
-            Add(NmCapability.Timing, true);
-        }
-        else
-        {
-            var suggested = nmMessages.Length > 0
-                ? NmSuggestionEngine.SuggestCycleMs(frames, ParseId(nmMessages[0].CanIdHex))
-                : null;
-            Add(NmCapability.Timing, false, new NmInputMissing(
+            timingMissing.Add(new NmInputMissing(
                 NmCapability.Timing, "cycle_ms",
                 "DBC 没有 NM 周期属性",
-                suggested is null ? "用实测间隔中位数" : $"{suggested} ms（实测中位）",
-                suggested is null ? null : "measured"));
+                measuredCycle is null ? "用实测间隔中位数" : $"{measuredCycle} ms（实测中位）",
+                measuredCycle is null ? null : "measured"));
         }
+        if (knownTimeout is null)
+        {
+            timingMissing.Add(new NmInputMissing(
+                NmCapability.Timing, "timeout_ms",
+                "DBC 没有 NM 超时属性",
+                knownCycle is { } cycle
+                    ? $"{cycle * 3} ms（3×cycle 假设）"
+                    : "先补周期，再按 3×cycle 估算",
+                knownCycle is null ? null : "assumption"));
+        }
+        states.Add(new NmCapabilityState(
+            NmCapability.Timing, configuredCycle is not null, timingMissing));
+        missing.AddRange(timingMissing);
 
         Add(NmCapability.Activity, true);
         Add(NmCapability.RawContent, true);
@@ -93,17 +116,30 @@ public static class NmCapabilityGate
         }
         else
         {
-            (byte? Byte, string Evidence) suggestion = nmMessages.Length > 0
-                ? NmSuggestionEngine.SuggestNidByte(
-                    frames, ParseId(nmMessages[0].CanIdHex),
+            // spec §6.6.4：NID 字节给 top-2 候选，证据保持众数 + 比例。
+            var nidCandidates = nmMessages.Length > 0
+                ? NmSuggestionEngine.SuggestNidByteCandidates(
+                    frames, ParseId(nmMessages[0].CanIdHex), nmMessages[0].IsExtended,
                     profile.Nodes.FirstOrDefault(n => n.Name == nmMessages[0].Sender)?.StationAddress)
-                : (null, "没有 NM 报文");
+                : Array.Empty<NmByteCandidate>();
             var what = "未配置 NID 字节，无法校验源节点标识";
+            string? nidSuggestion = null;
+            if (nidCandidates.Count > 0)
+            {
+                nidSuggestion = $"建议 byte{nidCandidates[0].Byte}：{nidCandidates[0].Evidence}";
+                if (nidCandidates.Count > 1)
+                {
+                    nidSuggestion +=
+                        $"；备选 byte{nidCandidates[1].Byte}：{nidCandidates[1].Evidence}";
+                }
+            }
+            var nidWhy = nidCandidates.Count > 0
+                ? what
+                : $"{what}（{(nmMessages.Length > 0 ? "未找到取值等于站地址/ID 低字节的字节" : "没有 NM 报文")}）";
             Add(NmCapability.NidCheck, false, new NmInputMissing(
                 NmCapability.NidCheck, "nid_byte",
-                suggestion.Byte is null ? $"{what}（{suggestion.Evidence}）" : what,
-                suggestion.Byte is { } b ? $"建议 byte{b}：{suggestion.Evidence}" : null,
-                suggestion.Byte is null ? null : "measured"));
+                nidWhy, nidSuggestion,
+                nidCandidates.Count > 0 ? "measured" : null));
         }
 
         if (profile.Layout?.CbvByte is not null)
@@ -112,11 +148,18 @@ public static class NmCapabilityGate
         }
         else
         {
+            (byte? Byte, string Evidence) cbv = nmMessages.Length > 0
+                ? NmSuggestionEngine.SuggestCbvByte(
+                    frames, ParseId(nmMessages[0].CanIdHex), nmMessages[0].IsExtended)
+                : (null, "没有 NM 报文");
+            var cbvSuggestion = cbv.Byte is { } cbvByte
+                ? $"建议 byte{cbvByte}：{cbv.Evidence}；位角色需要你确认"
+                : "选一个取值少、位翻转明显的字节；位角色需要你确认";
             Add(NmCapability.CbvDecode, false, new NmInputMissing(
                 NmCapability.CbvDecode, "cbv_byte",
                 "未配置 CBV 字节，无法解码控制位",
-                "选一个取值少、位翻转明显的字节；位角色需要你确认",
-                "measured"));
+                cbvSuggestion,
+                cbv.Byte is null ? null : "measured"));
         }
 
         var pnKnown = profile.Features?.PnEnabled is not null && profile.Layout?.CbvByte is not null;
@@ -127,11 +170,17 @@ public static class NmCapabilityGate
                     "PN 开关或 CBV 字节缺失，无法判定 PNI", "不会自动建议 PN 开关", null) });
 
         var userDataKnown = profile.Layout is { UserDataOffset: not null, UserDataLength: not null };
+        (byte? Offset, int? Length, string Evidence) userData = nmMessages.Length > 0
+            ? NmSuggestionEngine.SuggestUserData(
+                frames, ParseId(nmMessages[0].CanIdHex), nmMessages[0].IsExtended)
+            : (null, null, "没有 NM 报文");
         Add(NmCapability.UserData, userDataKnown,
             userDataKnown
                 ? Array.Empty<NmInputMissing>()
                 : new[] { new NmInputMissing(NmCapability.UserData, "user_data_range",
-                    "用户数据 offset/length 缺失", "尾部全零时建议 length 0", "measured") });
+                    "用户数据 offset/length 缺失",
+                    userData.Evidence,
+                    userData.Offset is null ? null : "measured") });
 
         // 企标规则属于 M2，M1 不可用，但不列为"可补输入"。
         Add(NmCapability.OemRules, false);

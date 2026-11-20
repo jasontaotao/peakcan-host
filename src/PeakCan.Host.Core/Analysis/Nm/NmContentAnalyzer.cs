@@ -3,7 +3,10 @@ namespace PeakCan.Host.Core.Analysis.Nm;
 public sealed record NmContentInput(
     IReadOnlyList<NmFrame> Frames,
     NmProfile Profile,
-    int CycleMs);
+    int CycleMs,
+    // 可选 episode 列表：提供后事件按时间落到真实 episode 编号；
+    // 不提供时保持 0，兼容只关心事件内容的调用方。
+    IReadOnlyList<NmEpisode>? Episodes = null);
 
 public sealed record NmContentResult(
     IReadOnlyList<NmEvent> Events,
@@ -24,9 +27,12 @@ public static class NmContentAnalyzer
         var findings = new List<NmFinding>();
         var truncations = new List<NmTruncation>();
 
-        foreach (var group in input.Frames.GroupBy(f => f.Def.CanIdHex, StringComparer.Ordinal))
+        // 分组键必须含扩展位：标准 0x500 与扩展 0x500 是两条不同报文，
+        // 合并后会打散间隔并串用错误的周期/超时阈值。
+        foreach (var group in input.Frames.GroupBy(f => (f.Def.CanIdHex, f.Def.IsExtended)))
         {
             var ordered = group.OrderBy(f => f.Frame.Timestamp).ToArray();
+            var canId = group.Key.CanIdHex;
             var emitted = 0;
             var attempted = 0;
             var dropped = 0;
@@ -39,16 +45,23 @@ public static class NmContentAnalyzer
                     dropped++;
                     return;
                 }
-                events.Add(e);
+                // 事件时间落在哪个 episode，就记哪个编号；取不到时沿用 0。
+                // 扩展位随分组写入：同数值标准/扩展帧的 subject 过滤必须能区分。
+                events.Add(e with
+                {
+                    EpisodeIndex = NmEpisodeBuilder.IndexAt(e.T, input.Episodes),
+                    IsExtended = group.Key.IsExtended,
+                });
                 emitted++;
             }
 
             DetectBurst(ordered, input.CycleMs, Emit);
-            DetectByteAndBitChanges(ordered, group.Key, Emit);
+            DetectByteAndBitChanges(ordered, canId, Emit);
+            DetectMissedFrames(ordered, input.CycleMs, input.Profile, Emit);
 
             // 只有真正丢弃过事件才记截断；Returned/Total 都是事件数，不是帧数。
             if (dropped > 0)
-                truncations.Add(new NmTruncation("events:" + group.Key, emitted, attempted));
+                truncations.Add(new NmTruncation("events:" + canId, emitted, attempted));
 
             CheckNid(ordered, input, findings);
             CheckCbv(ordered, input, findings);
@@ -135,6 +148,37 @@ public static class NmContentAnalyzer
                     $"byte{b}.bit{bit}: 翻转 {state.BitCounts[bit]} 次（{state.BitFirstTs[bit]:F3}s → {state.BitLastTs[bit]:F3}s）",
                     0, "measured"));
             }
+        }
+    }
+
+    /// <summary>
+    /// spec §7.5.6：1.5×生效周期 &lt; 间隔 ≤ 生效超时 → 漏发一次的证据。
+    /// 事件计入该报文的 200 条预算；共享 ID 不能否定漏帧，不参与抑制。
+    /// </summary>
+    private static void DetectMissedFrames(
+        NmFrame[] ordered, int globalCycleMs, NmProfile profile, Action<NmEvent> emit)
+    {
+        if (ordered.Length < 2) return;
+
+        var def = ordered[0].Def;
+        var cycleMs = def.CycleMs ?? globalCycleMs;
+        if (cycleMs <= 0) return;
+        var timeoutMs = def.TimeoutMs ?? profile.Timings.TimeoutMs ?? 2000;
+        var cycleSec = cycleMs / 1000.0;
+        var timeoutSec = timeoutMs / 1000.0;
+
+        for (int i = 1; i < ordered.Length; i++)
+        {
+            var gap = ordered[i].Frame.Timestamp - ordered[i - 1].Frame.Timestamp;
+            if (gap <= 1.5 * cycleSec || gap > timeoutSec) continue;
+
+            // 长间隔可能漏多帧：按间隔/周期估算，避免一律写成"1 帧"的事实错误；
+            // 判据针对一次漏发时仍保留 spec 要求的"可能漏发 1 帧"措辞。
+            var missed = Math.Max(1, (int)Math.Round(gap / cycleSec) - 1);
+            var phrase = missed == 1 ? "可能漏发 1 帧" : $"可能漏发约 {missed} 帧";
+            emit(new NmEvent(
+                ordered[i - 1].Frame.Timestamp, "missed_frame", def.Sender, def.CanIdHex,
+                $"{gap:F2}s（期望 {cycleMs}ms，{phrase}）", 0, "inferred"));
         }
     }
 

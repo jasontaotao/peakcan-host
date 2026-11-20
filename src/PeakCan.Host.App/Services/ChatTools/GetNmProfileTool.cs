@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using PeakCan.HIL.Core.Analysis.Chat;
@@ -31,8 +32,12 @@ public sealed class GetNmProfileTool : ChatToolBase
     protected override async Task<string> ExecuteCoreAsync(string argsJson, CancellationToken ct)
     {
         var args = ParseArgs(argsJson);
+        // spec §8.1：多源且未显式 source_id 时不得静默取 master。
+        if (NmToolArgs.CheckSourceSelection(args, _context) is { } sourceError)
+            return sourceError;
+
         var snapshot = await _context.GetNmSnapshotAsync(new NmToolQuery(
-            SourceId: args["source_id"]?.GetValue<string>(),
+            SourceId: NmToolArgs.GetString(args, "source_id"),
             Channel: NmToolArgs.GetChannel(args)), ct);
 
         var messages = snapshot.Profile.Messages.Take(50).Select(m => new JsonObject
@@ -50,6 +55,12 @@ public sealed class GetNmProfileTool : ChatToolBase
         });
 
         var root = NmToolOutput.Root(snapshot);
+        // 本报告出现过的 CAN ID 是结构信息，正文里可保留；其余十六进制取值按字节脱敏。
+        var allowedCanIds = NmEventPrivacy.CollectCanIds(
+            snapshot.Profile.Messages.Select(m => m.CanIdHex),
+            snapshot.Report.Events.Select(e => e.CanIdHex));
+        // spec §11：assumptions 可能带 DBC 告警中的节点地址十进制值，输出前脱敏。
+        NmEventPrivacy.RedactAssumptions(root);
         root["messages"] = new JsonArray(messages.ToArray());
         root["timings"] = new JsonObject
         {
@@ -61,14 +72,17 @@ public sealed class GetNmProfileTool : ChatToolBase
         root["nodes"] = new JsonArray(snapshot.Profile.Nodes.Select(n => (JsonNode)new JsonObject
         {
             ["name"] = n.Name,
-            ["station_address"] = n.StationAddress,
+            // spec §11：站地址属于字节取值，默认不发给模型；节点名保留以便定位。
+            ["station_address"] = null,
             ["is_nm_node"] = n.IsNmNode,
+            ["station_address_redacted"] = true,
         }).ToArray());
         root["conflicts"] = new JsonArray(snapshot.Profile.Conflicts.Select(c => (JsonNode)new JsonObject
         {
             ["field"] = c.Field,
-            ["values"] = new JsonArray(c.Values.Select(v => (JsonNode)v).ToArray()),
-            ["sources"] = new JsonArray(c.Sources.Select(v => (JsonNode)v).ToArray()),
+            // 冲突值可能来自 NID/站地址等字节输入（§11）：发给模型前脱敏。
+            ["values"] = new JsonArray(c.Values.Select(v => (JsonNode)NmEventPrivacy.RedactText(v, allowedCanIds)).ToArray()),
+            ["sources"] = new JsonArray(c.Sources.Select(v => (JsonNode)NmEventPrivacy.RedactText(v, allowedCanIds)).ToArray()),
         }).ToArray());
         root["capabilities"] = new JsonArray(snapshot.Report.Capabilities.Select(c => (JsonNode)new JsonObject
         {
@@ -79,8 +93,9 @@ public sealed class GetNmProfileTool : ChatToolBase
         {
             ["capability"] = m.Capability.ToString(),
             ["input"] = m.InputKey,
-            ["why"] = m.Why,
-            ["suggestion"] = m.Suggestion,
+            // 建议文本可能含 NID 候选等字节取值（§11）：发给模型前脱敏。
+            ["why"] = NmEventPrivacy.RedactText(m.Why, allowedCanIds),
+            ["suggestion"] = m.Suggestion is null ? null : NmEventPrivacy.RedactText(m.Suggestion, allowedCanIds),
             ["suggestion_source"] = m.SuggestionSource,
         }).ToArray());
         if (snapshot.Profile.Messages.Count > 50)
@@ -97,15 +112,64 @@ public sealed class GetNmProfileTool : ChatToolBase
 /// </summary>
 internal static class NmToolArgs
 {
+    /// <summary>Reads an optional string argument. JSON type mismatches are
+    /// converted to <see cref="ArgumentException"/> so the base class returns
+    /// the parameter hint instead of the data-source hint (spec §8.1).</summary>
+    internal static string? GetString(JsonObject args, string key)
+    {
+        if (args[key] is not { } node)
+            return null;
+
+        try
+        {
+            return node.GetValue<string>();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            throw new ArgumentException($"parameter '{key}' must be a string.", nameof(args), ex);
+        }
+    }
+
+    /// <summary>Reads an optional integer argument; see <see cref="GetString"/>.</summary>
+    internal static int? GetInt(JsonObject args, string key)
+    {
+        if (args[key] is not { } node)
+            return null;
+
+        try
+        {
+            return node.GetValue<int>();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            throw new ArgumentException($"parameter '{key}' must be an integer.", nameof(args), ex);
+        }
+    }
+
+    /// <summary>Reads an optional number argument; see <see cref="GetString"/>.</summary>
+    internal static double? GetDouble(JsonObject args, string key)
+    {
+        if (args[key] is not { } node)
+            return null;
+
+        try
+        {
+            return node.GetValue<double>();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            throw new ArgumentException($"parameter '{key}' must be a number.", nameof(args), ex);
+        }
+    }
+
     /// <summary>Reads the optional <c>channel</c> argument. Values outside the
     /// ushort range are rejected with a clear error instead of silently
     /// wrapping around (e.g. 70000 must not become 4464).</summary>
     internal static ushort? GetChannel(JsonObject args)
     {
-        if (args["channel"] is not { } node)
+        if (GetInt(args, "channel") is not { } value)
             return null;
 
-        var value = node.GetValue<int>();
         if (value < 0 || value > ushort.MaxValue)
         {
             throw new ArgumentException(
@@ -114,5 +178,26 @@ internal static class NmToolArgs
         }
 
         return (ushort)value;
+    }
+
+    /// <summary>
+    /// spec §8.1：可枚举多个 source 且调用方未显式给 <c>source_id</c> 时返回
+    /// <c>{"error":..., "hint":"请显式指定 source_id"}</c>，不静默分析 master。
+    /// 单源/未加载任何源时返回 null，保持既有 master 默认行为。
+    /// </summary>
+    internal static string? CheckSourceSelection(JsonObject args, IChatToolContext context)
+    {
+        if (!string.IsNullOrWhiteSpace(GetString(args, "source_id")))
+            return null;
+
+        var sourceCount = context.LoadedSourceIds.Count;
+        if (sourceCount <= 1) return null;
+
+        // ChatToolBase 的通用 hint 无法表达这条 spec 专用提示，因此直接返回错误信封。
+        return JsonSerializer.Serialize(new
+        {
+            error = $"检测到 {sourceCount} 个已加载 trace source，未指定 source_id，拒绝默认分析 master",
+            hint = "请显式指定 source_id",
+        });
     }
 }

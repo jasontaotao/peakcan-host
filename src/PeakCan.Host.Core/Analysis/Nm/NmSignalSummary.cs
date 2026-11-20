@@ -40,12 +40,18 @@ public static class NmSignalSummary
     {
         var events = new List<NmEvent>();
         truncation = null;
-        foreach (var group in frames.GroupBy(f => f.Def.CanIdHex, StringComparer.Ordinal))
+        // 分组键含扩展位：标准 0x500 与扩展 0x500 是两条报文，不能共用一份信号状态。
+        foreach (var group in frames.GroupBy(f => (f.Def.CanIdHex, f.Def.IsExtended)))
         {
             // CanIdHex 形如 "0x500"，去掉前缀后按十六进制解析。
-            var id = uint.Parse(group.Key.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            var id = uint.Parse(group.Key.CanIdHex.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             if (!dbc.MessagesById.TryGetValue(id, out var message) || message.Signals.Count == 0)
                 continue;
+            // MessagesById 的键已抹掉 IDE 位，同数值的标准/扩展报文会命中同一条 DBC；
+            // 必须再核对格式，否则会拿标准报文的信号表去解扩展帧。
+            if (((message.Id & 0x80000000u) != 0) != group.Key.IsExtended)
+                continue;
+            var canId = group.Key.CanIdHex;
 
             var previous = new Dictionary<string, double>(StringComparer.Ordinal);
             var emitted = 0;
@@ -64,8 +70,9 @@ public static class NmSignalSummary
                         // 达到上限后不再分配事件对象，但仍继续解码计数。
                         if (emitted < maxEventsPerMessage)
                         {
-                            events.Add(new NmEvent(frame.Frame.Timestamp, "signal_change", null, group.Key,
-                                $"{signal.Name}: {Format(old)} → {Format(value)}", 0, "measured"));
+                            events.Add(new NmEvent(frame.Frame.Timestamp, "signal_change", null, canId,
+                                $"{signal.Name}: {Format(old)} → {Format(value)}", 0, "measured",
+                                group.Key.IsExtended));
                             emitted++;
                         }
                     }
@@ -74,7 +81,7 @@ public static class NmSignalSummary
             }
 
             if (attempted > emitted)
-                truncation ??= new NmTruncation("events:signals:" + group.Key, emitted, attempted);
+                truncation ??= new NmTruncation("events:signals:" + canId, emitted, attempted);
         }
         // 契约：返回按时间升序；LINQ OrderBy 是稳定排序。
         return events.OrderBy(e => e.T).ToList();

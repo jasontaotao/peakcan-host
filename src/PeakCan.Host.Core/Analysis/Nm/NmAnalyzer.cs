@@ -14,6 +14,9 @@ public static class NmAnalyzer
     // 与 NmContentAnalyzer.MaxEventsPerMessage 同口径：单报文事件上限。
     private const int MaxEventsPerMessage = 200;
 
+    // spec §6.2：DBC 属性值越出 BA_DEF_ 区间时的告警码。
+    private const string NmAttrRangeMismatchCode = "NM_ATTR_RANGE_MISMATCH";
+
     private static readonly string[] s_unknowns =
     {
         "接收端本地 NM 超时状态不可观测（trace 只看到发送）",
@@ -21,12 +24,25 @@ public static class NmAnalyzer
         "节点内部状态机/唤醒原因不可观测（除非内容字典定义）",
         "未录制节点是否存在不可知",
         "记录仪是否丢帧只能给出 log_gap_suspected",
+        "跨网关/多通道复制导致的重复帧归属不可知（duplicate_frame_attribution）",
     };
 
+    /// <summary>
+    /// 分析入口。取消/超时不抛异常，返回 <see cref="NmReport.IsPartial"/> 为 true 的
+    /// 部分结果（spec §9.4）。
+    /// </summary>
     public static NmReport Analyze(NmAnalysisRequest request, CancellationToken ct = default)
-    {
-        ct.ThrowIfCancellationRequested();
+        => Analyze(request, onCheckpoint: null, ct);
 
+    /// <summary>
+    /// 测试接缝：<paramref name="onCheckpoint"/> 在每个阶段边界取消检查前回调，
+    /// 仅 <c>PeakCan.Host.Core.Tests</c> 使用；生产入口传入 null。
+    /// </summary>
+    internal static NmReport Analyze(
+        NmAnalysisRequest request,
+        Action<NmAnalyzerCheckpoint>? onCheckpoint,
+        CancellationToken ct = default)
+    {
         var selected = NmFrameSelector.Select(request, out var diagnostics);
         var window = new NmWindow(request.Start, request.End, request.WindowRef);
         var (capabilities, gateMissing) = NmCapabilityGate.Evaluate(
@@ -56,6 +72,78 @@ public static class NmAnalyzer
             assumptions.Add("PNI 按 AUTOSAR CanNm CBV bit4 解读（M1 已知限制）");
         }
 
+        // spec §6.2：消费 hil-core 的 NM 属性越界告警。值越界不阻断分析，只是把
+        // 每条告警原样带入报告；hil-core 的文案已带 NM_ATTR_RANGE_MISMATCH 前缀，避免重复。
+        if (request.Dbc is not null)
+        {
+            foreach (var warning in request.Dbc.NmAttributeWarnings)
+            {
+                assumptions.Add(warning.StartsWith(NmAttrRangeMismatchCode, StringComparison.Ordinal)
+                    ? warning
+                    : $"{NmAttrRangeMismatchCode}: {warning}");
+            }
+        }
+
+        var findings = new List<NmFinding>();
+        var events = new List<NmEvent>();
+        var truncations = new List<NmTruncation>();
+        var messageReports = new List<NmMessageReport>();
+        var nmFrames = new List<NmFrame>();
+        IReadOnlyList<NmEpisode> episodes = Array.Empty<NmEpisode>();
+        IReadOnlyList<string>? gapUnknowns = null;
+
+        // 阶段边界取消检查（spec §9.4）：取消不抛异常，由调用方返回部分结果。
+        bool IsCanceled(NmAnalyzerCheckpoint checkpoint)
+        {
+            onCheckpoint?.Invoke(checkpoint);
+            return ct.IsCancellationRequested;
+        }
+
+        // 部分结果只包含已完成阶段的数据；未完成阶段保持空集合，不伪造结论。
+        NmReport Finish(bool partial)
+        {
+            var unknowns = new List<string>(s_unknowns);
+            if (gapUnknowns is not null) unknowns.AddRange(gapUnknowns);
+            // 窗口在 NM 静默未达阈值前结束：结束时刻不可判明，消费方不得据此断言"节点仍在活动"。
+            if (episodes.Any(e => e.BoundaryEnd))
+                unknowns.Add("indeterminate_end（窗口结束时未达静默阈值，episode 结束时间不可判明）");
+            if (partial)
+            {
+                assumptions.Add("分析被取消：已完成阶段的结果保留，尚未开始的阶段为空集合；逐报文阶段只包含已处理的报文（partial）。");
+                unknowns.Add("分析被取消：未完成阶段的数据为空，结论不完整（partial）。");
+            }
+
+            events.Sort((a, b) => a.T.CompareTo(b.T));
+
+            var direction = new NmDirectionCounts(
+                diagnostics.TransmitFrames, diagnostics.ReceiveFrames, diagnostics.DirectionUnknownFrames);
+
+            return new NmReport(
+                window,
+                request.SourceId,
+                request.Channel,
+                episodes,
+                messageReports,
+                Array.Empty<NmNodeReport>(),
+                events,
+                findings,
+                assumptions,
+                unknowns.Distinct().ToArray(),
+                capabilities,
+                missing,
+                truncations,
+                StandardId: null,
+                ProfileHash: null,
+                EngineVersion: EngineVersion,
+                Selection: diagnostics,
+                Direction: direction,
+                IsPartial: partial);
+        }
+
+        // 选择阶段（含能力/缺项）完成后即检查取消：此时报告至少带有选择诊断与能力矩阵。
+        if (IsCanceled(NmAnalyzerCheckpoint.AfterSelection))
+            return Finish(partial: true);
+
         var nmMessages = request.Profile.Messages.Where(m => m.IsNm).ToArray();
         // 单次建索引：键必须含扩展位，否则标准 0x500 与扩展 0x500 会混算。
         var defByKey = new Dictionary<(uint Id, bool IsExtended), NmMessageDef>();
@@ -73,7 +161,6 @@ public static class NmAnalyzer
             }
         }
 
-        var nmFrames = new List<NmFrame>();
         foreach (var frame in selected)
         {
             if (defByKey.TryGetValue((frame.Id & 0x1FFFFFFFu, frame.IsExtended), out var def))
@@ -83,12 +170,9 @@ public static class NmAnalyzer
         var timeoutMs = request.Profile.Timings.TimeoutMs ?? 2000;
         var cycleMs = request.Profile.Timings.CycleMs ?? 500;
 
-        var episodes = NmEpisodeBuilder.Build(nmFrames, timeoutMs, request.Start, request.End);
-        ct.ThrowIfCancellationRequested();
-
-        var findings = new List<NmFinding>();
-        var events = new List<NmEvent>();
-        var truncations = new List<NmTruncation>();
+        episodes = NmEpisodeBuilder.Build(nmFrames, timeoutMs, request.Start, request.End);
+        if (IsCanceled(NmAnalyzerCheckpoint.AfterEpisodes))
+            return Finish(partial: true);
 
         foreach (var conflict in request.Profile.Conflicts)
         {
@@ -99,13 +183,15 @@ public static class NmAnalyzer
                 new[] { window.Start, window.End }, false, "先统一 DBC/矩阵配置"));
         }
 
-        var messageReports = new List<NmMessageReport>();
         // 多通道且未指定 channel 时 selector 已短路返回空；此时按报文报 absent 是假结论。
         if (!diagnostics.MultiChannel)
         {
             foreach (var def in analyzedDefs)
             {
-                ct.ThrowIfCancellationRequested();
+                // 逐报文循环中的取消检查：已完成的报文保留在 messageReports 里。
+                if (IsCanceled(NmAnalyzerCheckpoint.MessageLoop))
+                    return Finish(partial: true);
+
                 var frames = nmFrames
                     .Where(f => f.Def.CanIdHex == def.CanIdHex && f.Def.IsExtended == def.IsExtended)
                     .ToArray();
@@ -163,10 +249,14 @@ public static class NmAnalyzer
                         timestamps.Take(5).ToArray(), false, "核对帧格式/配置"));
                 }
 
-                var activity = new[]
-                {
-                    new NmSegment(timestamps[0], timestamps[^1], "active"),
-                };
+                // 阶段推断：wakeup → active → released/silent（spec §7.3）。
+                var activity = NmActivityBuilder.Build(
+                    frames, def, episodes,
+                    effectiveCycleMs: def.CycleMs ?? cycleMs,
+                    repeatMessageMs: request.Profile.Timings.RepeatMessageMs,
+                    allNmFrames: nmFrames,
+                    windowEnd: request.End,
+                    effectiveTimeoutMs: effectiveTimeoutMs);
                 // 与 NmCycleAnalyzer.Analyze 同源：两者都用 effectiveTimeoutMs。
                 var defTimeoutSec = effectiveTimeoutMs / 1000.0;
                 messageReports.Add(new NmMessageReport(
@@ -187,11 +277,19 @@ public static class NmAnalyzer
             request.SourceId, nmFrames, selected, request.Profile, episodes, window, diagnostics));
         findings.AddRange(gap.Findings);
         events.AddRange(gap.Events);
+        gapUnknowns = gap.Unknowns;
 
-        var content = NmContentAnalyzer.Analyze(new NmContentInput(nmFrames, request.Profile, cycleMs));
+        if (IsCanceled(NmAnalyzerCheckpoint.AfterGap))
+            return Finish(partial: true);
+
+        var content = NmContentAnalyzer.Analyze(
+            new NmContentInput(nmFrames, request.Profile, cycleMs, episodes));
         findings.AddRange(content.Findings);
         events.AddRange(content.Events);
         truncations.AddRange(content.Truncations);
+
+        if (IsCanceled(NmAnalyzerCheckpoint.AfterContent))
+            return Finish(partial: true);
 
         if (request.Dbc is not null)
         {
@@ -202,44 +300,34 @@ public static class NmAnalyzer
             {
                 var signalEvents = NmSignalSummary.Build(
                     request.Dbc, group.ToArray(), MaxEventsPerMessage, out var truncation);
-                events.AddRange(signalEvents);
+                // 信号事件与 content/gap 同口径：按事件时间回填真实 episode 编号，
+                // 否则多 episode 下按 episode_index 钻取会漏掉 signal_change。
+                events.AddRange(signalEvents.Select(e => e with
+                {
+                    EpisodeIndex = NmEpisodeBuilder.IndexAt(e.T, episodes),
+                }));
                 if (truncation is not null) truncations.Add(truncation);
             }
         }
 
-        var unknowns = new List<string>(s_unknowns);
-        unknowns.AddRange(gap.Unknowns);
         if (nmFrames.Count == 0 && !diagnostics.MultiChannel)
             assumptions.Add("该窗口未发现 NM 帧；不推断节点状态。");
         if (diagnostics.DirectionUnknownFrames > 0)
             assumptions.Add($"direction=unknown 的帧 {diagnostics.DirectionUnknownFrames} 条；M1 不排除 Tx。");
 
-        events.Sort((a, b) => a.T.CompareTo(b.T));
-
-        var direction = new NmDirectionCounts(
-            diagnostics.TransmitFrames, diagnostics.ReceiveFrames, diagnostics.DirectionUnknownFrames);
-
-        return new NmReport(
-            window,
-            request.SourceId,
-            request.Channel,
-            episodes,
-            messageReports,
-            Array.Empty<NmNodeReport>(),
-            events,
-            findings,
-            assumptions,
-            unknowns.Distinct().ToArray(),
-            capabilities,
-            missing,
-            truncations,
-            StandardId: null,
-            ProfileHash: null,
-            EngineVersion: EngineVersion,
-            Selection: diagnostics,
-            Direction: direction);
+        return Finish(partial: false);
     }
 
     private static uint ParseId(string hex)
         => uint.Parse(hex.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+}
+
+/// <summary>Analyzer 的取消检查点；测试据此在指定阶段触发取消（spec §9.4）。</summary>
+internal enum NmAnalyzerCheckpoint
+{
+    AfterSelection = 0,
+    AfterEpisodes = 1,
+    MessageLoop = 2,
+    AfterGap = 3,
+    AfterContent = 4,
 }

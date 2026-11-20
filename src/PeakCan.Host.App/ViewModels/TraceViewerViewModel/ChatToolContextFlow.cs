@@ -246,4 +246,8 @@ public sealed partial class TraceViewerViewModel
         if (_j1939VirtualFrames.Count == 0) return raw;
         return raw.Concat(_j1939VirtualFrames).ToList();
     }
+
+    /// <summary>spec §8.1：NM 工具据此判断是否需要强制显式 source_id。</summary>
+    IReadOnlyList<string> IChatToolContext.LoadedSourceIds
+        => _registry.Sources.Select(s => s.SourceId).ToArray();
 }

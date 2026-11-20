@@ -9,6 +9,7 @@ public class NmContentAnalyzerTests
 {
     // CA1861: 常量数组不内联，避免每次构造都分配。
     private static readonly string[] TestReasons = ["test"];
+    private static readonly string[] EpisodeParticipants = ["0x500"];
 
     private static NmFrame Nm(double t, params byte[] data)
         => new(new NmMessageDef("0x500", false, "NM", "A", 8, true, TestReasons, 500, 2000),
@@ -207,5 +208,35 @@ public class NmContentAnalyzerTests
 
         Assert.DoesNotContain(result.Findings, f => f.Code.StartsWith("NM_NID", StringComparison.Ordinal));
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
+    }
+
+    [Fact]
+    public void Analyze_EventsInSecondEpisode_CarryThatEpisodeIndex()
+    {
+        // 两段活动被静默切开：byte1 只在第二段变化，事件必须落 episode 1。
+        var frames = new[]
+        {
+            Nm(0.0, 0xF4, 0x00),
+            Nm(0.5, 0xF5, 0x00),
+            Nm(3.5, 0xF5, 0x01),
+            Nm(4.0, 0xF5, 0x00),
+        };
+        var episodes = new[]
+        {
+            new NmEpisode(0, 0.0, 0.5, "active", null, EpisodeParticipants, false, false),
+            new NmEpisode(1, 3.5, 4.0, "active", null, EpisodeParticipants, false, false),
+        };
+
+        var result = NmContentAnalyzer.Analyze(
+            new NmContentInput(frames, Profile(), 500, episodes));
+
+        var secondEpisode = Assert.Single(result.Events,
+            e => e.Type == "byte_change" && e.Detail.Contains("byte1"));
+        Assert.Equal(1, secondEpisode.EpisodeIndex);
+
+        // episode_index=0 过滤不到第二段的事件（真实编号，不是恒 0）。
+        Assert.DoesNotContain(
+            result.Events.Where(e => e.EpisodeIndex == 0),
+            e => e.Type == "byte_change" && e.Detail.Contains("byte1"));
     }
 }

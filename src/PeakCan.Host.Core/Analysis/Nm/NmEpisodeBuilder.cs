@@ -47,4 +47,26 @@ public static class NmEpisodeBuilder
             BoundaryEnd: windowEnd - last < timeout));
         return episodes;
     }
+
+    /// <summary>
+    /// 把事件时间映射到 episode 编号：落在 <c>[Start, End]</c> 内取该 episode；
+    /// 落进 episode 之间的空档（或窗口首尾）时，取时间上最近的<strong>前一个</strong>
+    /// episode；之前没有任何 episode 时返回 0。未提供 episodes 时恒为 0。
+    /// </summary>
+    public static int IndexAt(double t, IReadOnlyList<NmEpisode>? episodes)
+    {
+        if (episodes is null || episodes.Count == 0) return 0;
+
+        int? containing = null;
+        var previous = -1;
+        foreach (var episode in episodes)
+        {
+            if (t >= episode.Start && t <= episode.End)
+                containing ??= episode.Index;
+            if (episode.End <= t && episode.Index > previous)
+                previous = episode.Index;
+        }
+
+        return containing ?? (previous >= 0 ? previous : 0);
+    }
 }

@@ -12,9 +12,9 @@ public class NmGapAnalyzerTests
     private static readonly string[] TestReasons = ["test"];
     private static readonly string[] SingleParticipant = ["0x500"];
 
-    private static NmFrame Nm(double t, string id = "0x500", byte nid = 0xF4)
-        => new(new NmMessageDef(id, false, "NM", "A", 8, true, TestReasons, 500, 2000),
-               new ReplayFrame(t, CanId(id), 2, new byte[] { nid, 0 }, FrameFlags.None));
+    private static NmFrame Nm(double t, string id = "0x500", byte nid = 0xF4, bool ext = false)
+        => new(new NmMessageDef(id, ext, "NM", "A", 8, true, TestReasons, 500, 2000),
+               new ReplayFrame(t, CanId(id), 2, new byte[] { nid, 0 }, FrameFlags.None, ext));
 
     // CanIdHex 是 "0x..." 文本，解析时去掉 0x 前缀。
     private static uint CanId(string id)
@@ -125,5 +125,44 @@ public class NmGapAnalyzerTests
         Assert.Contains(result.Findings, f => f.Code == "NM_ALL_NM_SILENT");
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_SENDER_SILENT_BEYOND_TIMEOUT");
+    }
+
+    [Fact]
+    public void Analyze_SameNumericIdDifferentFormat_DoesNotMaskDropout()
+    {
+        // 标准 0x500 在 1.0s 后停发，扩展 0x500 一直发到 4.0s：
+        // 两者是不同报文，扩展帧不能给标准帧的掉线当“仍在发送”的证据。
+        var nm = new List<NmFrame>
+        {
+            Nm(0.0), Nm(0.5), Nm(1.0),
+        };
+        for (int i = 0; i <= 8; i++)
+            nm.Add(Nm(i * 0.5, ext: true));
+        var input = new NmGapInput("src", nm, nm.Select(f => f.Frame).ToArray(), Profile(),
+            Episodes((0, 4.0)), new NmWindow(0, 5, "full"), Diag());
+
+        var result = NmGapAnalyzer.Analyze(input);
+
+        var dropout = Assert.Single(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
+        // 标准帧的结论用裸 ID；扩展帧若被误合并，这里会根本没有 dropout。
+        Assert.Contains("0x500 从", dropout.Message);
+        Assert.DoesNotContain("(ext)", dropout.Message);
+    }
+
+    [Fact]
+    public void Analyze_BusWideSilenceEvent_UsesContainingEpisodeIndex()
+    {
+        // 事件发生在第二段活动内（t=2.0），编号必须是 1，而不是恒 0。
+        var nm = new[] { Nm(0.0), Nm(0.5), Nm(2.0), Nm(4.0) };
+        var input = new NmGapInput("src", nm, nm.Select(f => f.Frame).ToArray(), Profile(),
+            Episodes((0.0, 0.5), (2.0, 4.0)), new NmWindow(0, 5, "full"), Diag());
+
+        var result = NmGapAnalyzer.Analyze(input);
+
+        var busWide = result.Events
+            .Where(e => e.Type == "bus_wide_silence" && e.T == 2.0)
+            .ToArray();
+        Assert.Single(busWide);
+        Assert.Equal(1, busWide[0].EpisodeIndex);
     }
 }

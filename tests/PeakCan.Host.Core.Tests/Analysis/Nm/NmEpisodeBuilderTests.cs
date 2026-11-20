@@ -10,6 +10,7 @@ public class NmEpisodeBuilderTests
     // CA1861: 常量数组不内联，避免每次构造都分配。
     private static readonly string[] TestReasons = ["test"];
     private static readonly byte[] Payload = [0, 0];
+    private static readonly string[] EpisodeParticipants = ["0x500"];
 
     private static NmFrame F(double t, string id = "0x500")
         => new(new NmMessageDef(id, false, "NM", "A", 8, true, TestReasons),
@@ -108,5 +109,37 @@ public class NmEpisodeBuilderTests
 
         Assert.Equal(0.5, episode.Start);
         Assert.Equal(1.0, episode.End);
+    }
+
+    // ---------------- 事件 -> episode 编号 ----------------
+
+    private static NmEpisode[] TwoEpisodes() => new[]
+    {
+        new NmEpisode(0, 0.0, 1.0, "active", null, EpisodeParticipants, false, false),
+        new NmEpisode(1, 3.0, 4.0, "active", null, EpisodeParticipants, false, false),
+    };
+
+    [Fact]
+    public void IndexAt_InsideEpisode_ReturnsThatEpisode()
+    {
+        Assert.Equal(0, NmEpisodeBuilder.IndexAt(0.5, TwoEpisodes()));
+        Assert.Equal(1, NmEpisodeBuilder.IndexAt(3.5, TwoEpisodes()));
+    }
+
+    [Fact]
+    public void IndexAt_InGap_ReturnsClosestPreviousEpisode()
+    {
+        // 空档 1.0..3.0 不属于任何 episode，按“前一个”落到 episode 0。
+        Assert.Equal(0, NmEpisodeBuilder.IndexAt(2.0, TwoEpisodes()));
+        // 最后一个 episode 之后仍是“前一个”。
+        Assert.Equal(1, NmEpisodeBuilder.IndexAt(9.0, TwoEpisodes()));
+    }
+
+    [Fact]
+    public void IndexAt_BeforeFirstEpisodeOrNoEpisodes_ReturnsZero()
+    {
+        Assert.Equal(0, NmEpisodeBuilder.IndexAt(-1.0, TwoEpisodes()));
+        Assert.Equal(0, NmEpisodeBuilder.IndexAt(1.0, null));
+        Assert.Equal(0, NmEpisodeBuilder.IndexAt(1.0, Array.Empty<NmEpisode>()));
     }
 }

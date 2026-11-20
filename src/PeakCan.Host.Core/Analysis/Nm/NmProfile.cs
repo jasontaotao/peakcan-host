@@ -106,4 +106,10 @@ public sealed record NmUserSupplement(
     NmFeatures? Features = null,
     IReadOnlyList<NmNodeDef>? Nodes = null,
     string? DbcPath = null,
-    string? DbcHash = null);
+    string? DbcHash = null,
+    // sidecar 结构版本：将来字段变更时用于迁移。
+    int Version = 1,
+    // 创建时间：Save 时填充，已有文件保留原值（spec §6.6.6）。
+    DateTimeOffset? CreatedAt = null,
+    // 生成该 sidecar 时的 profile 结构版本。
+    int ProfileVersion = 1);

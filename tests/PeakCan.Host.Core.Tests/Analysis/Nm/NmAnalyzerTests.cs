@@ -16,6 +16,19 @@ public class NmAnalyzerTests
     // CA1861: 共享空载荷，避免每个帧都分配新数组。
     private static readonly byte[] EmptyPayload = new byte[8];
 
+    // §9.4 AfterContent 用例：报文带一个 8 位信号，用于区分内容事件与信号摘要事件。
+    private const string SignalDbc = """
+        VERSION ""
+
+        BU_: ECU_A
+
+        BO_ 1280 NM_Message: 8 ECU_A
+         SG_ S1 : 0|8@1+ (1,0) [0|255] "" ECU_A
+
+        BA_DEF_ BO_ "MsgType" ENUM "CDD","CANNM";
+        BA_ "MsgType" BO_ 1280 1;
+        """;
+
     private static ReplayFrame F(double t, uint id, bool ext, params byte[] data)
         => new(t, id, (byte)data.Length, data, FrameFlags.None, ext);
 
@@ -327,13 +340,174 @@ BO_ 1280 NM_Message: 8 ECU_A
     }
 
     [Fact]
-    public void Analyze_Cancellation_ThrowsOperationCanceled()
+    public void Analyze_PreCancelledToken_ReturnsPartialReportWithoutThrowing()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        Assert.Throws<OperationCanceledException>(() =>
-            NmAnalyzer.Analyze(new NmAnalysisRequest(
-                "src", null, Array.Empty<ReplayFrame>(), null, Profile(), 0, 1), cts.Token));
+        // spec §9.4：取消不再抛异常，返回已完成阶段（选择/能力/缺项）的部分结果。
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, Array.Empty<ReplayFrame>(), null, Profile(), 0, 1), cts.Token);
+
+        Assert.True(report.IsPartial);
+        Assert.Empty(report.Messages);
+        Assert.Empty(report.Episodes);
+        Assert.NotEmpty(report.Capabilities);
+        Assert.Contains(report.Assumptions, a => a.Contains("partial"));
+        Assert.Contains(report.Unknowns, u => u.Contains("partial"));
+    }
+
+    [Fact]
+    public void Analyze_CancelDuringMessageLoop_ReturnsProcessedMessagesAsPartial()
+    {
+        using var cts = new CancellationTokenSource();
+        var messages = new[]
+        {
+            new NmMessageDef("0x500", false, "NM_1", "ECU_A", 8, true, CannmReasons, 500, 2000),
+            new NmMessageDef("0x501", false, "NM_2", "ECU_A", 8, true, CannmReasons, 500, 2000),
+            new NmMessageDef("0x502", false, "NM_3", "ECU_A", 8, true, CannmReasons, 500, 2000),
+        };
+        var profile = Profile() with { Messages = messages };
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0), F(0.5, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0),
+            F(0.0, 0x501, false, 0xF5, 0, 0, 0, 0, 0, 0, 0), F(0.5, 0x501, false, 0xF5, 0, 0, 0, 0, 0, 0, 0),
+            F(0.0, 0x502, false, 0xF6, 0, 0, 0, 0, 0, 0, 0), F(0.5, 0x502, false, 0xF6, 0, 0, 0, 0, 0, 0, 0),
+        };
+        var request = new NmAnalysisRequest("src", null, frames, null, profile, 0, 1);
+
+        // 第二次进入逐报文循环时触发取消：第 1 条报文已完成，第 2/3 条不应出现在报告里。
+        var loopChecks = 0;
+        var report = NmAnalyzer.Analyze(request, checkpoint =>
+        {
+            if (checkpoint == NmAnalyzerCheckpoint.MessageLoop && ++loopChecks == 2)
+                cts.Cancel();
+        }, cts.Token);
+
+        Assert.True(report.IsPartial);
+        // 只保留已处理的第 1 条报文（0x500），未处理的报文不得产生任何结论。
+        var processed = Assert.Single(report.Messages);
+        Assert.Equal("0x500", processed.CanIdHex);
+        Assert.DoesNotContain(report.Findings, f => f.Message.Contains("0x501") || f.Message.Contains("0x502"));
+        Assert.Contains(report.Assumptions, a => a.Contains("partial"));
+    }
+
+    [Fact]
+    public void Analyze_CancelAfterEpisodes_KeepsEpisodesButNoMessageReports()
+    {
+        using var cts = new CancellationTokenSource();
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0),
+            F(1.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(
+            new NmAnalysisRequest("src", null, frames, null, Profile(), 0, 2.0),
+            checkpoint =>
+            {
+                if (checkpoint == NmAnalyzerCheckpoint.AfterEpisodes) cts.Cancel();
+            },
+            cts.Token);
+
+        Assert.True(report.IsPartial);
+        Assert.Single(report.Episodes);
+        Assert.Empty(report.Messages);
+        Assert.Empty(report.Findings);
+        Assert.Empty(report.Events);
+    }
+
+    [Fact]
+    public void Analyze_CancelAfterGap_KeepsGapEventsButSkipsContent()
+    {
+        using var cts = new CancellationTokenSource();
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0x00, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0x01, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(
+            new NmAnalysisRequest("src", null, frames, null, Profile(), 0, 5.0),
+            checkpoint =>
+            {
+                if (checkpoint == NmAnalyzerCheckpoint.AfterGap) cts.Cancel();
+            },
+            cts.Token);
+
+        Assert.True(report.IsPartial);
+        Assert.Single(report.Messages);
+        // 空档阶段已跑完：尾部全网络静默事件在报告里。
+        Assert.Contains(report.Events, e => e.Type == "all_nm_silent");
+        // 内容阶段未跑：字节变化事件不应凭空出现。
+        Assert.DoesNotContain(report.Events, e => e.Type == "byte_change");
+        Assert.Empty(report.Truncations);
+    }
+
+    [Fact]
+    public void Analyze_CancelAfterContent_SkipsSignalEvents()
+    {
+        using var cts = new CancellationTokenSource();
+        var dbc = DbcParser.Parse(SignalDbc).Value!;
+        var profile = NmProfileBuilder.Build(dbc, null);
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0x00, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0x01, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(
+            new NmAnalysisRequest("src", null, frames, dbc, profile, 0, 1.0),
+            checkpoint =>
+            {
+                if (checkpoint == NmAnalyzerCheckpoint.AfterContent) cts.Cancel();
+            },
+            cts.Token);
+
+        Assert.True(report.IsPartial);
+        // 内容阶段已跑完：字节变化事件在报告里。
+        Assert.Contains(report.Events, e => e.Type == "byte_change");
+        // 信号摘要阶段未跑：DBC 信号变化事件不应出现。
+        Assert.DoesNotContain(report.Events, e => e.Type == "signal_change");
+    }
+
+    [Fact]
+    public void Analyze_NotCancelled_IsNotPartial()
+    {
+        var frames = new[] { F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0) };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, Profile(), 0, 1));
+
+        Assert.False(report.IsPartial);
+        Assert.DoesNotContain(report.Assumptions, a => a.Contains("partial"));
+    }
+
+    [Fact]
+    public void Analyze_SignalChangeInSecondEpisode_CarriesThatEpisodeIndex()
+    {
+        // 0.5s 与 3.0s 之间的静默 ≥ 2s，切出两个 episode；
+        // 第二段里的 signal_change（T=3.0、3.5）必须带 episode_index=1。
+        var dbc = DbcParser.Parse(SignalDbc).Value!;
+        var profile = NmProfileBuilder.Build(dbc, null);
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0x00, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0x01, 0, 0, 0, 0, 0, 0, 0),
+            F(3.0, 0x500, false, 0x02, 0, 0, 0, 0, 0, 0, 0),
+            F(3.5, 0x500, false, 0x03, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, dbc, profile, 0, 4.0));
+
+        Assert.Equal(2, report.Episodes.Count);
+        var secondEpisode = Assert.Single(report.Events,
+            e => e.Type == "signal_change" && e.T == 3.0);
+        Assert.Equal(1, secondEpisode.EpisodeIndex);
+        // 第一段的信号事件仍是 0，佐证编号不是恒 1。
+        Assert.Equal(0, Assert.Single(report.Events,
+            e => e.Type == "signal_change" && e.T == 0.5).EpisodeIndex);
     }
 }

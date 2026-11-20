@@ -60,7 +60,8 @@ public sealed record NmEvent(
     string? CanIdHex,
     string Detail,
     int EpisodeIndex,
-    string EvidenceKind);
+    string EvidenceKind,
+    bool IsExtended = false);
 
 public sealed record NmFinding(
     string Code,
@@ -108,4 +109,6 @@ public sealed record NmReport(
     string? EngineVersion = null,
     // 选择器丢弃/过滤计数：让"为什么少了很多帧"可复核，而不是算完即丢。
     NmSelectionDiagnostics? Selection = null,
-    NmDirectionCounts? Direction = null);
+    NmDirectionCounts? Direction = null,
+    // 取消/超时导致分析未跑完：报告只包含已完成阶段的数据（spec §9.4）。
+    bool IsPartial = false);

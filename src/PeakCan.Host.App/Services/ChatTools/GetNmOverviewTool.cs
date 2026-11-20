@@ -35,14 +35,25 @@ public sealed class GetNmOverviewTool : ChatToolBase
     protected override async Task<string> ExecuteCoreAsync(string argsJson, CancellationToken ct)
     {
         var args = ParseArgs(argsJson);
+        // spec §8.1：多源且未显式 source_id 时不得静默取 master。
+        if (NmToolArgs.CheckSourceSelection(args, _context) is { } sourceError)
+            return sourceError;
+
         var snapshot = await _context.GetNmSnapshotAsync(new NmToolQuery(
-            SourceId: args["source_id"]?.GetValue<string>(),
+            SourceId: NmToolArgs.GetString(args, "source_id"),
             Channel: NmToolArgs.GetChannel(args),
-            TStart: args["t_start"]?.GetValue<double>(),
-            TEnd: args["t_end"]?.GetValue<double>(),
-            WindowRef: args["window_ref"]?.GetValue<string>()), ct);
+            TStart: NmToolArgs.GetDouble(args, "t_start"),
+            TEnd: NmToolArgs.GetDouble(args, "t_end"),
+            WindowRef: NmToolArgs.GetString(args, "window_ref")), ct);
 
         var report = snapshot.Report;
+        // 本报告涉及过的 CAN ID 是结构信息，正文里可保留；其余十六进制取值按字节脱敏。
+        // 必须并入 profile 里的 NM 报文：窗口内从未出现的报文只产 NM_MESSAGE_ABSENT
+        // finding、不产 NmMessageReport，漏掉它会把该 finding 的报文 ID 误脱敏成 0x??。
+        var allowedCanIds = NmEventPrivacy.CollectCanIds(
+            report.Messages.Select(m => m.CanIdHex),
+            report.Events.Select(e => e.CanIdHex),
+            snapshot.Profile.Messages.Select(m => m.CanIdHex));
 
         var episodes = report.Episodes.Take(20).Select(e => new JsonObject
         {
@@ -75,13 +86,19 @@ public sealed class GetNmOverviewTool : ChatToolBase
         {
             ["code"] = f.Code,
             ["severity"] = f.Severity,
-            ["message"] = f.Message,
+            // findings 文本可能带 NID/站地址等字节取值（§11 隐私旁路）：发给模型前脱敏。
+            // CanIdHex 是独立的结构字段，不受影响。
+            ["message"] = NmEventPrivacy.RedactText(f.Message, allowedCanIds),
             ["evidence_times"] = new JsonArray(f.EvidenceTimes.Select(t => (JsonNode)t).ToArray()),
             ["is_inference"] = f.IsInference,
-            ["suggested_next_check"] = f.SuggestedNextCheck,
+            ["suggested_next_check"] = f.SuggestedNextCheck is null
+                ? null
+                : NmEventPrivacy.RedactText(f.SuggestedNextCheck, allowedCanIds),
         });
 
         var root = NmToolOutput.Root(snapshot);
+        // spec §11：assumptions 可能带 DBC 告警中的节点地址十进制值，输出前脱敏。
+        NmEventPrivacy.RedactAssumptions(root);
         root["window"] = new JsonObject
         {
             ["start"] = report.Window.Start,
@@ -106,8 +123,9 @@ public sealed class GetNmOverviewTool : ChatToolBase
         {
             ["capability"] = m.Capability.ToString(),
             ["input"] = m.InputKey,
-            ["why"] = m.Why,
-            ["suggestion"] = m.Suggestion,
+            // 建议文本可能含 NID 候选等字节取值（§11）：发给模型前脱敏。
+            ["why"] = NmEventPrivacy.RedactText(m.Why, allowedCanIds),
+            ["suggestion"] = m.Suggestion is null ? null : NmEventPrivacy.RedactText(m.Suggestion, allowedCanIds),
         }).ToArray());
         // 分析器自身的截断（如 signal_change 事件超上限），让模型知道结果并非全量。
         root["truncations"] = new JsonArray(report.Truncations.Select(t => (JsonNode)new JsonObject

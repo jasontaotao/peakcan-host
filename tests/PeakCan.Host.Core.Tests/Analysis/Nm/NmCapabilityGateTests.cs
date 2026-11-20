@@ -83,7 +83,7 @@ public class NmCapabilityGateTests
             .Select(i => Frame(i * 0.5, 0x18FFFAF4, true, 0xF4, 0x00, 1, 2, 3, 4, 5, 6))
             .ToArray();
 
-        var suggestion = NmSuggestionEngine.SuggestNidByte(frames, 0x18FFFAF4, stationAddress: 0xF4);
+        var suggestion = NmSuggestionEngine.SuggestNidByte(frames, 0x18FFFAF4, isExtended: true, stationAddress: 0xF4);
 
         Assert.Equal((byte?)0, suggestion.Byte);
         Assert.Contains("0xF4", suggestion.Evidence);
@@ -96,10 +96,10 @@ public class NmCapabilityGateTests
             .Select(i => Frame(i * 0.5, 0x18FFFAF4, true, 0xF4))
             .ToArray();
 
-        Assert.Equal(500, NmSuggestionEngine.SuggestCycleMs(frames, 0x18FFFAF4));
+        Assert.Equal(500, NmSuggestionEngine.SuggestCycleMs(frames, 0x18FFFAF4, true));
 
         var tooFew = frames.Take(4).ToArray();
-        Assert.Null(NmSuggestionEngine.SuggestCycleMs(tooFew, 0x18FFFAF4));
+        Assert.Null(NmSuggestionEngine.SuggestCycleMs(tooFew, 0x18FFFAF4, true));
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class NmCapabilityGateTests
             .Select(i => Frame(i * 0.5, 0x18FFFAF4, true, 0x11, 0x22))
             .ToArray();
 
-        var suggestion = NmSuggestionEngine.SuggestNidByte(frames, 0x18FFFAF4, stationAddress: 0xF4);
+        var suggestion = NmSuggestionEngine.SuggestNidByte(frames, 0x18FFFAF4, isExtended: true, stationAddress: 0xF4);
 
         Assert.Null(suggestion.Byte);
     }
@@ -123,7 +123,7 @@ public class NmCapabilityGateTests
             .Select(i => Frame(i * 0.5, 0x18FFFAF4, true, i < 8 ? (byte)0xF4 : (byte)0x27, 0x00))
             .ToArray();
 
-        var suggestion = NmSuggestionEngine.SuggestNidByte(frames, 0x18FFFAF4, stationAddress: 0xF4);
+        var suggestion = NmSuggestionEngine.SuggestNidByte(frames, 0x18FFFAF4, isExtended: true, stationAddress: 0xF4);
 
         Assert.Equal((byte?)0, suggestion.Byte);
         Assert.Contains("8/10", suggestion.Evidence);
@@ -159,5 +159,136 @@ public class NmCapabilityGateTests
 
         Assert.False(caps.Single(c => c.Capability == NmCapability.NidCheck).Available);
         Assert.Contains(missing, m => m.InputKey == "nm_node_mapping");
+    }
+
+    // ---------------- §6.6.4 建议接线 ----------------
+
+    [Fact]
+    public void Evaluate_MissingTimeout_SuggestsThreeTimesCycleAsAssumption()
+    {
+        var profile = Profile(false) with
+        {
+            Messages = new[]
+            {
+                new NmMessageDef("0x18FFFAF4", true, "BMS_NWM", "BMS", 8, true,
+                    CannmReasons, 500, null, true),
+            },
+            Timings = new NmTimings(CycleMs: 500),
+        };
+
+        var (_, missing) = NmCapabilityGate.Evaluate(profile, Frames(), null);
+
+        var timeout = Assert.Single(missing, m => m.InputKey == "timeout_ms");
+        Assert.Equal("assumption", timeout.SuggestionSource);
+        Assert.Contains("1500", timeout.Suggestion);
+        Assert.Contains("3×cycle", timeout.Suggestion);
+    }
+
+    [Fact]
+    public void SuggestNidByteCandidates_ReturnsTopTwoWithEvidence()
+    {
+        var frames = Enumerable.Range(0, 10)
+            .Select(i => Frame(i * 0.5, 0x18FFFAF4, true, 0xF4, 0xF4, 0, 0, 0, 0, 0, 0))
+            .ToArray();
+
+        var candidates = NmSuggestionEngine.SuggestNidByteCandidates(
+            frames, 0x18FFFAF4, isExtended: true, stationAddress: 0xF4);
+
+        Assert.Equal(2, candidates.Count);
+        Assert.Equal((byte)0, candidates[0].Byte);
+        Assert.Equal((byte)1, candidates[1].Byte);
+        Assert.All(candidates, c => Assert.Contains("0xF4", c.Evidence));
+    }
+
+    [Fact]
+    public void SuggestCbvByte_PicksFewestDistinctValuesThenMostBitFlips()
+    {
+        // byte0 恒定（无控制位信息）；byte1 只有两种取值且反复翻转 → CBV 候选。
+        var frames = Enumerable.Range(0, 10)
+            .Select(i => Frame(i * 0.5, 0x18FFFAF4, true,
+                0xF4, (byte)(i % 2 == 0 ? 0x00 : 0x10), 0, 0))
+            .ToArray();
+
+        var suggestion = NmSuggestionEngine.SuggestCbvByte(frames, 0x18FFFAF4, true);
+
+        Assert.Equal((byte?)1, suggestion.Byte);
+        Assert.Contains("位翻转", suggestion.Evidence);
+    }
+
+    [Fact]
+    public void SuggestUserData_TailAllZero_SuggestsZeroLength()
+    {
+        var frames = Enumerable.Range(0, 6)
+            .Select(i => Frame(i * 0.5, 0x18FFFAF4, true, 0xF4, 0x00, 0, 0, 0, 0, 0, 0))
+            .ToArray();
+
+        var suggestion = NmSuggestionEngine.SuggestUserData(frames, 0x18FFFAF4, true);
+
+        Assert.Equal((byte?)2, suggestion.Offset);
+        Assert.Equal(0, suggestion.Length);
+        Assert.Contains("length 0", suggestion.Evidence);
+    }
+
+    [Fact]
+    public void SuggestUserData_NonZeroTail_ReportsRangeEvidence()
+    {
+        var frames = Enumerable.Range(0, 6)
+            .Select(i => Frame(i * 0.5, 0x18FFFAF4, true, 0xF4, 0x00, 0, 0, 0, 0x12, 0, 0))
+            .ToArray();
+
+        var suggestion = NmSuggestionEngine.SuggestUserData(frames, 0x18FFFAF4, true);
+
+        Assert.Equal((byte?)2, suggestion.Offset);
+        Assert.Equal(6, suggestion.Length);
+        Assert.Contains("非零", suggestion.Evidence);
+    }
+
+    [Fact]
+    public void SuggestNmMessageCandidatesByObservedCycle_RequiresEightBytesAndFiveIntervals()
+    {
+        var stable = Enumerable.Range(0, 6)
+            .Select(i => Frame(i * 0.5, 0x600, false, 0, 0, 0, 0, 0, 0, 0, 0))
+            .ToArray();
+
+        var candidates = NmSuggestionEngine.SuggestNmMessageCandidatesByObservedCycle(stable);
+
+        Assert.Contains(candidates, c => c.Contains("0x600") && c.Contains("500ms"));
+
+        var tooFew = stable.Take(4).ToArray();
+        Assert.Empty(NmSuggestionEngine.SuggestNmMessageCandidatesByObservedCycle(tooFew));
+
+        var tooShort = Enumerable.Range(0, 6)
+            .Select(i => Frame(i * 0.5, 0x601, false, 0, 0, 0, 0))
+            .ToArray();
+        Assert.Empty(NmSuggestionEngine.SuggestNmMessageCandidatesByObservedCycle(tooShort));
+
+        // 扩展位必须体现在候选串里，避免标准/扩展被去重成同一条。
+        var extended = Enumerable.Range(0, 6)
+            .Select(i => Frame(i * 0.5, 0x600, true, 0, 0, 0, 0, 0, 0, 0, 0))
+            .ToArray();
+        Assert.Contains(NmSuggestionEngine.SuggestNmMessageCandidatesByObservedCycle(extended),
+            c => c.Contains("0x600(ext)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SuggestNidByteCandidates_SeparatesStandardAndExtendedSamples()
+    {
+        // 同数值 ID 0x500：标准帧恒为 0xAA，扩展帧恒为 0x50。
+        // 新旧口径若混样，占比会变成 10/20；按 (Id, IsExtended) 分组后各为 10/10。
+        var frames = Enumerable.Range(0, 10)
+            .Select(i => Frame(i * 0.5, 0x500, false, 0xAA, 0x00))
+            .Concat(Enumerable.Range(0, 10)
+                .Select(i => Frame(i * 0.5, 0x500, true, 0x50, 0x00)))
+            .ToArray();
+
+        var standard = NmSuggestionEngine.SuggestNidByteCandidates(
+            frames, 0x500, isExtended: false, stationAddress: 0xAA);
+        var extended = NmSuggestionEngine.SuggestNidByteCandidates(
+            frames, 0x500, isExtended: true, stationAddress: 0x50);
+
+        Assert.Equal((byte)0, standard[0].Byte);
+        Assert.Contains("10/10", standard[0].Evidence);
+        Assert.Equal((byte)0, extended[0].Byte);
+        Assert.Contains("10/10", extended[0].Evidence);
     }
 }

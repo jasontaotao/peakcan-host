@@ -98,6 +98,12 @@ public sealed partial class TraceViewerViewModel
             SendMessageCommand.Execute(null);
     }
 
+    /// <summary>
+    /// NM 面板「在 AI 中解读选中事件」的接线：只预填输入框，不自动发送。
+    /// 单独抽出便于单测验证「生成提示」与「未发送」两件事。
+    /// </summary>
+    internal void PrefillChatInput(string text) => ChatInput = text;
+
     private bool CanSendChat() => !IsChatBusy && !string.IsNullOrWhiteSpace(ChatInput);
 
     [RelayCommand(CanExecute = nameof(CanSendChat))]

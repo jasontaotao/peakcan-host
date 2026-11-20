@@ -10,6 +10,30 @@ public partial class NmInputWizardWindow : Window
         InitializeComponent();
         DataContext = vm;
         vm.RequestClose += OnRequestClose;
+
+        // 文件对话框留在视图层：VM 只暴露可注入的委托，测试不会弹窗。
+        vm.SaveFilePicker = suggestedName =>
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "导出 NM 配置",
+                Filter = "NM profile (*.nmprofile.json)|*.nmprofile.json|JSON (*.json)|*.json",
+                FileName = suggestedName,
+                AddExtension = true,
+                DefaultExt = ".json",
+            };
+            return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+        };
+        vm.OpenFilePicker = () =>
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "导入 NM 配置",
+                Filter = "NM profile (*.nmprofile.json)|*.nmprofile.json|JSON (*.json)|*.json",
+                CheckFileExists = true,
+            };
+            return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+        };
     }
 
     /// <summary>保存成功后自动关闭；本窗口只以 ShowDialog 打开，DialogResult 合法。</summary>
