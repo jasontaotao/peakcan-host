@@ -313,20 +313,33 @@ public sealed partial class TraceViewerViewModel
     // loaded via the DbcView tab. v3.15.0 MINOR: also update
     // LoadedDbcPath so the XAML top bar reflects the currently loaded
     // DBC file (DbcDocument.SourcePath was added in v3.15.0).
+    //
+    // 2026-11-20 PATCH（peak-20261120.log）：DbcLoaded 在线程池线程触发
+    // （DbcService.LoadAsync 内部全程 ConfigureAwait(false)，契约见
+    // TraceViewModel/DbcBindingFlow.cs 的 xmldoc）。本处理器触碰
+    // ObservableCollection（WatchedSignals → 采样表 handler →
+    // SamplingRows.Clear）和 INPC（LoadedDbcPath / row.Dbc），必须经
+    // RunOnUi 封送回 UI 线程；否则 WPF CollectionView 抛
+    // NotSupportedException，且会被 DbcService 兜底 catch 误报成
+    // "DBC IO failed" + LoadFailed（解析其实已成功）。与 TraceViewModel /
+    // DbcViewModel / MultiFrameSendViewModel 的 OnDbcLoaded 同一封送点。
     private void OnDbcLoaded(DbcDocument doc)
     {
-        LoadedDbcPath = doc.SourcePath ?? "";
-        RebuildSignalsCore();
-        // v3.50.5 PATCH: re-bind Dbc on every existing WatchedSignals row
-        // so the .Text computed properties resolve VAL_ table entries
-        // against the newly-loaded DBC. The Dbc setter triggers
-        // PropertyChanged for LatestText/BlueText/DeltaText (INPC fan-out).
-        // Signal references remain cached in _signalByKey (sister of v3.50.0
-        // MINOR); a stale Signal after DBC reload is a known pre-existing
-        // issue out of scope for v3.50.5.
-        foreach (var row in WatchedSignals)
+        ((Action)(() =>
         {
-            row.Dbc = doc;
-        }
+            LoadedDbcPath = doc.SourcePath ?? "";
+            RebuildSignalsCore();
+            // v3.50.5 PATCH: re-bind Dbc on every existing WatchedSignals row
+            // so the .Text computed properties resolve VAL_ table entries
+            // against the newly-loaded DBC. The Dbc setter triggers
+            // PropertyChanged for LatestText/BlueText/DeltaText (INPC fan-out).
+            // Signal references remain cached in _signalByKey (sister of v3.50.0
+            // MINOR); a stale Signal after DBC reload is a known pre-existing
+            // issue out of scope for v3.50.5.
+            foreach (var row in WatchedSignals)
+            {
+                row.Dbc = doc;
+            }
+        })).RunOnUi();
     }
 }
