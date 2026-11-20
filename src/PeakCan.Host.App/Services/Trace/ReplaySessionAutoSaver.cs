@@ -56,16 +56,14 @@ public sealed partial class ReplaySessionAutoSaver : SessionAutoSaver<ReplayView
         !string.IsNullOrEmpty(vm.LoadedFilePath);
 
     /// <summary>
-    /// v3.11.0 MINOR T2 (H7): delegate to the VM's async BuildSnapshot
-    /// entry point. Same rationale as
-    /// <see cref="TraceSessionAutoSaver.BuildSnapshot"/> — the sync
-    /// shim <c>vm.BuildSnapshot()</c> would also work but calling the
-    /// async form here keeps the call site explicit about its
-    /// sync-over-async dependency (T3 will refactor the auto-saver's
-    /// TrySaveAutoSnapshotAsync to await the call properly).
+    /// v3.11.0 MINOR T2 (H7): delegate to the VM's async snapshot entry
+    /// point. 2026-11-20 PATCH: 基类改为 await 这个重载——之前的同步
+    /// 版本在 UI 线程（例如 OnExit 且 Trace 无内容）会 sync-over-async
+    /// 卡死，因为 VM 的哈希续体要回到同一个 Dispatcher。
     /// </summary>
-    protected override TraceSessionBundleDto BuildSnapshot(ReplayViewModel vm) =>
-        vm.BuildSnapshotAsync().GetAwaiter().GetResult();
+    protected override Task<TraceSessionBundleDto> BuildSnapshotAsync(
+        ReplayViewModel vm, CancellationToken ct)
+        => vm.BuildSnapshotAsync(ct);
 
     protected override Task<IReadOnlyList<string>> ApplySnapshotToVmAsync(
         ReplayViewModel vm, string sourceFile) =>

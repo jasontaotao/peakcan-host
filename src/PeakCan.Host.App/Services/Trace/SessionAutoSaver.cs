@@ -51,6 +51,19 @@ public abstract class SessionAutoSaver<TVm>
         throw new NotSupportedException(
             $"{GetType().Name} must override BuildSnapshot");
 
+    /// <summary>
+    /// 异步快照入口。默认复用同步实现（适合本身不捕获 UI 上下文的
+    /// service）；拥有异步构建能力的 VM（如 Replay）必须覆盖，
+    /// 否则在 UI 线程上 sync-over-async 会自锁。
+    /// <para>
+    /// 默认实现同步执行，<paramref name="ct"/> 无法中断正在进行的快照；
+    /// 只有异步覆盖才真正观察取消（OnExit 的超时仍能约束外层等待）。
+    /// </para>
+    /// </summary>
+    protected virtual Task<TraceSessionBundleDto> BuildSnapshotAsync(
+        TVm vm, CancellationToken ct)
+        => Task.FromResult(BuildSnapshot(vm));
+
     protected abstract Task<IReadOnlyList<string>> ApplySnapshotToVmAsync(
         TVm vm, string sourceFile);
 
@@ -123,7 +136,7 @@ public abstract class SessionAutoSaver<TVm>
                 return false;
             }
             if (!HasContentToSave(vm)) return false;
-            var dto = BuildSnapshot(vm);
+            var dto = await BuildSnapshotAsync(vm, ct).ConfigureAwait(false);
             await Task.Run(() => _library.Save(dto, AutoSavePath), ct).ConfigureAwait(false);
             OnSaved(AutoSavePath, dto.Sources?.Count ?? 0);
             return true;

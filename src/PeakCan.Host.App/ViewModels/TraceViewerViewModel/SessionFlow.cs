@@ -27,7 +27,9 @@ public sealed partial class TraceViewerViewModel
     public async Task SaveSessionAsync(string? path)
     {
         if (string.IsNullOrEmpty(path)) return;
-        var snapshot = BuildSnapshot();
+        // 必须 await 异步快照：BuildSnapshotAsync 的哈希 await 会回到 UI
+        // 上下文，若在这里同步阻塞等待，Dispatcher 无法执行续体 → 保存卡死。
+        var snapshot = await BuildSnapshotAsync().ConfigureAwait(true);
         await Task.Run(() => _sessionLibrary.Save(snapshot, path)).ConfigureAwait(true);
     }
 
@@ -54,8 +56,20 @@ public sealed partial class TraceViewerViewModel
     /// color / stroke style / filter).
     /// </para>
     /// </summary>
-    public TraceSessionBundleDto BuildSnapshot() =>
-        BuildSnapshotAsync().GetAwaiter().GetResult();
+    public TraceSessionBundleDto BuildSnapshot()
+    {
+        // 同步入口只给后台线程/测试用。UI 线程上 GetResult() 会占住
+        // Dispatcher，而 BuildSnapshotAsync 的续体排在同一条队列里 → 自锁。
+        // 这里 fail-fast，避免再次以「窗口卡死」的形式暴露。
+        if (System.Threading.SynchronizationContext.Current
+                is System.Windows.Threading.DispatcherSynchronizationContext
+            || (System.Windows.Application.Current?.Dispatcher.CheckAccess() ?? false))
+        {
+            throw new InvalidOperationException(
+                "BuildSnapshot() 不能在 UI 线程上调用；请 await BuildSnapshotAsync()。");
+        }
+        return BuildSnapshotAsync().GetAwaiter().GetResult();
+    }
 
     /// <summary>
     /// v3.11.0 MINOR T2 (H7): async BuildSnapshot entry point. Same

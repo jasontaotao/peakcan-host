@@ -32,8 +32,19 @@ public sealed partial class ReplayViewModel
     /// new callers should prefer the async form.
     /// </para>
     /// </summary>
-    public TraceSessionBundleDto BuildSnapshot() =>
-        BuildSnapshotAsync().GetAwaiter().GetResult();
+    public TraceSessionBundleDto BuildSnapshot()
+    {
+        // 同步入口只给后台线程/测试用。UI 线程上 GetResult() 会占住
+        // Dispatcher，而 BuildSnapshotAsync 的哈希续体排在同一条队列里 → 自锁。
+        if (System.Threading.SynchronizationContext.Current
+                is System.Windows.Threading.DispatcherSynchronizationContext
+            || (System.Windows.Application.Current?.Dispatcher.CheckAccess() ?? false))
+        {
+            throw new InvalidOperationException(
+                "BuildSnapshot() 不能在 UI 线程上调用；请 await BuildSnapshotAsync()。");
+        }
+        return BuildSnapshotAsync().GetAwaiter().GetResult();
+    }
 
     /// <summary>
     /// v3.11.0 MINOR T2 (H7): async BuildSnapshot entry point. Builds
@@ -47,23 +58,37 @@ public sealed partial class ReplayViewModel
     /// </summary>
     public async Task<TraceSessionBundleDto> BuildSnapshotAsync(CancellationToken ct = default)
     {
+        // 2026-11-20 PATCH：在第一个 await 之前同步捕获全部 UI 绑定状态。
+        // OnExit 关停 Dispatcher 后，哈希续体（现在 ConfigureAwait(false)）
+        // 在池线程完成，不再需要 UI 消息循环——否则 Replay 自动保存会在
+        // 关停时永不完成，既不落盘也卡住后续 host.StopAsync。
+        var loadedFilePath = LoadedFilePath;
+        var currentTimestamp = CurrentTimestamp;
+        var speed = Speed;
+        var loop = Loop;
+        var startTimestamp = StartTimestamp;
+        var endTimestamp = EndTimestamp;
+        var canIdFilter = CanIdFilterText ?? "";
+        var bookmarkDtos = Bookmarks.Select(b => b.Dto).ToList();
+        var loopRegionDtos = LoopRegions.Select(r => r.Dto).ToList();
+
         // Scaffold fields mirror the VM's bindable state at Build time.
         // Start/End default to 0.0 when the range filter is unbounded
         // (matches the legacy "no filter" semantics).
         var scaffold = new TraceSessionSnapshotBuilder.Scaffold(
-            LoadedFilePath: LoadedFilePath,
-            CurrentTimestamp: CurrentTimestamp,
-            Speed: Speed,
-            Loop: Loop,
-            StartTimestamp: StartTimestamp ?? 0.0,
-            EndTimestamp: EndTimestamp ?? 0.0,
-            CanIdFilterText: CanIdFilterText ?? "",
+            LoadedFilePath: loadedFilePath,
+            CurrentTimestamp: currentTimestamp,
+            Speed: speed,
+            Loop: loop,
+            StartTimestamp: startTimestamp ?? 0.0,
+            EndTimestamp: endTimestamp ?? 0.0,
+            CanIdFilterText: canIdFilter,
             DbcPath: "");
-        var dto = await _builder.BuildAsync(scaffold, ct).ConfigureAwait(true);
+        var dto = await _builder.BuildAsync(scaffold, ct).ConfigureAwait(false);
 
-        var displayName = string.IsNullOrEmpty(LoadedFilePath)
+        var displayName = string.IsNullOrEmpty(loadedFilePath)
             ? ""
-            : Path.GetFileNameWithoutExtension(LoadedFilePath);
+            : Path.GetFileNameWithoutExtension(loadedFilePath);
         var sourceId = Guid.NewGuid().ToString("N");
         // Builder pre-populated Sources[0] with the hash. We rebuild the
         // single entry to add the per-source display metadata + GUID id;
@@ -76,7 +101,7 @@ public sealed partial class ReplayViewModel
             {
                 SourceId = sourceId,
                 DisplayName = displayName,
-                Path = LoadedFilePath ?? "",
+                Path = loadedFilePath ?? "",
                 ColorA = 0,
                 ColorR = 0,
                 ColorG = 0,
@@ -89,19 +114,19 @@ public sealed partial class ReplayViewModel
         dto.Playback = new BundlePlaybackDto
         {
             MasterSourceId = "",
-            Loop = Loop,
-            Speed = Speed,
-            ScrubberValue = CurrentTimestamp,
-            StartTimestamp = StartTimestamp,
-            EndTimestamp = EndTimestamp,
-            ReplayCanIdFilterText = CanIdFilterText ?? "",
+            Loop = loop,
+            Speed = speed,
+            ScrubberValue = currentTimestamp,
+            StartTimestamp = startTimestamp,
+            EndTimestamp = endTimestamp,
+            ReplayCanIdFilterText = canIdFilter,
             // v3.8.0 MINOR chunk 7: persist in-memory bookmarks +
             // loop-regions. Empty list (not null) is intentional — keeps
             // the bundle shape stable across v3.7.2 readers who deserialize
             // the optional field as null and treat null-vs-empty as
             // semantically the same ("no bookmarks / regions").
-            Bookmarks = Bookmarks.Select(b => b.Dto).ToList(),
-            LoopRegions = LoopRegions.Select(r => r.Dto).ToList(),
+            Bookmarks = bookmarkDtos,
+            LoopRegions = loopRegionDtos,
         };
         // Replay has no per-series viewports (single source, no
         // chart subplots). Empty list keeps the envelope shape stable
@@ -136,7 +161,8 @@ public sealed partial class ReplayViewModel
             defaultExt: ".tmtrace",
             initialDirectory: null);
         if (string.IsNullOrEmpty(path)) return;  // user cancelled
-        var snapshot = BuildSnapshot();
+        // 与 Trace 保存同源：UI 线程上同步等待异步快照会自锁，必须 await。
+        var snapshot = await BuildSnapshotAsync().ConfigureAwait(true);
         await Task.Run(() => _library.Save(snapshot, path)).ConfigureAwait(true);
         _recentSessions.Add(path, viewType: "replay");
     }
