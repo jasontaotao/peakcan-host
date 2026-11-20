@@ -95,6 +95,25 @@ public class NmViewXamlResourceTests
     }
 
     [Fact]
+    public void NmEventMarkers_UseSharedHoverCardInsteadOfNativeToolTip()
+    {
+        var repoRoot = FindRepoRoot();
+        repoRoot.Should().NotBeNull();
+        var content = File.ReadAllText(
+            Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerViewNmPanel.xaml"));
+
+        // 标记 hover 必须走活动段的即时信息卡（Popup），原生 ToolTip 有 400ms 延迟且样式不一致。
+        // 只检查标记所在的 Grid 起始标签：文件里其它控件（能力 chips）合法地使用 ToolTip。
+        var markerTag = Regex.Match(content, "<Grid[^>]*OnNmMarkerMouseEnter[^>]*>");
+        markerTag.Success.Should().BeTrue("标记模板必须挂接共享信息卡的 MouseEnter/Leave");
+        markerTag.Value.Should().Contain("OnNmMarkerMouseLeave");
+        markerTag.Value.Should().NotContain("ToolTip=",
+            "标记的原生 ToolTip 已由共享信息卡替代");
+        markerTag.Value.Should().Contain("AutomationProperties.Name=\"{Binding Tooltip}\"",
+            "移除原生 ToolTip 后，完整文本仍要作为无障碍名称保留");
+    }
+
+    [Fact]
     public void NmViews_ReferenceOnlyDefinedStaticResources()
     {
         var repoRoot = FindRepoRoot();

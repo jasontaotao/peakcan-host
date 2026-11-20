@@ -206,7 +206,9 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <Grid Width="9" Height="12" Background="Transparent"
-                                                      ToolTip="{Binding Tooltip}">
+                                                      AutomationProperties.Name="{Binding Tooltip}"
+                                                      MouseEnter="OnNmMarkerMouseEnter"
+                                                      MouseLeave="OnNmMarkerMouseLeave">
                                                     <Grid.Style>
                                                         <Style TargetType="Grid">
                                                             <Setter Property="RenderTransformOrigin" Value="0.5,1" />

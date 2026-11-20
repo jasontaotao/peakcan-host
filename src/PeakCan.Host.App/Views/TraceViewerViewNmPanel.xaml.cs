@@ -14,6 +14,8 @@ public partial class TraceViewerViewNmPanel : UserControl
 
     // 当前悬停段：MouseEnter 先于上一段的 MouseLeave 时，避免旧 Leave 关掉新卡片。
     private NmTimelineSegmentVm? _nmHoveredSegment;
+    // 事件标记与活动段共用同一张信息卡；同样需要引用守卫防旧 Leave 关闭新卡。
+    private NmTimelineMarkerVm? _nmHoveredMarker;
     private TraceViewerViewModel? _nmBoundVm;
 
     public TraceViewerViewNmPanel()
@@ -52,8 +54,7 @@ public partial class TraceViewerViewNmPanel : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        NmSegmentPopup.IsOpen = false;
-        _nmHoveredSegment = null;
+        CloseSegmentPopup();
         if (DataContext is TraceViewerViewModel vm) vm.ClearNmHoverTime();
     }
 
@@ -88,6 +89,8 @@ public partial class TraceViewerViewNmPanel : UserControl
         if (sender is not FrameworkElement { DataContext: NmTimelineSegmentVm segment }) return;
         if (DataContext is not TraceViewerViewModel vm) return;
 
+        // 段与标记共用一张卡：新目标 Enter 即接管，旧目标随后的 Leave 由引用守卫忽略。
+        _nmHoveredMarker = null;
         _nmHoveredSegment = segment;
         vm.SetNmSegmentHover(segment.Kind, FindRowVm((DependencyObject)sender)?.Label ?? "",
             segment.Start, segment.End);
@@ -100,13 +103,45 @@ public partial class TraceViewerViewNmPanel : UserControl
     {
         if (sender is not FrameworkElement { DataContext: NmTimelineSegmentVm segment }) return;
         // 已移到另一段时，旧段的 Leave 不得关闭新卡片。
+        // 新目标 Enter 已改写槽位时 ReferenceEquals 失败，旧 Leave 不得关闭新卡片。
         if (!ReferenceEquals(_nmHoveredSegment, segment)) return;
+        _nmHoveredSegment = null;
+        CloseSegmentPopup();
+    }
+
+    /// <summary>
+    /// 事件标记 hover：复用活动段的信息卡（此前只有系统 ToolTip，约 400ms 延迟）。
+    /// 标记保留 IsMouseOver 放大反馈，见 XAML Style Trigger。
+    /// </summary>
+    private void OnNmMarkerMouseEnter(object sender, MouseEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: NmTimelineMarkerVm marker }) return;
+        if (DataContext is not TraceViewerViewModel vm) return;
+
+        // 反向切换（活动段 → 标记）同样由新目标接管。
+        _nmHoveredSegment = null;
+        _nmHoveredMarker = marker;
+        vm.SetNmMarkerHover(marker.Kind,
+            FindRowVm((DependencyObject)sender)?.Label ?? "",
+            marker.T, marker.TypeLabel, marker.Detail);
+        NmSegmentPopup.DataContext = vm;
+        NmSegmentPopup.PlacementTarget = (UIElement)sender;
+        NmSegmentPopup.IsOpen = true;
+    }
+
+    private void OnNmMarkerMouseLeave(object sender, MouseEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: NmTimelineMarkerVm marker }) return;
+        // 已移到另一标记/活动段时槽位已被改写，旧 Leave 不得关闭新卡片。
+        if (!ReferenceEquals(_nmHoveredMarker, marker)) return;
+        _nmHoveredMarker = null;
         CloseSegmentPopup();
     }
 
     private void CloseSegmentPopup()
     {
         _nmHoveredSegment = null;
+        _nmHoveredMarker = null;
         if (NmSegmentPopup is not null) NmSegmentPopup.IsOpen = false;
         if (DataContext is TraceViewerViewModel vm) vm.ClearNmSegmentHover();
     }

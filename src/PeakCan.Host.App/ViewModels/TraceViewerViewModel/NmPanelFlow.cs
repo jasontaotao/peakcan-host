@@ -16,8 +16,13 @@ public sealed record NmCapabilityChipVm(string Name, bool Available, string Tool
 public sealed record NmTimelineSegmentVm(double Left, double Width, string Kind,
     double Start, double End, string Tooltip = "");
 
-/// <summary>时间条事件标记：设计坐标 X + 形状/颜色 kind；像素换算在 XAML 层完成。</summary>
-public sealed record NmTimelineMarkerVm(double X, string Kind, double T, string Tooltip);
+/// <summary>
+/// 时间条事件标记：设计坐标 X + 形状/颜色 kind；像素换算在 XAML 层完成。
+/// <c>TypeLabel</c>/<c>Detail</c> 供 hover 信息卡使用（与活动段共用同一张卡），
+/// <c>Tooltip</c> 保留为完整文本（原生 ToolTip 已移除）。
+/// </summary>
+public sealed record NmTimelineMarkerVm(double X, string Kind, double T, string Tooltip,
+    string TypeLabel = "", string Detail = "");
 
 public sealed record NmTimelineRowVm(
     string Label,
@@ -278,7 +283,8 @@ public sealed partial class TraceViewerViewModel
                 markers.Add(new NmTimelineMarkerVm(
                     ToX(e.T, report.Window), kind, e.T,
                     string.Create(CultureInfo.InvariantCulture,
-                        $"{NmTimelineText.EventType(e.Type)}  {e.T:F3}s  {e.Detail}")));
+                        $"{NmTimelineText.EventType(e.Type)}  {e.T:F3}s  {e.Detail}"),
+                    NmTimelineText.EventType(e.Type), e.Detail));
             }
 
             // spec §9.1：时间条默认每个 NM 报文一行，行标签按 DBC 发送节点标注。
@@ -375,7 +381,8 @@ public sealed partial class TraceViewerViewModel
                 markers.Add(new NmTimelineMarkerVm(
                     ToX(e.T, report.Window), kind, e.T,
                     string.Create(CultureInfo.InvariantCulture,
-                        $"{NmTimelineText.EventType(e.Type)}  起点 {e.T:F3}s  {e.Detail}")));
+                        $"{NmTimelineText.EventType(e.Type)}  起点 {e.T:F3}s  {e.Detail}"),
+                    NmTimelineText.EventType(e.Type), e.Detail));
                 continue;
             }
 
@@ -1024,6 +1031,21 @@ public sealed partial class TraceViewerViewModel
         NmHoverTitle = "";
         NmHoverRange = "";
         NmHoverHint = "";
+    }
+
+    /// <summary>
+    /// 事件标记 hover：与活动段共用同一张信息卡（此前只有 400ms 延迟的系统 ToolTip）。
+    /// 卡片显示事件类型 + 所在行、时刻、事件详情；点击标记可 seek。
+    /// </summary>
+    internal void SetNmMarkerHover(string kind, string rowLabel, double t,
+        string typeLabel, string detail)
+    {
+        NmHoverKind = kind;
+        NmHoverTitle = string.IsNullOrEmpty(rowLabel)
+            ? typeLabel
+            : $"{typeLabel} · {rowLabel}";
+        NmHoverRange = string.Create(CultureInfo.InvariantCulture, $"{t:F2}s");
+        NmHoverHint = string.IsNullOrEmpty(detail) ? "点击跳转到该时刻" : detail;
     }
 
     private bool CanInterpretNmEvent() => NmSelectedEvent is not null;

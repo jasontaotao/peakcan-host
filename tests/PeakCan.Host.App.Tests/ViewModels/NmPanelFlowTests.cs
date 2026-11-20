@@ -1104,6 +1104,31 @@ public class NmPanelFlowTests
         row.EvidenceLabel.Should().Be("实测");
     }
 
+    [Fact]
+    public void SetNmMarkerHover_WritesSharedCardFields()
+    {
+        var vm = NewVm();
+
+        vm.SetNmMarkerHover("burst", "0x500 NM (A)", 3.2, "突发", "3 帧短间隔");
+
+        // 事件标记与活动段共用同一张信息卡：类型+行、时刻、详情各就各位。
+        vm.NmHoverKind.Should().Be("burst");
+        vm.NmHoverTitle.Should().Be("突发 · 0x500 NM (A)");
+        vm.NmHoverRange.Should().Be("3.20s");
+        vm.NmHoverHint.Should().Be("3 帧短间隔");
+    }
+
+    [Fact]
+    public void SetNmMarkerHover_WithoutRowLabelOrDetail_FallsBackToTypeAndJumpHint()
+    {
+        var vm = NewVm();
+
+        vm.SetNmMarkerHover("bus_gap", "", 1.0, "总线无帧", "");
+
+        vm.NmHoverTitle.Should().Be("总线无帧");
+        vm.NmHoverHint.Should().Contain("点击跳转");
+    }
+
     [Theory]
     [InlineData("measured", "测")]
     [InlineData("inferred", "推")]
