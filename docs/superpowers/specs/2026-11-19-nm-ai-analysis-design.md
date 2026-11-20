@@ -1151,3 +1151,4 @@ M1 与 M2 使用两套提示词；M1 不引用企标/profile/NID/CBV。
 | §7.6 `NM_WAKEUP_BURST_MATCH` | §7.8 的 code 表没有该项，且 MISSING/MISMATCH 已标 M2 | M1 只产出 `NM_BURST_OBSERVED` 事件；MATCH/MISMATCH 随 M2 的 immediate 校验一起交付 | §7.8 |
 | §13.2 fixture #2 `nm-log-gap.asc` | 期望“所有 ID 消失 → `NM_LOG_GAP_SUSPECTED`，而非节点掉线”，与 §7.5.4“只有时间戳跳变/回退等可验证证据才报 LOG_GAP”冲突 | 修正期望：所有 ID 消失 ≥ `max(2×cycle, 500ms)` → `NM_BUS_WIDE_SILENCE` + `unknowns: recorder_gap_or_bus_sleep`，不判 dropout；仅在带时间戳回归证据的样本上另报 `NM_LOG_GAP_SUSPECTED` | §7.5.3、§7.5.4 |
 | §11 “允许发送原始 payload”开关 | 未标阶段，M1 无任何发送原始取值的路径 | M1 固定关闭（工具输出脱敏，含 `nodes[].station_address`）；开关随 M2 的取值分析开放 | §11 默认隐私 |
+| §9.1 状态“顶部固定显示语义未配置” | 与 §7.8 注解“补全 NID/CBV/PN/用户数据后能力可启用”冲突；补全后引擎已产 finding，固定文案会自相矛盾 | 改为条件横幅：仅当 NID/CBV/PN/用户数据中存在不可用能力时显示，并列出具体缺项 | §7.8 注解 |

@@ -45,9 +45,10 @@
             </StackPanel>
         </Border>
 
-        <!-- M1 semantics banner -->
+        <!-- M1 semantics banner：只有能力不可用时才显示（补全后自动消失） -->
         <TextBlock Grid.Row="2" Margin="6,4" Foreground="#8A6D00"
-                   Text="语义未配置：NID/CBV/PN/用户数据不做判定（可在「补全」中提供输入）" />
+                   Text="{Binding NmSemanticsBanner}"
+                   Visibility="{Binding NmHasSemanticsBanner, Converter={StaticResource BoolToVis}}" />
 
         <!-- Partial result badge (spec §9.4；分析取消/超时) -->
         <Border Grid.Row="3" Padding="6" Background="#FFE0B2" BorderBrush="#E0A060"

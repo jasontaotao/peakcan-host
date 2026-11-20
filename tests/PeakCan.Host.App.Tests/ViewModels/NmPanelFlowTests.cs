@@ -24,6 +24,7 @@ public class NmPanelFlowTests
     private static readonly string[] ConflictValues = { "500", "640" };
     private static readonly string[] ConflictSources = { "NmAsrCanMsgCycleTime", "GenMsgCycleTime" };
     private static readonly string[] MissingSelection = { "nm_message_selection" };
+    private static readonly string[] NmParticipants = { "0x500" };
 
     [Fact]
     public void BuildTimeline_UsesDesignWidth1000()
@@ -339,7 +340,8 @@ public class NmPanelFlowTests
         vm.ApplyNmReport(snapshot);
 
         vm.NmIsPartial.Should().BeTrue();
-        vm.NmStatus.Should().Be("部分结果（分析已取消）");
+        // 直接应用 partial 报告时无法得知是取消还是超时；具体原因由 ResolveStatus 用例覆盖。
+        vm.NmStatus.Should().Contain("部分结果");
         vm.NmEventFilterSummary.Should().Be("显示 0 / 共 0");
     }
 
@@ -618,6 +620,97 @@ public class NmPanelFlowTests
     }
 
     // ---------------- 测试辅助 ----------------
+
+    // ==== spec §9.1：时间条事件标记 / 网络级静默与边界 ====
+
+    [Fact]
+    public void BuildTimelineRows_MarksEventsAndNetworkSilence()
+    {
+        var report = new NmReport(
+            new NmWindow(0, 10, "full"), "src", null,
+            new[]
+            {
+                new NmEpisode(0, 0, 4, "active", null, NmParticipants, false, true),
+                new NmEpisode(1, 7, 10, "active", null, NmParticipants, true, false),
+            },
+            new[]
+            {
+                new NmMessageReport("0x500", false, "NM", "A", 4, 0, 10,
+                    new NmCycleStats(500, 500, 500, 500, 0, 0, 3, 500, 100),
+                    new[] { new NmSegment(0, 10, "active") }, false),
+            },
+            Array.Empty<NmNodeReport>(),
+            new[]
+            {
+                new NmEvent(0.5, "burst_observed", "A", "0x500", "3 帧短间隔", 0, "measured"),
+                new NmEvent(1.0, "byte_change", null, "0x500", "byte0: 0x00 → 0x08", 0, "measured"),
+                new NmEvent(2.0, "sender_silent", null, "0x500", "1.0s", 0, "inferred"),
+                new NmEvent(4.0, "all_nm_silent", null, null, "NM silent until 7.000s", 0, "measured"),
+            },
+            Array.Empty<NmFinding>(), Array.Empty<string>(), Array.Empty<string>(),
+            Array.Empty<NmCapabilityState>(), Array.Empty<NmInputMissing>(),
+            Array.Empty<NmTruncation>());
+
+        var rows = TraceViewerViewModel.BuildTimelineRows(report);
+
+        rows.Should().HaveCount(2);
+        var messageKinds = rows[0].Segments.Select(s => s.Kind).ToArray();
+        messageKinds.Should().Contain("burst");
+        messageKinds.Should().Contain("byte");
+        messageKinds.Should().Contain("gap");
+        // 网络行：episode 活动段 + 4s–7s 静默段 + 两个边界标记。
+        rows[1].Label.Should().Contain("网络");
+        var networkKinds = rows[1].Segments.Select(s => s.Kind).ToArray();
+        networkKinds.Should().Contain("episode");
+        networkKinds.Should().Contain("silence");
+        networkKinds.Should().Contain("boundary");
+        var silence = rows[1].Segments.Single(s => s.Kind == "silence");
+        silence.Start.Should().Be(4.0);
+        silence.End.Should().Be(7.0);
+    }
+
+    [Fact]
+    public void SemanticsBanner_ListsOnlyUnavailableCapabilities()
+    {
+        var report = MakeReport(capabilities: new[]
+        {
+            new NmCapabilityState(NmCapability.NidCheck, false,
+                new[] { new NmInputMissing(NmCapability.NidCheck, "nid_byte", "why", null, null) }),
+            new NmCapabilityState(NmCapability.CbvDecode, true, Array.Empty<NmInputMissing>()),
+            new NmCapabilityState(NmCapability.PnCheck, true, Array.Empty<NmInputMissing>()),
+            new NmCapabilityState(NmCapability.UserData, true, Array.Empty<NmInputMissing>()),
+        });
+
+        var banner = TraceViewerViewModel.BuildSemanticsBanner(report);
+
+        banner.Should().Contain("NID");
+        banner.Should().NotContain("CBV");
+    }
+
+    [Fact]
+    public void SemanticsBanner_HiddenWhenAllSemanticCapabilitiesAvailable()
+    {
+        var report = MakeReport(capabilities: new[]
+        {
+            new NmCapabilityState(NmCapability.NidCheck, true, Array.Empty<NmInputMissing>()),
+            new NmCapabilityState(NmCapability.CbvDecode, true, Array.Empty<NmInputMissing>()),
+            new NmCapabilityState(NmCapability.PnCheck, true, Array.Empty<NmInputMissing>()),
+            new NmCapabilityState(NmCapability.UserData, true, Array.Empty<NmInputMissing>()),
+        });
+
+        TraceViewerViewModel.BuildSemanticsBanner(report).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void PartialStatus_DistinguishesCancelFromTimeout()
+    {
+        var snapshot = MakeSnapshot(MakeReport(isPartial: true), MakeProfile());
+
+        TraceViewerViewModel.ResolveStatus(snapshot, cancelledByUser: true)
+            .Should().Contain("取消");
+        TraceViewerViewModel.ResolveStatus(snapshot, cancelledByUser: false)
+            .Should().Contain("超时");
+    }
 
     private static NmReport MakeReport(
         NmMessageReport[]? messages = null,

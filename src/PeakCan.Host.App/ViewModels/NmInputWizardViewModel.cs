@@ -52,6 +52,18 @@ public sealed partial class NmSampleByteVm : ObservableObject
 
     public string HexText => Value.ToString("X2", CultureInfo.InvariantCulture);
 
+    /// <summary>bit7…bit0（spec §9.2 的“按字节/位显示”）：CBV 的位角色靠它辨认。</summary>
+    public string BitsText
+    {
+        get
+        {
+            Span<char> bits = stackalloc char[8];
+            for (var bit = 0; bit < 8; bit++)
+                bits[7 - bit] = (Value & (1 << bit)) != 0 ? '1' : '0';
+            return new string(bits);
+        }
+    }
+
     [ObservableProperty] private bool _isSelected;
 
     public IRelayCommand SelectCommand { get; }

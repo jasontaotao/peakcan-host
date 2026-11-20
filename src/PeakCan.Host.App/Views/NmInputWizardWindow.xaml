@@ -48,12 +48,18 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Button Width="24" Height="24" Margin="1" Padding="0"
-                                                FontFamily="Consolas" FontSize="11"
+                                        <Button Width="46" Height="32" Margin="1" Padding="0"
                                                 HorizontalContentAlignment="Center"
                                                 VerticalContentAlignment="Center"
-                                                Content="{Binding HexText}"
-                                                Command="{Binding SelectCommand}">
+                                                Command="{Binding SelectCommand}"
+                                                ToolTip="{Binding BitsText}">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding HexText}" FontFamily="Consolas"
+                                                           FontSize="11" HorizontalAlignment="Center" />
+                                                <TextBlock Text="{Binding BitsText}" FontFamily="Consolas"
+                                                           FontSize="8" Foreground="#666666"
+                                                           HorizontalAlignment="Center" />
+                                            </StackPanel>
                                             <Button.Style>
                                                 <Style TargetType="Button">
                                                     <Setter Property="Background" Value="#FFFFFF" />

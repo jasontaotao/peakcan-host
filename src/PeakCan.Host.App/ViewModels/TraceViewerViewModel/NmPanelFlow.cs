@@ -70,12 +70,19 @@ public static class NmEventFilters
 public sealed partial class TraceViewerViewModel
 {
     private const double NmTimelineWidth = 1000.0;
+    /// <summary>事件/边界标记的像素宽度：窄到不遮挡活动段，又能点中 seek。</summary>
+    private const double NmMarkerWidth = 3.0;
+    /// <summary>spec §9.4：分析超过该时长按超时结束，保留 partial 结果。</summary>
+    internal static readonly TimeSpan NmAnalysisTimeout = TimeSpan.FromSeconds(30);
 
     [ObservableProperty] private bool _nmHasReport;
     [ObservableProperty] private bool _nmIsAnalyzing;
     [ObservableProperty] private bool _nmCanCancel;
     [ObservableProperty] private bool _nmIsPartial;
     [ObservableProperty] private bool _nmHasConflicts;
+    /// <summary>语义能力横幅：只有存在不可用项时才显示（补全后不再谎称“不做判定”）。</summary>
+    [ObservableProperty] private string _nmSemanticsBanner = "";
+    [ObservableProperty] private bool _nmHasSemanticsBanner;
     [ObservableProperty] private string _nmStatus = "";
     [ObservableProperty] private string _nmProfileSummary = "";
     [ObservableProperty] private string _nmMissingText = "";
@@ -102,6 +109,8 @@ public sealed partial class TraceViewerViewModel
 
     private Views.TraceViewerViewNmPanel? _nmPanelContent;
     private CancellationTokenSource? _nmCts;
+    /// <summary>本次分析的取消是用户发起还是超时：null 状态文案要据此区分。</summary>
+    private bool _nmCancelledByUser;
     // 面板最近一次成功分析得到的快照：导出优先导出用户正在看的那一份报告。
     private NmToolSnapshot? _lastNmSnapshot;
     public Views.TraceViewerViewNmPanel? NmPanelContent
@@ -118,7 +127,10 @@ public sealed partial class TraceViewerViewModel
     }
 
     public static IReadOnlyList<NmTimelineRowVm> BuildTimelineRows(NmReport report)
-        => report.Messages.Select(m =>
+    {
+        var rows = new List<NmTimelineRowVm>(report.Messages.Count + 1);
+
+        foreach (var m in report.Messages)
         {
             var segments = m.Activity.Select(s =>
             {
@@ -128,13 +140,97 @@ public sealed partial class TraceViewerViewModel
                     $"{s.Kind}  {s.Start:F3}s – {s.End:F3}s");
                 return new NmTimelineSegmentVm(
                     left, Math.Max(right - left, 1), s.Kind, s.Start, s.End, tooltip);
-            }).ToArray();
+            }).ToList();
+
+            // spec §9.1：时间条要标记观察突发、超时空档与原始字节/位变化。
+            // 事件本身仍留在事件表里，这里只加窄标记，便于在轴上定位。
+            foreach (var e in report.Events)
+            {
+                if (MarkerKind(e.Type) is not { } kind) continue;
+                if (!string.Equals(e.CanIdHex, m.CanIdHex, StringComparison.Ordinal)) continue;
+                if (e.IsExtended != m.IsExtended) continue;
+
+                var left = ToX(e.T, report.Window);
+                var tooltip = string.Create(CultureInfo.InvariantCulture,
+                    $"{e.Type} {e.T:F3}s  {e.Detail}");
+                segments.Add(new NmTimelineSegmentVm(
+                    left, NmMarkerWidth, kind, e.T, e.T, tooltip));
+            }
+
             // spec §9.1：时间条默认每个 NM 报文一行，行标签按 DBC 发送节点标注。
             // DBC 未给出 Name/Sender 时不渲染空括号内容，用 "—" 占位。
             var who = string.IsNullOrEmpty(m.Sender) ? "—" : m.Sender;
             var name = string.IsNullOrEmpty(m.Name) ? "" : " " + m.Name;
-            return new NmTimelineRowVm($"{m.CanIdHex}{name} ({who})", segments);
-        }).ToArray();
+            rows.Add(new NmTimelineRowVm($"{m.CanIdHex}{name} ({who})", segments));
+        }
+
+        if (BuildNetworkTimelineRow(report) is { } network)
+            rows.Add(network);
+
+        return rows;
+    }
+
+    /// <summary>事件→时间条标记的 Kind；不参与时间条的事件返回 null。</summary>
+    private static string? MarkerKind(string type) => type switch
+    {
+        "burst_observed" => "burst",
+        "missed_frame" or "sender_silent" => "gap",
+        "byte_change" => "byte",
+        "bit_change" => "bit",
+        "signal_change" => "signal",
+        _ => null,
+    };
+
+    /// <summary>
+    /// 网络级时间条：episode 活动段、episode 间/窗口首尾静默、边界标记。
+    /// spec §9.1 要求「活动段/静默段/边界」可见；这些不属于单条报文行。
+    /// </summary>
+    private static NmTimelineRowVm? BuildNetworkTimelineRow(NmReport report)
+    {
+        var segments = new List<NmTimelineSegmentVm>();
+
+        foreach (var episode in report.Episodes)
+        {
+            var left = ToX(episode.Start, report.Window);
+            var right = ToX(episode.End, report.Window);
+            segments.Add(new NmTimelineSegmentVm(
+                left, Math.Max(right - left, 1), "episode", episode.Start, episode.End,
+                string.Create(CultureInfo.InvariantCulture,
+                    $"episode {episode.Index}  {episode.Start:F3}s – {episode.End:F3}s")));
+
+            if (episode.BoundaryStart)
+                segments.Add(BoundaryMarker(episode.Start, report.Window, "边界：窗口开始时 NM 已在活动"));
+            if (episode.BoundaryEnd)
+                segments.Add(BoundaryMarker(episode.End, report.Window, "边界：窗口结束时 NM 仍未静默"));
+        }
+
+        // 网络级静默：all_nm_silent / bus_wide_silence 的起点到下一个 episode
+        // （或窗口结束）。空档若短于超时，引擎不产事件，这里自然不画。
+        foreach (var e in report.Events)
+        {
+            if (e.Type is not ("all_nm_silent" or "bus_wide_silence")) continue;
+
+            var end = report.Episodes
+                .Where(ep => ep.Start > e.T)
+                .Select(ep => ep.Start)
+                .DefaultIfEmpty(report.Window.End)
+                .Min();
+            if (end <= e.T) end = report.Window.End;
+
+            var left = ToX(e.T, report.Window);
+            var right = ToX(end, report.Window);
+            segments.Add(new NmTimelineSegmentVm(
+                left, Math.Max(right - left, 1), "silence", e.T, end,
+                string.Create(CultureInfo.InvariantCulture,
+                    $"{e.Type} {e.T:F3}s – {end:F3}s  {e.Detail}")));
+        }
+
+        if (segments.Count == 0) return null;
+        return new NmTimelineRowVm("网络（episode / 静默 / 边界）", segments);
+    }
+
+    private static NmTimelineSegmentVm BoundaryMarker(double t, NmWindow window, string tooltip)
+        => new(ToX(t, window), NmMarkerWidth, "boundary", t, t, tooltip);
 
     /// <summary>能力 chip 的中文短名（spec §9.1）；枚举名只用于数据契约。</summary>
     public static string CapabilityShortName(NmCapability capability) => capability switch
@@ -186,7 +282,9 @@ public sealed partial class TraceViewerViewModel
     {
         // 旧请求只取消不 Dispose：取消令牌仍可能被在途的 Task.Run 使用。
         _nmCts?.Cancel();
-        var cts = new CancellationTokenSource();
+        // spec §9.4：取消与超时都走同一条 partial 路径；用标志区分状态文案。
+        _nmCancelledByUser = false;
+        var cts = new CancellationTokenSource(NmAnalysisTimeout);
         _nmCts = cts;
         var ct = cts.Token;
 
@@ -216,8 +314,9 @@ public sealed partial class TraceViewerViewModel
         catch (OperationCanceledException)
         {
             // 引擎内取消会返回 partial 报告（走 ApplyNmReport）；这里只剩 Task.Run
-            // 在启动前被取消等外围取消。
-            if (IsCurrentNmRun(cts)) NmStatus = "分析已取消";
+            // 在启动前被取消等外围取消。超时与分析超时都表现为 OCE，靠用户标志区分。
+            if (IsCurrentNmRun(cts))
+                NmStatus = _nmCancelledByUser ? "分析已取消" : "分析超时（已保留部分结果）";
         }
         catch (Exception ex)
         {
@@ -250,6 +349,8 @@ public sealed partial class TraceViewerViewModel
         NmHasConflicts = false;
         NmProfileSummary = "";
         NmMissingText = "";
+        NmSemanticsBanner = "";
+        NmHasSemanticsBanner = false;
         NmCapabilityChips.Clear();
         NmTimelineRows.Clear();
         NmEventRows.Clear();
@@ -284,6 +385,11 @@ public sealed partial class TraceViewerViewModel
 
         NmCapabilityChips.Clear();
         foreach (var chip in BuildCapabilityChips(report)) NmCapabilityChips.Add(chip);
+
+        // spec §9.1 的“语义未配置”横幅只在对应能力不可用时出现；
+        // 用户补全 NID/CBV/PN/用户数据后，引擎已能产结论，不能再宣称不做判定。
+        NmSemanticsBanner = BuildSemanticsBanner(report);
+        NmHasSemanticsBanner = NmSemanticsBanner.Length > 0;
         NmTimelineRows.Clear();
         foreach (var row in BuildTimelineRows(report)) NmTimelineRows.Add(row);
 
@@ -295,18 +401,40 @@ public sealed partial class TraceViewerViewModel
         }
         RefreshNmEventRows();
 
-        NmStatus = ResolveStatus(snapshot);
+        NmStatus = ResolveStatus(snapshot, _nmCancelledByUser);
+    }
+
+    /// <summary>
+    /// spec §9.1：不可用的语义能力才进横幅；全部可用时返回空串（横幅隐藏）。
+    /// 只列 NID/CBV/PN/用户数据四类——识别/周期/内容属于基础能力。
+    /// </summary>
+    internal static string BuildSemanticsBanner(NmReport report)
+    {
+        var required = new[]
+        {
+            NmCapability.NidCheck, NmCapability.CbvDecode,
+            NmCapability.PnCheck, NmCapability.UserData,
+        };
+        var unavailable = required
+            .Where(cap => !report.Capabilities.Any(c => c.Capability == cap && c.Available))
+            .Select(CapabilityShortName)
+            .ToArray();
+
+        return unavailable.Length == 0
+            ? ""
+            : $"语义未配置：{string.Join("/", unavailable)} 不做判定（可在「补全」中提供输入）";
     }
 
     /// <summary>
     /// 面板状态文案优先级：partial &gt; 无 DBC &gt; DBC 无 NM 配置 &gt; 窗口内无 NM &gt; 计数。
     /// 空态必须陈述事实，不推断睡眠/掉线（spec §9.4）。
     /// </summary>
-    private static string ResolveStatus(NmToolSnapshot snapshot)
+    internal static string ResolveStatus(NmToolSnapshot snapshot, bool cancelledByUser = true)
     {
         var report = snapshot.Report;
         var profile = snapshot.Profile;
-        if (report.IsPartial) return "部分结果（分析已取消）";
+        if (report.IsPartial)
+            return cancelledByUser ? "部分结果（分析已取消）" : "部分结果（分析超时）";
         if (report.MissingInputs.Any(m => string.Equals(m.InputKey, "dbc", StringComparison.Ordinal)))
             return "请先加载 DBC（NM 分析需要 DBC 约束）";
         if (report.Messages.Count == 0 && IsDbcWithoutNmConfig(profile))
@@ -549,7 +677,11 @@ public sealed partial class TraceViewerViewModel
 
     /// <summary>取消面板分析；只取消 NM 通道，不影响聊天请求。</summary>
     [RelayCommand]
-    private void CancelNmAnalysis() => _nmCts?.Cancel();
+    private void CancelNmAnalysis()
+    {
+        _nmCancelledByUser = true;
+        _nmCts?.Cancel();
+    }
 
     [RelayCommand]
     private void SeekToNmEvent(NmEventRowVm? row)
