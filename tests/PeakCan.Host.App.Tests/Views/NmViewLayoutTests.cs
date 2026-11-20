@@ -82,6 +82,23 @@ public sealed class NmViewLayoutTests
     }
 
     [Fact]
+    public void Panel_ProfileBarAndEmptyHint_ReactToReportState()
+    {
+        var root = Panel().Descendants(P + "Grid").First();
+
+        var profileBar = root.Elements(P + "Border")
+            .Single(b => (string?)b.Attribute("Grid.Row") == "0");
+        ((string?)profileBar.Attribute("Visibility")).Should()
+            .Contain("NmHasReport", "分析前不能渲染空的 Profile 条/补全按钮");
+
+        var hint = root.Elements(P + "TextBlock")
+            .Single(t => (string?)t.Attribute("Grid.Row") == "5");
+        ((string?)hint.Attribute("Text")).Should().Contain("尚未分析");
+        hint.Descendants(P + "DataTrigger").Should()
+            .Contain(t => (string?)t.Attribute("Binding") == "{Binding NmHasReport}");
+    }
+
+    [Fact]
     public void Panel_ConflictBar_IsHeightCapped()
     {
         var conflictScroll = Panel().Descendants(P + "ScrollViewer")

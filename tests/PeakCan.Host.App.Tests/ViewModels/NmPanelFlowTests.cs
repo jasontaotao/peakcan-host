@@ -623,6 +623,13 @@ public class NmPanelFlowTests
 
     // ---------------- 测试辅助 ----------------
 
+    [Fact]
+    public void NewPanel_ShowsReadableWizardButtonLabel()
+    {
+        // 分析前按钮文案不能为空，否则空按钮在 DockPanel 里会被压成一条缝。
+        NewVm().NmMissingText.Should().Be("补全");
+    }
+
     // ==== spec §9.1：时间条事件标记 / 网络级静默与边界 ====
 
     [Fact]

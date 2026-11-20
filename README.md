@@ -6,7 +6,7 @@ Windows 专用 WPF 桌面主机，适配 **PEAK PCAN-USB FD / Pro FD** 与 **ZLG
 通用 CAN 总线监控工具，支持 DBC 解码、手动/循环/多帧发送、实时信号视图、
 ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
 
-> **状态:** v3.67.0。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
+> **状态:** v3.67.1。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
 > UDS 诊断栈 + Flash Pipeline、脚本引擎、HIL 测试执行（单/多通道）、
 > 多通道录制与回放、报告侧 per-channel DBC 解码、**网络管理（NM）分析**。
 > **3732 个单元测试通过、11 跳过**（Core 1132 / Infrastructure 716 / App 1465 / Cli 73 /

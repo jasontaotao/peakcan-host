@@ -22,10 +22,13 @@
             <RowDefinition Height="*" MinHeight="120" />
         </Grid.RowDefinitions>
 
-        <!-- Profile bar -->
-        <Border Grid.Row="0" Padding="6" Background="#FFF7E6" BorderBrush="#E0C080" BorderThickness="0,0,0,1">
+        <!-- Profile bar：分析前不渲染，否则空的摘要 + 空按钮会变成一条无意义的色带。 -->
+        <Border Grid.Row="0" Padding="6" Background="#FFF7E6" BorderBrush="#E0C080"
+                BorderThickness="0,0,0,1"
+                Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
             <DockPanel>
                 <Button DockPanel.Dock="Right" Content="{Binding NmMissingText}"
+                        ToolTip="打开补全对话框：选择 NM 报文、NID/CBV、站地址与时序"
                         Command="{Binding OpenNmWizardCommand}" Margin="6,0,0,0" />
                 <TextBlock Text="{Binding NmProfileSummary}" TextWrapping="Wrap" />
             </DockPanel>
@@ -77,6 +80,21 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
+
+        <!-- 分析前的空态：告诉用户从哪开始，而不是留一块空白。 -->
+        <TextBlock Grid.Row="5" Text="尚未分析 NM：点击下方「分析全 trace」或「分析当前窗口」"
+                   Margin="10,16" FontSize="12" Foreground="#777777" TextWrapping="Wrap">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding NmHasReport}" Value="False">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
 
         <!-- Timeline (design width 1000, Viewbox scales to panel) -->
         <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto"

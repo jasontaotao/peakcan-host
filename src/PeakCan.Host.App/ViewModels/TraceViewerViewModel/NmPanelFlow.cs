@@ -87,7 +87,8 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty] private bool _nmHasSemanticsBanner;
     [ObservableProperty] private string _nmStatus = "";
     [ObservableProperty] private string _nmProfileSummary = "";
-    [ObservableProperty] private string _nmMissingText = "";
+    /// <summary>补全按钮文案；分析前也有可读标签，避免空按钮被压成一条缝。</summary>
+    [ObservableProperty] private string _nmMissingText = "补全";
     [ObservableProperty] private string _nmSelectedEventTypeFilter = NmEventFilters.All;
     [ObservableProperty] private string _nmEventKeyword = "";
     /// <summary>筛选后的可见行数/总行数：避免状态栏的“共 N 条”被误读为表格行数。</summary>
@@ -352,7 +353,7 @@ public sealed partial class TraceViewerViewModel
         NmPartialText = "";
         NmHasConflicts = false;
         NmProfileSummary = "";
-        NmMissingText = "";
+        NmMissingText = "补全";
         NmSemanticsBanner = "";
         NmHasSemanticsBanner = false;
         NmCapabilityChips.Clear();
