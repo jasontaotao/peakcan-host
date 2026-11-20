@@ -50,6 +50,51 @@ public class NmViewXamlResourceTests
     }
 
     [Fact]
+    public void NmAiJump_KeepsVisibleFeedbackPath()
+    {
+        // 用户报告过“点了按钮什么也没发生”：预填必须伴随切页 + 提示 + 聚焦，
+        // 这三处任一被改掉都会退回“无反馈”状态。
+        var repoRoot = FindRepoRoot();
+        repoRoot.Should().NotBeNull();
+
+        var nmPanel = File.ReadAllText(
+            Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerViewNmPanel.xaml"));
+        nmPanel.Should()
+            .Contain("Command=\"{Binding SummarizeNmInAiCommand}\"")
+            .And.Contain("AI 负责解释", "面板要说明 AI 与引擎的分工");
+        // ShowOnDisabled 必须挂在“解读”按钮本身：禁用态还能看到“先选中一行”。
+        Regex.IsMatch(nmPanel,
+                "Content=\"在 AI 中解读选中事件\"[^>]*ToolTipService\\.ShowOnDisabled=\"True\"")
+            .Should().BeTrue("禁用的解读按钮必须解释“先选中一行”");
+
+        var chatPanel = File.ReadAllText(
+            Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerViewChatPanel.xaml"));
+        chatPanel.Should()
+            .Contain("x:Name=\"ChatInputBox\"", "跳转后需要把焦点移到输入框")
+            .And.Contain("Binding HasChatPrefillHint",
+                "预填后必须有“按发送开始”的可见提示");
+
+        // 焦点交接是“点按钮有反应”的一部分；仅 XAML 命名不足以证明会聚焦。
+        var chatPanelCode = File.ReadAllText(
+            Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerViewChatPanel.xaml.cs"));
+        chatPanelCode.Should()
+            .Contain("ChatInputFocusTicket", "必须监听 VM 的聚焦请求")
+            .And.Contain("IsVisibleChanged",
+                "Tab 切过来之前元素不可聚焦，必须等可见后再聚焦")
+            .And.Contain("ChatInputBox.Focus()", "最终必须真的调用聚焦")
+            .And.Contain("DispatcherPriority.Input",
+                "焦点必须延后到布局完成之后");
+
+        var viewer = File.ReadAllText(
+            Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerView.xaml"));
+        viewer.Should()
+            .Contain("SelectedIndex=\"{Binding RightPanelSelectedIndex}\"",
+                "VM 必须能把用户切到 AI 对话页")
+            .And.Contain("Header=\"{Binding NmTabHeader}\"",
+                "Tab 头要显示 warn 徽标");
+    }
+
+    [Fact]
     public void NmViews_ReferenceOnlyDefinedStaticResources()
     {
         var repoRoot = FindRepoRoot();

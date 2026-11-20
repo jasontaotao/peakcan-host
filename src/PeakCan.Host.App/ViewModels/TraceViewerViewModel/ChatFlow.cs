@@ -43,6 +43,33 @@ public sealed partial class TraceViewerViewModel
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
     private string _chatInput = "";
 
+    /// <summary>
+    /// 右侧面板 TabControl 中「AI 对话」页的索引
+    /// （0 监视列表 / 1 采样表 / 2 AI 对话 / 3 网络管理）。
+    /// NM 面板的「让 AI 解读/总结」需要把用户带到 AI 页，选中项由 VM 驱动；
+    /// 若将来调整 Tab 顺序，此常量必须同步。
+    /// </summary>
+    public const int ChatPanelTabIndex = 2;
+
+    /// <summary>右侧面板 TabControl 的当前选中索引（View 绑定）。</summary>
+    [ObservableProperty]
+    private int _rightPanelSelectedIndex;
+
+    /// <summary>预填输入框后的引导文案（显示在输入区上方）；发送消息后清空。</summary>
+    [ObservableProperty]
+    private string _chatPrefillHint = "";
+
+    /// <summary>每次从 NM 面板预填问题就递增：View 据此把键盘焦点移到输入框。
+    /// 用计数而不是 bool，连续两次预填（中间不发送）也能再次触发聚焦。</summary>
+    [ObservableProperty]
+    private int _chatInputFocusTicket;
+
+    /// <summary>输入区上方提示条的可见性（空文案时不占位）。</summary>
+    public bool HasChatPrefillHint => ChatPrefillHint.Length > 0;
+
+    partial void OnChatPrefillHintChanged(string value)
+        => OnPropertyChanged(nameof(HasChatPrefillHint));
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendMessageCommand))]
     private bool _isChatBusy;
@@ -111,11 +138,15 @@ public sealed partial class TraceViewerViewModel
     {
         if (_chatProvider is null)
         {
+            // 用户已经按了发送：提示条不能再停留在“按发送开始”的待办状态。
+            ChatPrefillHint = "";
             ErrorMessage = "聊天 Provider 未配置";
             return;
         }
         var userText = ChatInput.Trim();
         ChatInput = "";
+        // 预填引导只对“尚未发送”的那一次有效；发出去后提示必须消失。
+        ChatPrefillHint = "";
 
         _chatCts ??= new CancellationTokenSource();
         var ct = _chatCts.Token;

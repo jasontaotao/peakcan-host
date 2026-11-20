@@ -331,7 +331,9 @@ public class NmPanelFlowTests
         var vm = NewVm();
         vm.ApplyNmReport(MakeSnapshot(MakeReport(),
             MakeProfile(messages: messages)));
-        vm.NmProfileSummary.Should().Contain("识别依据 MsgType=CANNM ×2 / 用户勾选 ×1");
+        // 360px 宽度下依据单独成行：主摘要只留来源/报文数/周期/超时。
+        vm.NmProfileReasonText.Should().Be("识别依据 MsgType=CANNM ×2 / 用户勾选 ×1");
+        vm.NmProfileSummary.Should().NotContain("识别依据");
     }
 
     [Fact]
@@ -565,6 +567,151 @@ public class NmPanelFlowTests
         vm.ChatInput.Should().NotContain("0x00 → 0x08");
         vm.ChatInput.Should().Contain("0x?? → 0x??");
         vm.ChatInput.Should().Contain("变化 3 次");
+    }
+
+    [Fact]
+    public void InterpretNmEvent_SwitchesToChatTabAndShowsHint()
+    {
+        var vm = NewVm();
+        vm.NmSelectedEvent = new NmEventRowVm(
+            2.5, "2.500", "burst_observed", "ECU_A", "3 帧短间隔", "measured", 0, "0x500");
+
+        vm.InterpretNmEventInAiCommand.Execute(null);
+
+        // 点按钮后必须把用户带到 AI 对话页，否则预填没有任何可见反馈。
+        vm.RightPanelSelectedIndex.Should().Be(TraceViewerViewModel.ChatPanelTabIndex);
+        vm.ChatPrefillHint.Should().Contain("按发送");
+    }
+
+    [Fact]
+    public void SummarizeNmInAi_PrefillsOverviewPromptAndSwitchesTab()
+    {
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(MakeReport(), MakeProfile()));
+
+        vm.SummarizeNmInAiCommand.CanExecute(null).Should().BeTrue();
+        vm.SummarizeNmInAiCommand.Execute(null);
+
+        // 总结必须以工具输出为准：提示里显式要求 AI 调 overview，而不是凭记忆汇总。
+        vm.ChatInput.Should().Contain("get_nm_overview");
+        // 面板可能只分析了某个窗口/通道：AI 重新取数必须沿用同一组参数。
+        vm.ChatInput.Should().Contain("source_id=src");
+        vm.ChatInput.Should().Contain("window_ref=full");
+        vm.RightPanelSelectedIndex.Should().Be(TraceViewerViewModel.ChatPanelTabIndex);
+        vm.ChatPrefillHint.Should().Contain("按发送");
+        vm.ChatMessages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SummarizeNmInAi_RefreshesCanExecuteWhenReportChanges()
+    {
+        var vm = NewVm();
+        var raised = 0;
+        vm.SummarizeNmInAiCommand.CanExecuteChanged += (_, _) => raised++;
+
+        vm.ApplyNmReport(MakeSnapshot(MakeReport(), MakeProfile()));
+
+        // WPF 按钮只在 CanExecuteChanged 后重查 CanExecute；没有这层通知，
+        // 按钮会一直保持禁用，再正确的 CanExecute 也点不到。
+        raised.Should().BeGreaterThan(0);
+        vm.SummarizeNmInAiCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [Fact]
+    public void NmAiJump_IncrementsFocusTicketEachTime()
+    {
+        var vm = NewVm();
+        vm.NmSelectedEvent = new NmEventRowVm(
+            1.0, "1.000", "burst_observed", "A", "d", "measured", 0, "0x500");
+
+        vm.InterpretNmEventInAiCommand.Execute(null);
+        vm.ChatInputFocusTicket.Should().Be(1);
+
+        // 连续调用必须再次递增：用户可能改了输入但没发送，再点一次仍要聚焦。
+        vm.InterpretNmEventInAiCommand.Execute(null);
+        vm.ChatInputFocusTicket.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task NmTabHeader_ResetsWhenAnalysisFails()
+    {
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(
+            MakeNetworkReport(findings: new[]
+            {
+                new NmFinding("NM_CYCLE_DEVIATION", "warn", "a", Array.Empty<double>(), true, null),
+            }),
+            MakeProfile()));
+        vm.NmTabHeader.Should().Be("网络管理 (1)");
+
+        // NewVm 的 registry 没有 source：分析在快照阶段失败 → ClearNmReport。
+        await vm.RunNmAnalysisAsync(null);
+
+        vm.NmTabHeader.Should().Be("网络管理", "报告清空后 Tab 徽标不能残留");
+        vm.NmHasReport.Should().BeFalse();
+        vm.NmProfileSummary.Should().BeEmpty("失败后不能残留上一次报告的摘要");
+        vm.NmProfileReasonText.Should().BeEmpty("失败后不能残留上一次报告的识别依据");
+    }
+
+    [Fact]
+    public async Task SendMessage_WithoutProvider_ClearsPrefillHint()
+    {
+        var vm = NewVm();
+        vm.ChatInput = "问题";
+        vm.ChatPrefillHint = "已填入问题，按发送开始";
+
+        await vm.SendMessageCommand.ExecuteAsync(null);
+
+        // 用户已经按了发送：提示不能继续停留在“按发送开始”的待办状态。
+        vm.ChatPrefillHint.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SummarizeNmInAi_RequiresReport()
+    {
+        var vm = NewVm();
+
+        vm.SummarizeNmInAiCommand.CanExecute(null).Should().BeFalse();
+
+        vm.ApplyNmReport(MakeSnapshot(MakeReport(), MakeProfile()));
+
+        vm.SummarizeNmInAiCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [Fact]
+    public void NmTabHeader_ShowsWarnFindingCount()
+    {
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(
+            MakeNetworkReport(findings: new[]
+            {
+                new NmFinding("NM_CYCLE_DEVIATION", "warn", "a", Array.Empty<double>(), true, null),
+                new NmFinding("NM_NODE_DROPOUT", "warn", "b", Array.Empty<double>(), true, null),
+                new NmFinding("NM_TRACE_BOUNDARY", "info", "c", Array.Empty<double>(), false, null),
+            }),
+            MakeProfile()));
+
+        // info 噪声不算：只有 warn 才代表“需要用户看一眼”。
+        vm.NmTabHeader.Should().Be("网络管理 (2)");
+    }
+
+    [Fact]
+    public void NmTabHeader_WithoutWarn_ShowsPlainName()
+    {
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(MakeReport(), MakeProfile()));
+
+        vm.NmTabHeader.Should().Be("网络管理");
+    }
+
+    [Fact]
+    public void BuildNmSummaryAiPrompt_PartialMarksState()
+    {
+        var prompt = TraceViewerViewModel.BuildNmSummaryAiPrompt(
+            MakeSnapshot(MakeReport(isPartial: true), MakeProfile()));
+
+        prompt.Should().Contain("部分结果");
+        prompt.Should().Contain("get_nm_overview");
     }
 
     [Fact]
@@ -955,6 +1102,19 @@ public class NmPanelFlowTests
         row.Type.Should().Be("burst_observed", "筛选契约仍用原始 snake_case");
         row.TypeLabel.Should().Be("突发");
         row.EvidenceLabel.Should().Be("实测");
+    }
+
+    [Theory]
+    [InlineData("measured", "测")]
+    [InlineData("inferred", "推")]
+    [InlineData("boundary", "边")]
+    [InlineData("unexpected", "?")]
+    public void NmEventRow_EvidenceGlyph_IsSingleReadableChar(string kind, string glyph)
+    {
+        // 证据列并入详情列后只剩单字图标；完整级别仍由 ToolTip 提供。
+        var row = new NmEventRowVm(1, "1.000", "e", "s", "d", kind, 0);
+
+        row.EvidenceGlyph.Should().Be(glyph);
     }
 
     [Theory]

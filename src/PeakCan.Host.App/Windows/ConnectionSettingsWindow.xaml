@@ -30,8 +30,8 @@
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock>
-                            <Run Text="{Binding Name}" />
-                            <Run Text=" (0x" /><Run Text="{Binding Handle, StringFormat=X2}" /><Run Text=")" />
+                            <Run Text="{Binding Name, Mode=OneWay}" />
+                            <Run Text=" (0x" /><Run Text="{Binding Handle, Mode=OneWay, StringFormat=X2}" /><Run Text=")" />
                         </TextBlock>
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
@@ -79,8 +79,8 @@
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate>
                                             <TextBlock>
-                                                <Run Text="{Binding Name}" />
-                                                <Run Text=" (0x" /><Run Text="{Binding Handle, StringFormat=X2}" /><Run Text=")" />
+                                                <Run Text="{Binding Name, Mode=OneWay}" />
+                                                <Run Text=" (0x" /><Run Text="{Binding Handle, Mode=OneWay, StringFormat=X2}" /><Run Text=")" />
                                             </TextBlock>
                                         </DataTemplate>
                                     </ComboBox.ItemTemplate>

@@ -29,6 +29,8 @@
     <SolidColorBrush x:Key="Error" Color="#D62728" />
     <SolidColorBrush x:Key="ErrorBg" Color="#FDEBEC" />
     <SolidColorBrush x:Key="Info" Color="#0B5CAD" />
+    <SolidColorBrush x:Key="InfoBg" Color="#EAF3FF" />
+    <SolidColorBrush x:Key="InfoBorder" Color="#B8D4F0" />
     <SolidColorBrush x:Key="FrameBgFd" Color="#E3F2FD" />
     <SolidColorBrush x:Key="FrameBgSim" Color="#F0F0F0" />
     <SolidColorBrush x:Key="FrameFgSim" Color="#999999" />

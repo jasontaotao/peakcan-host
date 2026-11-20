@@ -35,6 +35,9 @@
                         Command="{Binding OpenNmWizardCommand}" Margin="6,0,0,0" />
                 <StackPanel>
                     <TextBlock Text="{Binding NmProfileSummary}" TextWrapping="Wrap" />
+                    <!-- 识别依据单独成行：与摘要挤在一起时 360px 下完全没法读。 -->
+                    <TextBlock Text="{Binding NmProfileReasonText}" TextWrapping="Wrap"
+                               FontSize="11" Foreground="#666666" Margin="0,2,0,0" />
                     <!-- 时间条只给窗口内观测到的报文建行：缺哪些必须在这里说明。 -->
                     <TextBlock Text="{Binding NmObservedSummary}" TextWrapping="Wrap"
                                FontSize="11" Foreground="#666666" Margin="0,2,0,0" />
@@ -284,10 +287,13 @@
                   </Canvas>
                 </Grid>
 
-                <!-- 常驻图例：颜色/形状与轨道同源（x:Static 引用转换器笔刷）。 -->
-                <StackPanel Margin="2,6,2,4">
-                    <TextBlock Text="图例" FontWeight="SemiBold" FontSize="10" Foreground="#555555" />
-                    <TextBlock FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0">
+                <!-- 图例默认折叠：常驻三行会吃掉 360px 面板约 60px 垂直空间。
+                     颜色/形状仍与轨道同源（x:Static 引用转换器笔刷）。 -->
+                <Expander Header="图例" IsExpanded="False" Margin="2,6,2,4"
+                          FontSize="10" FontWeight="SemiBold" Foreground="#555555">
+                    <StackPanel Margin="0,2,0,0">
+                    <!-- 每行显式 Normal：Expander 的 SemiBold 会向内容继承，图例正文不能变粗体。 -->
+                    <TextBlock FontSize="10" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0">
                         <Run Text="报文条  " Foreground="#666666" />
                         <Run Text="■ 唤醒  "
                              Foreground="{x:Static conv:NmSegmentBrushConverter.WakeupBrush}" />
@@ -298,7 +304,7 @@
                         <Run Text="■ 静默"
                              Foreground="{x:Static conv:NmSegmentBrushConverter.SilentBrush}" />
                     </TextBlock>
-                    <TextBlock FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0">
+                    <TextBlock FontSize="10" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0">
                         <Run Text="事件  " Foreground="#666666" />
                         <Run Text="▲ 突发  "
                              Foreground="{x:Static conv:NmSegmentBrushConverter.BurstBrush}" />
@@ -311,7 +317,7 @@
                         <Run Text="● 信号变化"
                              Foreground="{x:Static conv:NmSegmentBrushConverter.SignalBrush}" />
                     </TextBlock>
-                    <TextBlock FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0">
+                    <TextBlock FontSize="10" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0">
                         <Run Text="整网行  " Foreground="#666666" />
                         <Run Text="■ 活跃区间  "
                              Foreground="{x:Static conv:NmSegmentBrushConverter.EpisodeBrush}" />
@@ -320,7 +326,8 @@
                         <Run Text="│ 记录边界"
                              Foreground="{x:Static conv:NmSegmentBrushConverter.BoundaryBrush}" />
                     </TextBlock>
-                </StackPanel>
+                    </StackPanel>
+                </Expander>
             </StackPanel>
         </ScrollViewer>
 
@@ -341,12 +348,20 @@
         <!-- Actions：按钮换行时状态文案独立成行，避免被挤到面板外。 -->
         <StackPanel Grid.Row="7" Margin="6">
             <WrapPanel>
-                <Button Content="分析全 trace" Command="{Binding AnalyzeNmFullCommand}" Margin="0,0,6,4" />
-                <Button Content="分析当前窗口" Command="{Binding AnalyzeNmWindowCommand}" Margin="0,0,6,4" />
+                <Button Content="分析全 trace" Command="{Binding AnalyzeNmFullCommand}"
+                        ToolTip="分析整个 trace 时间范围" Margin="0,0,6,4" />
+                <Button Content="分析当前窗口" Command="{Binding AnalyzeNmWindowCommand}"
+                        ToolTip="只分析图表当前可见的时间范围" Margin="0,0,6,4" />
                 <Button Content="取消分析" Command="{Binding CancelNmAnalysisCommand}"
                         IsEnabled="{Binding NmCanCancel}" Margin="0,0,6,4" />
                 <Button Content="导出报告" Command="{Binding ExportNmReportCommand}" Margin="0,0,6,4" />
+                <Button Content="让 AI 总结本次分析" Command="{Binding SummarizeNmInAiCommand}"
+                        ToolTip="把分析结果交给 AI 汇总并给排查建议（只填入问题，确认后才发送）"
+                        ToolTipService.ShowOnDisabled="True"
+                        Margin="0,0,6,4" />
                 <Button Content="在 AI 中解读选中事件" Command="{Binding InterpretNmEventInAiCommand}"
+                        ToolTip="先在下方事件表选中一行；点击后跳到 AI 对话并填入问题"
+                        ToolTipService.ShowOnDisabled="True"
                         Margin="0,0,6,4" />
                 <ProgressBar IsIndeterminate="True" Width="70" Height="6" Margin="0,0,6,4"
                              VerticalAlignment="Center"
@@ -356,6 +371,9 @@
                            Visibility="{Binding NmIsAnalyzing, Converter={StaticResource BoolToVis}}" />
             </WrapPanel>
             <TextBlock Text="{Binding NmStatus}" TextWrapping="Wrap" Foreground="#444444" />
+            <!-- 一句话说明分工：用户此前反复问“AI 是拿来干嘛的”。 -->
+            <TextBlock Text="面板展示实测事实与证据；AI 负责解释和进一步排查。"
+                       FontSize="10" Foreground="#888888" Margin="0,4,0,0" TextWrapping="Wrap" />
         </StackPanel>
 
         <!-- Event table -->
@@ -371,15 +389,36 @@
                 <DataGridTextColumn Header="时间" Binding="{Binding TimeText}" Width="64" />
                 <DataGridTextColumn Header="类型" Binding="{Binding TypeLabel}" Width="82" />
                 <DataGridTextColumn Header="对象" Binding="{Binding Subject}" Width="70" />
-                <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*">
-                    <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-                            <Setter Property="ToolTip" Value="{Binding Detail}" />
-                        </Style>
-                    </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-                <DataGridTextColumn Header="证据" Binding="{Binding EvidenceLabel}" Width="52" />
+                <!-- 证据级别并入详情列：单字图标 + 颜色，省下独立「证据」列的 52px；
+                     完整级别仍由 ToolTip/AutomationProperties 提供。 -->
+                <DataGridTemplateColumn Header="详情" Width="*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Left" Text="{Binding EvidenceGlyph}"
+                                           ToolTip="{Binding EvidenceLabel}"
+                                           AutomationProperties.Name="{Binding EvidenceLabel}"
+                                           Margin="0,0,3,0" FontWeight="SemiBold">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#666666" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding EvidenceKind}" Value="measured">
+                                                    <Setter Property="Foreground" Value="#1A7F37" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding EvidenceKind}" Value="inferred">
+                                                    <Setter Property="Foreground" Value="#B26A00" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <TextBlock Text="{Binding Detail}" TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding Detail}" />
+                            </DockPanel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
             </DataGrid.Columns>
         </DataGrid>
 

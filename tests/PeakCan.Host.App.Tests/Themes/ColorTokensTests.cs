@@ -50,6 +50,8 @@ public class ColorTokensTests
     [InlineData("Error", "#D62728")]
     [InlineData("ErrorBg", "#FDEBEC")]
     [InlineData("Info", "#0B5CAD")]
+    [InlineData("InfoBg", "#EAF3FF")]
+    [InlineData("InfoBorder", "#B8D4F0")]
     [InlineData("FrameBgFd", "#E3F2FD")]
     [InlineData("FrameBgError", "#FFCDD2")]
     [InlineData("FrameBgHighlight", "#FFFDE7")]

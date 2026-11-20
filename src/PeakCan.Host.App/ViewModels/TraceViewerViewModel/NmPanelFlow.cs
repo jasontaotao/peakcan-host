@@ -41,6 +41,18 @@ public sealed record NmEventRowVm(double T, string TimeText, string Type, string
 
     /// <summary>事件表展示用的中文证据级别；数据契约仍保留 measured/inferred。</summary>
     public string EvidenceLabel => NmTimelineText.EvidenceKind(EvidenceKind);
+
+    /// <summary>
+    /// 证据级别单字图标（详情列前缀，替代独立「证据」列）；
+    /// 完整中文级别仍通过 ToolTip 提供，筛选契约仍按 EvidenceKind。
+    /// </summary>
+    public string EvidenceGlyph => EvidenceKind switch
+    {
+        "measured" => "测",
+        "inferred" => "推",
+        "boundary" => "边",
+        _ => "?",
+    };
 }
 
 /// <summary>
@@ -152,7 +164,15 @@ public sealed partial class TraceViewerViewModel
     /// <summary>spec §9.4：分析超过该时长按超时结束，保留 partial 结果。</summary>
     internal static readonly TimeSpan NmAnalysisTimeout = TimeSpan.FromSeconds(30);
 
-    [ObservableProperty] private bool _nmHasReport;
+    /// <summary>
+    /// 「网络管理」Tab 头文案：有 warn 级 finding 时带数量（如 “网络管理 (2)”），
+    /// 否则保持纯名字。用户不必点进 Tab 才知道那里有问题。
+    /// </summary>
+    [ObservableProperty] private string _nmTabHeader = "网络管理";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SummarizeNmInAiCommand))]
+    private bool _nmHasReport;
     [ObservableProperty] private bool _nmIsAnalyzing;
     [ObservableProperty] private bool _nmCanCancel;
     [ObservableProperty] private bool _nmIsPartial;
@@ -164,6 +184,10 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty] private bool _nmHasSemanticsBanner;
     [ObservableProperty] private string _nmStatus = "";
     [ObservableProperty] private string _nmProfileSummary = "";
+    /// <summary>
+    /// 识别依据单独成行：360px 面板下和来源/报文数/周期/超时挤在一行会糊成一片。
+    /// </summary>
+    [ObservableProperty] private string _nmProfileReasonText = "";
     /// <summary>窗口内观测/未出现的 NM 报文明细：解释为什么时间条只有部分报文行。</summary>
     [ObservableProperty] private string _nmObservedSummary = "";
     // 时间轴三档刻度：设计坐标把窗口起止映射到 0/1000，中点正好 50%，
@@ -580,10 +604,13 @@ public sealed partial class TraceViewerViewModel
     {
         _lastNmSnapshot = null;
         NmHasReport = false;
+        // 报告清空后 Tab 头必须回到纯名字：旧徽标会指向已经不存在的结果。
+        NmTabHeader = "网络管理";
         NmIsPartial = false;
         NmPartialText = "";
         NmHasConflicts = false;
         NmProfileSummary = "";
+        NmProfileReasonText = "";
         NmObservedSummary = "";
         NmTimeAxisStart = "";
         NmTimeAxisMid = "";
@@ -614,13 +641,17 @@ public sealed partial class TraceViewerViewModel
         var report = snapshot.Report;
         var profile = snapshot.Profile;
         NmHasReport = true;
+        var warnCount = CountWarnFindings(report);
+        NmTabHeader = warnCount > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"网络管理 ({warnCount})")
+            : "网络管理";
         NmIsPartial = report.IsPartial;
         NmPartialText = report.IsPartial
             ? (_nmCancelledByUser ? "部分结果（分析已取消）" : "部分结果（分析超时）")
             : "";
         NmProfileSummary = $"来源 {NmTimelineText.Provenance(profile.Provenance.ResolvedFrom)} · NM 报文 {profile.Messages.Count(m => m.IsNm)} · " +
-            $"周期 {profile.Timings.CycleMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}ms · 超时 {profile.Timings.TimeoutMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}ms · " +
-            $"识别依据 {BuildReasonsSummary(profile.Messages)}";
+            $"周期 {profile.Timings.CycleMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}ms · 超时 {profile.Timings.TimeoutMs?.ToString(CultureInfo.InvariantCulture) ?? "—"}ms";
+        NmProfileReasonText = $"识别依据 {BuildReasonsSummary(profile.Messages)}";
         NmMissingText = report.MissingInputs.Count == 0
             ? "输入齐备"
             : $"缺项 {report.MissingInputs.Count} → 补全";
@@ -1005,7 +1036,72 @@ public sealed partial class TraceViewerViewModel
     private void InterpretNmEventInAi()
     {
         if (NmSelectedEvent is null) return;
-        PrefillChatInput(BuildNmEventAiPrompt(NmSelectedEvent, NmIsPartial));
+        SendNmPromptToChat(
+            BuildNmEventAiPrompt(NmSelectedEvent, NmIsPartial),
+            "已填入事件解读问题，按发送开始解读");
+    }
+
+    private bool CanSummarizeNm() => NmHasReport;
+
+    /// <summary>
+    /// 「让 AI 总结本次分析」：把整份报告交给 AI 汇总并给排查建议。
+    /// 与单条事件解读走同一条跳转路径，同样不自动发送。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSummarizeNm))]
+    private void SummarizeNmInAi()
+    {
+        // CanExecute 已保证有报告；快照与报告由 ApplyNmReport 一起设置。
+        if (_lastNmSnapshot is null) return;
+        SendNmPromptToChat(
+            BuildNmSummaryAiPrompt(_lastNmSnapshot),
+            "已填入 NM 总结问题，按发送开始分析");
+    }
+
+    /// <summary>
+    /// 把 NM 面板生成的问题送进聊天输入框，并完成可见的跳转反馈：
+    /// 切到 AI 对话页 + 提示条 + 请求聚焦输入框。
+    /// 之前只写 ChatInput——用户在「网络管理」页看不到任何变化，误以为按钮无效。
+    /// </summary>
+    private void SendNmPromptToChat(string prompt, string hint)
+    {
+        PrefillChatInput(prompt);
+        ChatPrefillHint = hint;
+        RightPanelSelectedIndex = ChatPanelTabIndex;
+        ChatInputFocusTicket++;
+    }
+
+    /// <summary>warn 级 finding 数：Tab 徽标只统计需要用户关注的问题，info 不计。</summary>
+    internal static int CountWarnFindings(NmReport report)
+        => report.Findings.Count(f => string.Equals(f.Severity, "warn", StringComparison.Ordinal));
+
+    /// <summary>
+    /// NM 分析的总结提示词。面板可能只分析了某个窗口/通道，AI 重新取数时
+    /// 必须用同一组参数，否则会出现「面板看的是窗口 A，AI 总结的是全 trace」。
+    /// 结构固定为事实/异常/不可知/排查建议四段（spec §8.2 M1 口径）。
+    /// </summary>
+    internal static string BuildNmSummaryAiPrompt(NmToolSnapshot snapshot)
+    {
+        var report = snapshot.Report;
+        var channel = snapshot.Channel is null
+            // 不能写 "未指定"：模型可能把字面量传给整型 schema，白耗一轮工具调用。
+            ? "未指定（省略该参数）"
+            : snapshot.Channel.Value.ToString(CultureInfo.InvariantCulture);
+        var sb = new StringBuilder();
+        sb.AppendLine("请总结这次 NM（网络管理）分析。先调用 get_nm_overview 获取完整数据，");
+        sb.AppendLine("需要细节时再调 get_nm_events，然后按以下结构回答：");
+        sb.AppendLine("1. 实测事实：episode 数量、各 NM 报文的周期与配置是否一致、有无静默/掉线/报文缺失");
+        sb.AppendLine("2. 异常与证据：列出每条 finding 与关键事件的时间点及含义");
+        sb.AppendLine("3. 不可知项：明确说明哪些结论因缺少配置或不可观测而无法得出");
+        sb.AppendLine("4. 排查建议：按优先级给出下一步该看什么");
+        sb.AppendLine("所有时间引用工具输出的 *_label；不要臆造节点内部状态或睡眠结论。");
+        // 面板“所见”必须等于 AI“所总结”：把报告参数原样交给 AI，禁止它换范围重算。
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"面板当前报告的范围：source_id={snapshot.SourceId}，channel={channel}，"
+            + $"窗口 {report.Window.Start:F3}s – {report.Window.End:F3}s（window_ref={report.Window.WindowRef}）。");
+        sb.AppendLine("调用 get_nm_overview / get_nm_events 必须使用上述 source_id、channel 与 t_start/t_end，不要改用其它范围。");
+        if (report.IsPartial)
+            sb.AppendLine("注意：当前是部分结果（分析已取消或超时），结论必须标注不完整性。");
+        return sb.ToString().TrimEnd();
     }
 
     /// <summary>把选中事件格式化为 AI 可读的结构化提示（纯函数，便于单测）。</summary>

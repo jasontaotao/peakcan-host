@@ -29,11 +29,20 @@ public sealed class NmViewLayoutTests
 
     private static XDocument Wizard() => Load("src/PeakCan.Host.App/Views/NmInputWizardWindow.xaml");
 
+    /// <summary>取某个 DataTrigger 的 Foreground Setter 色值；结构缺失时返回 null 让断言失败。</summary>
+    private static string? ForegroundOf(IEnumerable<XElement> triggers, string value)
+        => triggers.SingleOrDefault(t => (string?)t.Attribute("Value") == value)
+            ?.Elements(P + "Setter")
+            .SingleOrDefault(s => (string?)s.Attribute("Property") == "Foreground")
+            ?.Attribute("Value")?.Value;
+
     [Fact]
     public void Panel_EventTable_LeavesWidthForDetailColumn()
     {
         var grid = Panel().Descendants(P + "DataGrid").Single();
-        var columns = grid.Element(P + "DataGrid.Columns")!.Elements(P + "DataGridTextColumn").ToList();
+        var columns = grid.Element(P + "DataGrid.Columns")!.Elements()
+            .Where(e => e.Name == P + "DataGridTextColumn" || e.Name == P + "DataGridTemplateColumn")
+            .ToList();
 
         // 360px 面板：固定列总和必须给 * 列留出可读宽度（≥ 80px）。
         var fixedWidth = columns
@@ -44,10 +53,63 @@ public sealed class NmViewLayoutTests
 
         (360 - fixedWidth).Should().BeGreaterThanOrEqualTo(80,
             "详情列是事件表的主要信息载体，不能被固定列挤成 0 宽");
-        columns.Should().Contain(c => (string?)c.Attribute("Width") == "*");
-        columns.Single(c => (string?)c.Attribute("Width") == "*")
-            .Descendants(P + "Setter")
-            .Should().Contain(s => (string?)s.Attribute("Property") == "TextTrimming");
+
+        // 证据级别并入详情列：省掉 52px 固定列，详情列用模板列承载图标 + 文本。
+        var detail = columns.Single(c => (string?)c.Attribute("Width") == "*");
+        detail.Name.Should().Be(P + "DataGridTemplateColumn",
+            "详情列要在文本前放证据图标，必须是模板列");
+        detail.Descendants(P + "TextBlock")
+            .Should().Contain(t => (string?)t.Attribute("Text") == "{Binding EvidenceGlyph}");
+
+        var detailText = detail.Descendants(P + "TextBlock")
+            .Single(t => (string?)t.Attribute("Text") == "{Binding Detail}");
+        ((string?)detailText.Attribute("TextTrimming")).Should().Be("CharacterEllipsis",
+            "详情列是 * 列：长文本必须省略，不能撑出横向滚动");
+
+        // DockPanel 默认 LastChildFill：详情必须是最后一个子元素，
+        // 才能拿到剩余宽度让 TextTrimming 生效；图标必须停靠在左侧。
+        var panel = detail.Descendants(P + "DockPanel").Single();
+        var children = panel.Elements().ToList();
+        children.Last().Should().Be(detailText);
+        ((string?)children.First().Attribute("DockPanel.Dock")).Should().Be("Left");
+
+        // 证据级别颜色语义：measured 绿 / inferred 橙；颜色对调或写错会静默失去区分度。
+        var triggers = detail.Descendants(P + "DataTrigger")
+            .Where(t => (string?)t.Attribute("Binding") == "{Binding EvidenceKind}")
+            .ToList();
+        ForegroundOf(triggers, "measured").Should().Be("#1A7F37");
+        ForegroundOf(triggers, "inferred").Should().Be("#B26A00");
+    }
+
+    [Fact]
+    public void Panel_EventTable_HasNoSeparateEvidenceColumn()
+    {
+        var grid = Panel().Descendants(P + "DataGrid").Single();
+        var headers = grid.Descendants()
+            .Select(e => (string?)e.Attribute("Header"))
+            .Where(h => h is not null)
+            .ToList();
+
+        headers.Should().NotContain("证据",
+            "证据列已并入详情列前的图标；再拆列会把详情挤窄");
+    }
+
+    [Fact]
+    public void Panel_Legend_IsCollapsedByDefault()
+    {
+        var legend = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "图例");
+
+        ((string?)legend.Attribute("IsExpanded")).Should().Be("False",
+            "图例常驻三行会吃掉 360px 面板约 60px 垂直空间；默认折叠");
+
+        // 折叠内容不能被删掉，且颜色必须与轨道同源（x:Static 笔刷），不能写死色值。
+        legend.Descendants(P + "TextBlock").Should().HaveCount(3);
+        var runs = legend.Descendants(P + "Run").ToList();
+        runs.Count(r => ((string?)r.Attribute("Foreground"))?
+                .StartsWith("{x:Static conv:NmSegmentBrushConverter.", StringComparison.Ordinal) == true)
+            .Should().BeGreaterThanOrEqualTo(10,
+                "图例色块必须引用转换器笔刷，否则时间条改色后图例会失真");
     }
 
     [Fact]
@@ -77,8 +139,14 @@ public sealed class NmViewLayoutTests
             .Single(e => (string?)e.Attribute("Grid.Row") == "7");
         actions.Name.Should().Be(P + "StackPanel");
         actions.Elements(P + "WrapPanel").Should().ContainSingle();
-        // 状态文案独立成行，不跟随按钮换行被挤出面板。
-        actions.Elements(P + "TextBlock").Should().ContainSingle();
+        // 状态文案与“面板=事实 / AI=解释”的分工说明各占一行，
+        // 不跟随按钮换行被挤出面板。
+        var actionTexts = actions.Elements(P + "TextBlock").ToList();
+        actionTexts.Should().HaveCount(2);
+        actionTexts.Select(t => (string?)t.Attribute("Text"))
+            .Should().Contain("{Binding NmStatus}");
+        actionTexts.Select(t => (string?)t.Attribute("Text"))
+            .Should().Contain(t => !string.IsNullOrEmpty(t) && t.Contains("AI 负责解释"));
     }
 
     [Fact]

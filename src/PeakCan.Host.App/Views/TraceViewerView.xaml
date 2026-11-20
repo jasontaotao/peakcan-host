@@ -291,7 +291,11 @@
                         <RowDefinition Height="*" />
                         <RowDefinition Height="180" />
                     </Grid.RowDefinitions>
-                    <TabControl Grid.Row="0">
+                    <!-- SelectedIndex 由 VM 驱动：NM 面板的「让 AI 解读/总结」需要把用户
+                         带到 AI 对话页，否则预填内容在没有选中的 Tab 里不可见。
+                         索引契约见 TraceViewerViewModel.ChatPanelTabIndex。 -->
+                    <TabControl Grid.Row="0"
+                                SelectedIndex="{Binding RightPanelSelectedIndex}">
                     <!-- Tab 1: Watch List (v3.15.0 MINOR source of truth).
                          Always visible regardless of window size. -->
                     <TabItem Header="监视列表">
@@ -378,7 +382,8 @@
                     <TabItem Header="AI 对话">
                         <ContentControl Content="{Binding ChatPanelContent}" />
                     </TabItem>
-                    <TabItem Header="网络管理">
+                    <!-- Header 由 VM 提供：分析出 warn 级 finding 后带数量徽标。 -->
+                    <TabItem Header="{Binding NmTabHeader}">
                         <ContentControl Content="{Binding NmPanelContent}" />
                     </TabItem>
                     </TabControl>

@@ -198,7 +198,7 @@
                                     Background="#DCF8C6" CornerRadius="8" Padding="8,5"
                                     MaxWidth="300"
                                     Visibility="{Binding IsUser, Converter={StaticResource BoolToVis}}">
-                                <TextBox Text="{Binding Content}" TextWrapping="Wrap"
+                                <TextBox Text="{Binding Content, Mode=OneWay}" TextWrapping="Wrap"
                                          IsReadOnly="True" IsTabStop="False"
                                          Background="Transparent" BorderThickness="0"
                                          Padding="0" />
@@ -210,7 +210,7 @@
                                     MaxWidth="300"
                                     Visibility="{Binding IsAssistant, Converter={StaticResource BoolToVis}}">
                                 <StackPanel>
-                                    <TextBox Text="{Binding Content}" TextWrapping="Wrap"
+                                    <TextBox Text="{Binding Content, Mode=OneWay}" TextWrapping="Wrap"
                                              IsReadOnly="True" IsTabStop="False"
                                              Background="Transparent" BorderThickness="0"
                                              Padding="0" />
@@ -226,7 +226,9 @@
                                 <Expander.Header>
                                     <TextBlock>
                                         <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Search}"/>
-                                        <Run Text="{Binding Tools.Count, StringFormat=' 执行了 {0} 个工具'}"/><Run FontFamily="Segoe Fluent Icons" Text="{x:Static icons:FluentIconGlyphs.ChevronDown}"/>
+                                        <!-- Run.Text 默认 TwoWay：绑只读 Count 必须显式 OneWay，
+                                             否则渲染工具调用气泡时抛 XamlParseException。 -->
+                                        <Run Text="{Binding Tools.Count, Mode=OneWay, StringFormat=' 执行了 {0} 个工具'}"/><Run FontFamily="Segoe Fluent Icons" Text="{x:Static icons:FluentIconGlyphs.ChevronDown}"/>
                                     </TextBlock>
                                 </Expander.Header>
                                 <ItemsControl ItemsSource="{Binding Tools}">
@@ -240,7 +242,7 @@
                                             <StackPanel Margin="0,2">
                                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
                                                            Foreground="{StaticResource Accent}" />
-                                                <TextBox Text="{Binding Result}" TextWrapping="Wrap"
+                                                <TextBox Text="{Binding Result, Mode=OneWay}" TextWrapping="Wrap"
                                                          FontFamily="Consolas, Courier New, monospace"
                                                          FontSize="11" Foreground="{StaticResource TextSecondary}"
                                                          IsReadOnly="True" IsTabStop="False"
@@ -259,12 +261,22 @@
         </ScrollViewer>
 
         <!-- Input -->
-        <DockPanel Grid.Row="3" Margin="8,4,8,8">
-            <Button Content="发送" DockPanel.Dock="Right" Margin="8,0,0,0"
-                    Command="{Binding SendMessageCommand}" Padding="12,4" />
-            <TextBox Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}"
-                     KeyDown="ChatInput_KeyDown"
-                     ToolTip="Enter 发送，Shift+Enter 换行" />
-        </DockPanel>
+        <StackPanel Grid.Row="3" Margin="8,4,8,8">
+            <!-- NM 面板跳转过来的预填提示：告诉用户“已经填好，按发送开始”。 -->
+            <Border Background="{StaticResource InfoBg}" BorderBrush="{StaticResource InfoBorder}"
+                    BorderThickness="1" CornerRadius="4" Padding="6,3" Margin="0,0,0,4"
+                    Visibility="{Binding HasChatPrefillHint, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding ChatPrefillHint}" FontSize="11"
+                           Foreground="{StaticResource Info}" TextWrapping="Wrap" />
+            </Border>
+            <DockPanel>
+                <Button Content="发送" DockPanel.Dock="Right" Margin="8,0,0,0"
+                        Command="{Binding SendMessageCommand}" Padding="12,4" />
+                <TextBox x:Name="ChatInputBox"
+                         Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}"
+                         KeyDown="ChatInput_KeyDown"
+                         ToolTip="Enter 发送，Shift+Enter 换行" />
+            </DockPanel>
+        </StackPanel>
     </Grid>
 </UserControl>
