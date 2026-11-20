@@ -977,6 +977,62 @@ public class NmPanelFlowTests
         => NmTimelineText.EvidenceKind(kind).Should().Be(expected);
 
     [Fact]
+    public void SetNmHoverDesignX_MapsDesignCoordinateToWindowTime()
+    {
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(MakeReport(), MakeProfile()));
+
+        vm.SetNmHoverDesignX(0);
+        vm.NmHoverTimeText.Should().Be("0.00s");
+        vm.SetNmHoverDesignX(500);
+        vm.NmHoverTimeText.Should().Be("5.00s");
+        vm.SetNmHoverDesignX(1000);
+        vm.NmHoverTimeText.Should().Be("10.00s");
+        vm.NmHoverActive.Should().BeTrue();
+
+        vm.ClearNmHoverTime();
+        vm.NmHoverActive.Should().BeFalse();
+        vm.NmHoverTimeText.Should().BeEmpty();
+
+        // 非零窗口起点：中间位置是 15s，不是 5s。
+        vm.ApplyNmReport(MakeSnapshot(
+            MakeNetworkReport(window: new NmWindow(10, 20, "viewport")), MakeProfile()));
+        vm.SetNmHoverDesignX(500);
+        vm.NmHoverTimeText.Should().Be("15.00s");
+        vm.SetNmHoverDesignX(-100);
+        vm.NmHoverTimeText.Should().Be("10.00s", "准星位置必须钳制在窗口范围内");
+    }
+
+    [Fact]
+    public void SetNmHoverDesignX_WithoutReport_DoesNotFabricateTime()
+    {
+        var vm = NewVm();
+
+        vm.SetNmHoverDesignX(500);
+
+        vm.NmHoverActive.Should().BeFalse("没有报告窗口时不能显示凭空的准星时间");
+        vm.NmHoverTimeText.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SetNmSegmentHover_BuildsChineseCardText()
+    {
+        var vm = NewVm();
+
+        vm.SetNmSegmentHover("active", "0x500 NM (A)", 1.2, 2.4);
+
+        vm.NmHoverKind.Should().Be("active");
+        vm.NmHoverTitle.Should().Be("发送中 · 0x500 NM (A)");
+        vm.NmHoverRange.Should().Be("1.20s – 2.40s · 持续 1.20s");
+        vm.NmHoverHint.Should().Be("点击跳转到 1.20s");
+
+        vm.ClearNmSegmentHover();
+        vm.NmHoverTitle.Should().BeEmpty();
+        vm.NmHoverRange.Should().BeEmpty();
+        vm.NmHoverHint.Should().BeEmpty();
+    }
+
+    [Fact]
     public void SemanticsBanner_ListsOnlyUnavailableCapabilities()
     {
         var report = MakeReport(capabilities: new[]

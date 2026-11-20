@@ -28,6 +28,28 @@ public class NmViewXamlResourceTests
         RegexOptions.Compiled);
 
     [Fact]
+    public void NmPanel_HoverOverlayAndPopup_KeepCriticalProperties()
+    {
+        // 这些属性一旦被「顺手简化」，要么卡片常驻/空白，要么覆盖层抢走 seek 点击。
+        var repoRoot = FindRepoRoot();
+        repoRoot.Should().NotBeNull();
+        var content = File.ReadAllText(
+            Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerViewNmPanel.xaml"));
+
+        content.Should().Contain("x:Name=\"NmSegmentPopup\"")
+            .And.Contain("Placement=\"Top\"")
+            .And.Contain("StaysOpen=\"True\"")
+            .And.Contain("Canvas IsHitTestVisible=\"False\"",
+                "准星覆盖层必须让鼠标事件穿透到活动条")
+            .And.Contain("ElementName=NmTimelineTrackHost",
+                "准星高度必须跟随时间条宿主")
+            .And.Contain("MouseEnter=\"OnNmSegmentMouseEnter\"")
+            .And.Contain("MouseLeave=\"OnNmSegmentMouseLeave\"")
+            .And.Contain("ScrollChanged=\"OnNmTimelineScrollChanged\"",
+                "滚动时必须收起不跟随目标的 Popup");
+    }
+
+    [Fact]
     public void NmViews_ReferenceOnlyDefinedStaticResources()
     {
         var repoRoot = FindRepoRoot();

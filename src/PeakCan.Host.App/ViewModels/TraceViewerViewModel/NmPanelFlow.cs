@@ -147,7 +147,8 @@ public static class NmEventFilters
 
 public sealed partial class TraceViewerViewModel
 {
-    private const double NmTimelineWidth = 1000.0;
+    /// <summary>时间条设计宽度：活动条 Canvas 与准星反算共用这一常量。</summary>
+    public const double NmTimelineWidth = 1000.0;
     /// <summary>spec §9.4：分析超过该时长按超时结束，保留 partial 结果。</summary>
     internal static readonly TimeSpan NmAnalysisTimeout = TimeSpan.FromSeconds(30);
 
@@ -176,6 +177,18 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty] private string _nmEventKeyword = "";
     /// <summary>筛选后的可见行数/总行数：避免状态栏的“共 N 条”被误读为表格行数。</summary>
     [ObservableProperty] private string _nmEventFilterSummary = "";
+
+    // 时间条 hover（spec §9.1 交互强化）：准星时间读数 + 活动段信息卡。
+    // 这两个状态由 View 的鼠标事件驱动，VM 只负责把像素/区间换算成展示文案。
+    [ObservableProperty] private bool _nmHoverActive;
+    [ObservableProperty] private string _nmHoverTimeText = "";
+    [ObservableProperty] private string _nmHoverKind = "";
+    [ObservableProperty] private string _nmHoverTitle = "";
+    [ObservableProperty] private string _nmHoverRange = "";
+    [ObservableProperty] private string _nmHoverHint = "";
+    // 最近一次报告的窗口边界：准星像素 → 秒需要它；报告清空时同步清零。
+    private double _nmWindowStart;
+    private double _nmWindowEnd;
 
     /// <summary>事件表当前选中行；「在 AI 中解读」按钮的 CanExecute 依赖它。</summary>
     [ObservableProperty]
@@ -575,6 +588,14 @@ public sealed partial class TraceViewerViewModel
         NmTimeAxisStart = "";
         NmTimeAxisMid = "";
         NmTimeAxisEnd = "";
+        NmHoverActive = false;
+        NmHoverTimeText = "";
+        NmHoverKind = "";
+        NmHoverTitle = "";
+        NmHoverRange = "";
+        NmHoverHint = "";
+        _nmWindowStart = 0;
+        _nmWindowEnd = 0;
         NmMissingText = "补全";
         NmSemanticsBanner = "";
         NmHasSemanticsBanner = false;
@@ -606,6 +627,8 @@ public sealed partial class TraceViewerViewModel
         // 时间条只给「窗口内观测到」的报文建行；缺报文必须在同一区域说清楚，
         // 否则用户会以为面板漏画了节点。
         NmObservedSummary = BuildObservedSummary(profile, report);
+        _nmWindowStart = report.Window.Start;
+        _nmWindowEnd = report.Window.End;
         var mid = (report.Window.Start + report.Window.End) / 2;
         NmTimeAxisStart = string.Create(CultureInfo.InvariantCulture, $"{report.Window.Start:F2}s");
         NmTimeAxisMid = string.Create(CultureInfo.InvariantCulture, $"{mid:F2}s");
@@ -928,6 +951,49 @@ public sealed partial class TraceViewerViewModel
 
     [RelayCommand]
     private void SeekToNmTime(double t) => _masterService?.Seek(t);
+
+    /// <summary>
+    /// 时间条准星：设计坐标（0..1000）→ 当前窗口秒数文案。
+    /// 报告窗口未知时不启动准星，避免显示凭空推算的时间。
+    /// </summary>
+    internal void SetNmHoverDesignX(double designX)
+    {
+        if (_nmWindowEnd <= _nmWindowStart) return;
+
+        var t = _nmWindowStart
+                + Math.Clamp(designX, 0, NmTimelineWidth) / NmTimelineWidth
+                * (_nmWindowEnd - _nmWindowStart);
+        NmHoverTimeText = string.Create(CultureInfo.InvariantCulture, $"{t:F2}s");
+        NmHoverActive = true;
+    }
+
+    internal void ClearNmHoverTime()
+    {
+        NmHoverActive = false;
+        NmHoverTimeText = "";
+    }
+
+    /// <summary>
+    /// 活动段 hover 信息卡文案：阶段、报文/整网行、起止与持续时长。
+    /// 只描述数据事实，不推断节点状态。
+    /// </summary>
+    internal void SetNmSegmentHover(string kind, string rowLabel, double start, double end)
+    {
+        var who = string.IsNullOrEmpty(rowLabel) ? "" : " · " + rowLabel;
+        NmHoverKind = kind;
+        NmHoverTitle = NmTimelineText.SegmentKind(kind) + who;
+        NmHoverRange = string.Create(CultureInfo.InvariantCulture,
+            $"{start:F2}s – {end:F2}s · 持续 {Math.Max(end - start, 0):F2}s");
+        NmHoverHint = string.Create(CultureInfo.InvariantCulture, $"点击跳转到 {start:F2}s");
+    }
+
+    internal void ClearNmSegmentHover()
+    {
+        NmHoverKind = "";
+        NmHoverTitle = "";
+        NmHoverRange = "";
+        NmHoverHint = "";
+    }
 
     private bool CanInterpretNmEvent() => NmSelectedEvent is not null;
 
