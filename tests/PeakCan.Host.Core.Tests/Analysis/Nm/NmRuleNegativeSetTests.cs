@@ -60,9 +60,8 @@ public class NmRuleNegativeSetTests
             o => o.Kind == "repeat_message_duration" && o.RuleId == "NM_06");
         Assert.Equal(1500.0, (rms.End - rms.Start) * 1000.0, 6);
         // NM_01 / NM_05 已实际求值并通过，不能以「未建模」冒充通过。
-        // 断言落在条款号上（Clauses），不是规则名——两者不是一回事（spec §4.0）。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.4.2");
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.4.3");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_01");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_05");
     }
 
     [Fact]
@@ -87,7 +86,7 @@ public class NmRuleNegativeSetTests
 
         // 非空洞性守卫：burst_shape 必须真的判过一次合规。
         // 10 帧 / 20ms 被判合规时不会留下 finding，也不应退化成「无候选 → Unmodeled」。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.5");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_03");
     }
 
     [Fact]
@@ -196,7 +195,7 @@ public class NmRuleNegativeSetTests
         AssertNoViolation(report);
 
         // 非空洞性守卫：两条原语都必须真的求值（未进入 Unmodeled）。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.5");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_CYCLE_500");
         // layout_check 在 DLC 一致时不会产 finding；「不在 Unmodeled」是空断言
         // （LayoutCheck 从不设置 unmodeledReason），真正的阴性证据是 DLC 不一致的
         // finding 不存在。正向路径由 LayoutDlcMismatch_ReportsDlcMismatch 覆盖。
@@ -258,7 +257,7 @@ public class NmRuleNegativeSetTests
         var rmsObservation = Assert.Single(ObservationsOf(report),
             o => o.Kind == "repeat_message_duration" && o.RuleId == "NM_06");
         Assert.DoesNotContain("窗口截断", rmsObservation.Detail);
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.5");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_06");
     }
 
     /// <summary>

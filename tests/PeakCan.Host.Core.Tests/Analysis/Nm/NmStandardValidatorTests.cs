@@ -220,7 +220,7 @@ public class NmStandardValidatorTests
 
         var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
         Assert.Contains("wakeuup", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("phase", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("declared_phase", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
