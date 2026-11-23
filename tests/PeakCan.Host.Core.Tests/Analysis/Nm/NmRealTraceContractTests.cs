@@ -76,11 +76,13 @@ public class NmRealTraceContractTests
         Assert.Contains(report.UnmodeledRules!, u => u.RuleId == "NM_STOP_SENDING");
 
         // spec §4：静默后快发是 NM_03/NM_16（本地唤醒）的合规形态，不是 NM_02/NM_15 的违规。
-        // v1 无法区分唤醒源，所以这条规则必须保持 unobservable —— 一旦它在这里产出 finding，
-        // 说明有人把它改回了 partial，误报就会回到真实数据上。
+        // v1 无法区分唤醒源，所以这条规则必须保持 unobservable。
+        // ReasonCode 校验的是「真正被 U 级短路」：只把 observability 改成 partial 的半吊子翻修
+        // 会让原语因 expect 不匹配进 Unmodeled（missing_profile_data），下面两条断言仍会通过。
         Assert.DoesNotContain(report.Findings,
             f => f.Code == "NM_NORMAL_RESUME_SHAPE_MISMATCH");
-        Assert.Contains(report.UnmodeledRules!, u => u.RuleId == "NM_RESUME_TO_RMS");
+        Assert.Contains(report.UnmodeledRules!,
+            u => u.RuleId == "NM_RESUME_TO_RMS" && u.ReasonCode == "unobservable");
 
         // (2) 全网 NM 静默 > timeout：必须是 all_nm_silent 观测事实，
         //     不得降级成单报文 NM_SENDER_SILENT_BEYOND_TIMEOUT（spec §7.1.2）。
