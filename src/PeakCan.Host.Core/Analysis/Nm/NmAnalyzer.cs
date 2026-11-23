@@ -273,7 +273,11 @@ public static class NmAnalyzer
                 messageReports.Add(new NmMessageReport(
                     def.CanIdHex, def.IsExtended, def.Name, def.Sender,
                     frames.Length, timestamps[0], timestamps[^1], cycle, activity,
-                    SilentBeyondTimeout: request.End - timestamps[^1] > defTimeoutSec));
+                    // 本任务只做兼容映射：保持 M1 的 SilentBeyondTimeout 可观测行为不变，
+                    // 真实归因（其它 NM 是否仍在发）在 Task 2 接入 NmSilenceClassifier。
+                    SilenceVerdict: request.End - timestamps[^1] > defTimeoutSec
+                        ? NmSilenceVerdict.SilentWithOtherNmActive
+                        : NmSilenceVerdict.NotSilent));
             }
         }
 

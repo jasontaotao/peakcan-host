@@ -373,11 +373,14 @@ public static class NmSilenceClassifier
         byte? nidByte = null,
         bool episodeTruncated = false)
     {
-        // 尾随静默不足一个超时：仍在正常发送节奏内。
-        if (windowEnd - lastSeen <= timeoutSec) return NmSilenceVerdict.NotSilent;
-
-        // episode 被窗口切断时，末帧之后的静默可能只是窗口裁剪，不是真静默。
+        // 判定顺序即优先级：先排除「数据本身不可判明」，再判「静默归因」。
+        // episode 被窗口切断时，末帧之后到窗口末尾这段的语义不可靠，任何结论都可能是裁剪造成的。
         if (episodeTruncated) return NmSilenceVerdict.IndeterminateAtBoundary;
+
+        // 尾随静默仍严格小于一个超时：仍在正常发送节奏内。
+        // 用严格小于而非 <=：恰好一个超时属于「停发边界」，需要继续归因
+        // （与 NmGapAnalyzer 的 `gap >= timeout` 触发口径一致）。
+        if (windowEnd - lastSeen < timeoutSec) return NmSilenceVerdict.NotSilent;
 
         // 共享 ID：同一 CAN ID 下多个 NID 交替，按报文拆不出节点。
         if (nidByte is { } nb && HasMultipleNids(allNmFrames, canIdHex, isExtended, nb))
@@ -589,14 +592,17 @@ cd /d/claude_proj2/peakcan-host && dotnet test tests/PeakCan.Host.Core.Tests/Pea
 ```csharp
                 var lastEpisode = episodes.LastOrDefault(e =>
                     e.Start <= timestamps[^1] && e.End >= timestamps[^1]);
+                // 不传 episode.BoundaryEnd：它由「全网最后一帧」算出
+                // （NmEpisodeBuilder.cs:47），单节点静默时恰好为 true，
+                // 会把 SilentWithOtherNmActive 误降成 IndeterminateAtBoundary。
+                // 窗口截断已由 windowEnd - lastSeen < timeoutSec 覆盖。
                 var verdict = NmSilenceClassifier.Classify(
                     nmFrames, def.CanIdHex, def.IsExtended,
                     lastSeen: timestamps[^1],
                     episodeEnd: lastEpisode?.End ?? timestamps[^1],
                     windowEnd: request.End,
                     timeoutSec: effectiveTimeoutMs / 1000.0,
-                    nidByte: request.Profile.Layout?.NidByte,
-                    episodeTruncated: lastEpisode?.BoundaryEnd ?? false);
+                    nidByte: request.Profile.Layout?.NidByte);
 ```
 
 在 `NmGapAnalyzer` 调用之后（`NmAnalyzer.cs:292` 附近），把 gap 的事件与 unknown 转成 observation。因为 `NmGapAnalyzer` 内部已经算出 `all_nm_silent` 事件，最省事且不重复实现的接法是在 `NmGapResult` 里加 `IReadOnlyList<NmObservation> Observations`：

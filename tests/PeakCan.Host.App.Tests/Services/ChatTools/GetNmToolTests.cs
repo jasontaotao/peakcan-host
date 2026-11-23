@@ -55,7 +55,7 @@ BO_ 1536 CAN_MSG_A: 8 ECU_A
         {
             new NmMessageReport("0x500", false, "NM_Message", "ECU_A", 21, 0, 10,
                 new NmCycleStats(500, 500, 500, 500, 0, 0, 20, 500, 100),
-                new[] { new NmSegment(0, 10, "active") }, false),
+                new[] { new NmSegment(0, 10, "active") }),
         },
         Array.Empty<NmNodeReport>(),
         Enumerable.Range(0, eventCount).Select(i => new NmEvent(i, "byte_change", null, "0x500",
@@ -190,7 +190,7 @@ BO_ 1536 CAN_MSG_A: 8 ECU_A
                 .ToArray(),
             Messages = Enumerable.Range(0, 51)
                 .Select(i => new NmMessageReport($"0x{0x500 + i:X}", false, "NM", "ECU_A", 1, 0, 1,
-                    new NmCycleStats(500, 500, 500, 500, 0, 0), Array.Empty<NmSegment>(), false))
+                    new NmCycleStats(500, 500, 500, 500, 0, 0), Array.Empty<NmSegment>()))
                 .ToArray(),
             Findings = Enumerable.Range(0, 31)
                 .Select(i => new NmFinding($"FIND_{i}", "warn", "message", Array.Empty<double>(), false, null))
@@ -864,9 +864,9 @@ BA_ "NmStationAddress" BU_ ECU_A 244;
         var messages = new[]
         {
             new NmMessageReport("0x50", false, "NM_A", "ECU_A", 1, 0, 1,
-                new NmCycleStats(500, 500, 500, 500, 0, 0), Array.Empty<NmSegment>(), false),
+                new NmCycleStats(500, 500, 500, 500, 0, 0), Array.Empty<NmSegment>()),
             new NmMessageReport("0x500", false, "NM_B", "ECU_B", 1, 0, 1,
-                new NmCycleStats(500, 500, 500, 500, 0, 0), Array.Empty<NmSegment>(), false),
+                new NmCycleStats(500, 500, 500, 500, 0, 0), Array.Empty<NmSegment>()),
         };
         var findings = new[]
         {

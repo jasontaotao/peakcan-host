@@ -23,7 +23,7 @@ public class NmReportWriterTests
         {
             new NmMessageReport("0x500", false, "NM", "A", 2, 0, 10,
                 new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
-                new[] { new NmSegment(0, 10, "active") }, false),
+                new[] { new NmSegment(0, 10, "active") }),
         },
         Array.Empty<NmNodeReport>(),
         new[] { new NmEvent(1.5, "byte_change", null, "0x500", "byte0: 0x00 → 0x08", 0, "measured") },
@@ -174,7 +174,7 @@ public class NmReportWriterTests
             {
                 new NmMessageReport("0x500", false, "Secret_Message", "ECU_A", 2, 0, 10,
                     new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
-                    new[] { new NmSegment(0, 10, "active") }, false),
+                    new[] { new NmSegment(0, 10, "active") }),
             },
             Events = new[]
             {
@@ -215,7 +215,7 @@ public class NmReportWriterTests
             {
                 new NmMessageReport("0x500", false, "Secret_Message", "ECU_A", 2, 0, 10,
                     new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
-                    new[] { new NmSegment(0, 10, "active") }, false),
+                    new[] { new NmSegment(0, 10, "active") }),
             },
             Events = new[]
             {
@@ -239,7 +239,7 @@ public class NmReportWriterTests
             {
                 new NmMessageReport("0x500", false, "Secret_Message", "ECU_A", 2, 0, 10,
                     new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
-                    new[] { new NmSegment(0, 10, "active") }, false),
+                    new[] { new NmSegment(0, 10, "active") }),
             },
         };
 

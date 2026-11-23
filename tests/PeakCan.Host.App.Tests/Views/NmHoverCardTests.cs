@@ -255,7 +255,7 @@ public class NmHoverCardTests
             {
                 new NmMessageReport("0x500", false, name, sender, 4, 0, 10,
                     new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
-                    new[] { new NmSegment(0, 10, "active") }, false),
+                    new[] { new NmSegment(0, 10, "active") }),
             },
             Array.Empty<NmNodeReport>(),
             new[]
