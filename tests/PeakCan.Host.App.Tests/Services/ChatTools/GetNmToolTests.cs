@@ -890,7 +890,7 @@ BA_ "NmStationAddress" BU_ ECU_A 244;
             .Should().Be("报文 0x50/0x500，NID 0x??，未配置 ID 0x??");
     }
 
-    // ==== §7.1.1 四态静默判定 + 观测事实 ====
+    // ==== §7.1.1 多态静默判定 + 观测事实 ====
 
     [Fact]
     public async Task GetNmOverview_AllNmSilent_EmitsVerdictAndObservation()

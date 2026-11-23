@@ -501,7 +501,7 @@ public sealed record NmMessageReport(
 
 现有 `NmMessageReport.SilentBeyondTimeout`（`NmReport.cs:41`）只看窗口末尾距末帧的时间（`NmAnalyzer.cs:265`），**不检查其它 NM 是否仍活动**，且已输出给 AI（`GetNmOverviewTool.cs:82`）和导出（`NmReportWriter.cs:81`）。真实 trace 的全网静默会被它标成 true。
 
-改为四态：
+改为多态（M2 收尾时为五态）：
 
 ```csharp
 public enum NmSilenceVerdict

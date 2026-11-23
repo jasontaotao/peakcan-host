@@ -79,7 +79,7 @@ public sealed class GetNmOverviewTool : ChatToolBase
             ["last_seen"] = m.LastSeen,
             ["last_seen_label"] = TraceTimeFormatter.Format(m.LastSeen, null),
             ["cycle"] = CycleJson(m.Cycle),
-            // 四态静默判定（spec §7.1.2）：AI 必须能区分「全网静默」与「单节点静默」。
+            // 多态静默判定（spec §7.1.2）：AI 必须能区分「全网静默」与「单节点静默」。
             ["silence_verdict"] = m.SilenceVerdict.ToString(),
             ["silent_beyond_timeout"] = m.SilentBeyondTimeout,
         });
