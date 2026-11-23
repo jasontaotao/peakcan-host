@@ -57,13 +57,152 @@ public class NmRuleEvaluatorsLatencyTests
     [Fact]
     public void RepeatMessageDuration_WithinLimit_NoFinding()
     {
-        var frames = Steady(0.0, count: 4, stepSec: 0.42);   // 1.26s
+        // 允许窗 1440–1560ms，实测 1500ms（0.0→1.5s）确实落在窗内。
+        // 原 fixture 是 1260ms，低于下限 180ms——它只在「只判上限」的旧实现下才绿，
+        // 那正是本次修复要消除的缺陷，不能拿它当合规样本。
+        var frames = Steady(0.0, count: 4, stepSec: 0.5);    // 1.5s
 
         var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "nmsts"));
 
         Assert.Empty(result.Findings);
         // 原语根本没被求值时也会「无 finding」，必须钉住它确实求过值。
         Assert.Empty(result.Unmodeled);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_WithBurstSelector_SkipsNoBurstSegmentVisibly()
+    {
+        // 吉利 §2.4 双区间：含快发 1640–1760，不含快发 1440–1560。
+        // with_burst=true 的规则遇到无快发段时**不适用**（应由 with_burst=false 的
+        // 那条规则判）。跳过必须留 observation：否则「无 finding」会被读成「通过」，
+        // 而实际上是这一段根本没被这条规则检查。
+        var frames = Steady(0.0, count: 5, stepSec: 0.425);   // 1.7s，无快发
+
+        var rule = new NmRuleDef("NM_06", "RMS 持续时长（含快发）", "wakeup",
+            new NmRuleWhen("repeat_message_duration", CycleMs: 500),
+            new NmRuleExpect("duration_within_ms", MinMs: 1640, MaxMs: 1760,
+                Anchor: "nmsts", WithBurst: true),
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+
+        var result = Evaluate(frames, rule);
+
+        Assert.Empty(result.Findings);
+        var obs = Assert.Single(result.Observations,
+            o => o.Kind == "repeat_message_duration_not_applicable");
+        Assert.Contains("不适用", obs.Detail, StringComparison.Ordinal);
+        Assert.Equal("NM_06", obs.RuleId);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_WithoutBurstSelector_SkipsBurstSegmentVisibly()
+    {
+        // 对称用例：with_burst=false 的规则遇到含快发段时不适用。
+        var burst = Enumerable.Range(0, 10).Select(i => i * 0.020).ToArray();
+        var steady = new[] { 0.5, 1.0, 1.5 };
+        var frames = burst.Concat(steady).Select(t => FrameAt(t)).ToArray();
+
+        var rule = new NmRuleDef("NM_06_NOBURST", "RMS 持续时长（不含快发）", "wakeup",
+            new NmRuleWhen("repeat_message_duration", CycleMs: 500),
+            new NmRuleExpect("duration_within_ms", MinMs: 1440, MaxMs: 1560,
+                Anchor: "nmsts", WithBurst: false),
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+
+        var result = Evaluate(frames, rule);
+
+        Assert.Empty(result.Findings);
+        Assert.Single(result.Observations,
+            o => o.Kind == "repeat_message_duration_not_applicable");
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_BurstSelectorMatches_NoFinding()
+    {
+        // 声明 with_burst=true 且确有快发、时长在 1640–1760 内 → 合规。
+        var burst = Enumerable.Range(0, 10).Select(i => i * 0.020).ToArray();
+        var steady = new[] { 0.5, 1.0, 1.5, 1.7 };
+        var frames = burst.Concat(steady).Select(t => FrameAt(t)).ToArray();
+
+        var rule = new NmRuleDef("NM_06", "RMS 持续时长（含快发）", "wakeup",
+            new NmRuleWhen("repeat_message_duration", CycleMs: 500),
+            new NmRuleExpect("duration_within_ms", MinMs: 1640, MaxMs: 1760,
+                Anchor: "nmsts", WithBurst: true),
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+
+        var result = Evaluate(frames, rule);
+
+        Assert.Empty(result.Findings);
+        Assert.Empty(result.Unmodeled);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_BelowLowerBound_ProducesFinding()
+    {
+        // 允许窗 1440–1760ms，实测 1000ms（0.0→1.0s）：RMS 过短，同样是违反 NM_06。
+        // 只判上限会让「RMS 提前结束」永远检不出——吉利 §5.5 的双区间是区间，不是上限。
+        var frames = Steady(0.0, count: 3, stepSec: 0.5);    // 跨 1.0s
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1760, anchor: "nmsts"));
+
+        var f = Assert.Single(result.Findings);
+        Assert.Equal("NM_REPEAT_MESSAGE_DURATION_EXCEEDED", f.Code);
+        Assert.True(f.IsInference, "P 级原语必须标推断");
+        Assert.Contains("过短", f.Message, StringComparison.Ordinal);
+        Assert.Contains("1000", f.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_AtLowerBoundExactly_NoFinding()
+    {
+        // 边界值必须算合规：实测恰好 1440ms 不得报「过短」。
+        var frames = Steady(0.0, count: 2, stepSec: 1.44);   // 0.0 → 1.44s
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1760, anchor: "nmsts"));
+
+        Assert.Empty(result.Findings);
+        Assert.Empty(result.Unmodeled);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_SegmentCutAtStart_IsNotReportedAsTooShort()
+    {
+        // HIGH（review）：真实 RMS 6.5→8.0s（1500ms，无快发，合规），
+        // 但用户把窗口起点选成 7.5s（或记录从 7.5s 才开机）。
+        // 帧选择丢弃 7.5s 之前的帧，episode 从 7.5 开始，实测只剩 500ms。
+        // 这 500ms 是**下限**（真实时长更长），绝不能判「过短」。
+        // 原实现只算段尾截断，段首切断会误报。
+        var frames = Steady(0.0, count: 4, stepSec: 0.5);     // 0.0→1.5s
+        var episodes = new[]
+        {
+            // 窗口从 1.0s 开始：episode 起点被窗口切掉，BoundaryStart=true。
+            new NmEpisode(0, 1.0, frames[^1].Frame.Timestamp + 1.0,
+                "active", null, ParticipantA, BoundaryStart: true, BoundaryEnd: false),
+        };
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1760, anchor: "nmsts"),
+            episodes: episodes, windowStart: 1.0, windowEnd: 3.0);
+
+        Assert.Empty(result.Findings);
+        // 必须留痕：说明这一段因为起点被切而不可判，不是「检查过且合规」。
+        var obs = Assert.Single(result.Observations,
+            o => o.Kind == "repeat_message_duration");
+        Assert.Contains("起点", obs.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_BelowLowerBoundButTruncated_IsNotReported()
+    {
+        // 段被窗口切断时实测时长只是下限：此时「过短」是裁剪造成的假象，不能报。
+        var frames = Steady(0.0, count: 3, stepSec: 0.3);
+        var episodes = new[]
+        {
+            new NmEpisode(0, frames[0].Frame.Timestamp, frames[^1].Frame.Timestamp,
+                "active", null, ParticipantA, false, true),
+        };
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1760, anchor: "nmsts"),
+            episodes: episodes, windowEnd: frames[^1].Frame.Timestamp);
+
+        Assert.Empty(result.Findings);
     }
 
     [Fact]
@@ -224,11 +363,21 @@ public class NmRuleEvaluatorsLatencyTests
 
         var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "nmsts"));
 
-        Assert.Empty(result.Findings);
         var obs = Assert.Single(result.Observations, o => o.Kind == "repeat_message_duration");
         // 只取包含首个 NMSts=0 帧的连续段：0→0.4s。
+        // 若跨过中间的 NOS 把两段拼起来，终点会是 3.5s——那才是本用例要挡的造假。
         Assert.Equal(0.4, obs.End, 3);
         Assert.Empty(result.Unmodeled);
+
+        // 该段实测 400ms，低于下限 1440ms：这是**真实**的 RMS 过短，
+        // 与「两段被拼成假 RMS」是两回事。补齐下界判定后必须报出来。
+        // 原断言是 Assert.Empty(Findings)，它把「不造假」和「400ms 合规」两个命题混在一起，
+        // 只因为旧实现只判上限才同时成立。
+        var f = Assert.Single(result.Findings);
+        Assert.Equal("NM_REPEAT_MESSAGE_DURATION_EXCEEDED", f.Code);
+        Assert.Contains("过短", f.Message, StringComparison.Ordinal);
+        // 证据区间必须是那 400ms，不是 3.5s——再次钉住没有拼接。
+        Assert.Equal(0.4, f.EvidenceTimes[1], 3);
     }
 
     [Fact]
@@ -252,9 +401,12 @@ public class NmRuleEvaluatorsLatencyTests
     public void RepeatMessageDuration_TwoCompliantNodes_NoFinding()
     {
         // C1 回归（final review）：同一 episode 内两个节点的帧交错出现。
-        // 若把 episode 内全部帧合并成一个流，A 的 NMSts=0 段会被 B 在 1.8s 的帧
-        // 拉长到 1800ms（> 1760），凭空误报超差，并把结论归给先到的 A。
-        // 按 (CAN ID, 帧类型) 分组后：A 0.0→1.5 = 1500ms，B 0.8→1.8 = 1000ms，均合规。
+        // 若把 episode 内全部帧合并成一个流，A 的 NMSts=0 段会被 B 更晚的帧
+        // 拉长到 2300ms（> 1760），凭空误报超差，并把结论归给先到的 A。
+        // 按 (CAN ID, 帧类型) 分组后：A 0.0→1.5 = 1500ms，B 0.8→2.3 = 1500ms，均合规。
+        // 注：原 fixture 的 B 是 0.8→1.8 = 1000ms，低于下限 1440ms，注释里写的「均合规」
+        // 只在旧实现（只判上限）下成立；补齐下界判定后 B 会正确报「过短」，
+        // 因此把 B 的 NMSts=0 段延长到 2.3s，保持「两个节点都合规」这个用例的本来意图。
         var a = new[]
         {
             NodeFrame(0.0, NmIdA, "A", nmsts: 0),
@@ -269,8 +421,9 @@ public class NmRuleEvaluatorsLatencyTests
             NodeFrame(0.8, NmIdB, "B", nmsts: 0),
             NodeFrame(1.3, NmIdB, "B", nmsts: 0),
             NodeFrame(1.8, NmIdB, "B", nmsts: 0),
-            NodeFrame(2.3, NmIdB, "B", nmsts: 1),
+            NodeFrame(2.3, NmIdB, "B", nmsts: 0),
             NodeFrame(2.8, NmIdB, "B", nmsts: 1),
+            NodeFrame(3.3, NmIdB, "B", nmsts: 1),
         };
         var frames = a.Concat(b).OrderBy(f => f.Frame.Timestamp).ToArray();
 
@@ -437,7 +590,8 @@ public class NmRuleEvaluatorsLatencyTests
         IReadOnlyList<NmFrame> frames, NmRuleDef rule,
         IReadOnlyList<NmEpisode>? episodes = null,
         double? windowEnd = null,
-        bool withNmsts = true)
+        bool withNmsts = true,
+        double windowStart = 0)
     {
         var defs = frames.Select(f => f.Def).Distinct().ToArray();
         var profile = new NmProfile(
@@ -456,7 +610,7 @@ public class NmRuleEvaluatorsLatencyTests
                 "active", null, ParticipantA, false, false),
         };
         var ctx = new NmRuleContext(frames, eps, profile, timing,
-            new NmWindow(0, windowEnd ?? frames[^1].Frame.Timestamp + 5, "test"))
+            new NmWindow(windowStart, windowEnd ?? frames[^1].Frame.Timestamp + 5, "test"))
         { Rules = new[] { rule } };
         return NmRuleEngine.Evaluate(ctx.Rules, ctx);
     }

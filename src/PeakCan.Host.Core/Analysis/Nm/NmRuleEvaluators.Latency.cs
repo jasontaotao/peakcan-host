@@ -15,6 +15,14 @@ public static partial class NmRuleEvaluators
     private const double LatencyBoundaryEpsilon = 1e-9;
 
     /// <summary>
+    /// 时长比较的毫秒余量。`(end - start) * 1000` 在 20ms 网格上会算出
+    /// 1439.9999999999998 这类值（review MEDIUM 实测：5000 个起点里 3278 个
+    /// 恰好 1440ms 的区间会落到 1440 以下），直接与整数 minMs 比较会假报
+    /// 「过短 -0ms」。上限比较同源。
+    /// </summary>
+    private const double DurationMsEpsilon = 1e-6;
+
+    /// <summary>
     /// Repeat Message State 持续时长（spec §7.2 / §14.6）。判据分三步：
     /// <list type="number">
     /// <item>用 profile 的 NMSts 位角色锚定 **NMSts=0** 的帧——这才是 RMS。</item>
@@ -158,34 +166,97 @@ public static partial class NmRuleEvaluators
                 var truncated = end >= ctx.Window.End - LatencyBoundaryEpsilon
                     || (episode.BoundaryEnd && end >= episode.End - LatencyBoundaryEpsilon);
 
+                // 段**首**被切断（review HIGH）：窗口起点落在 RMS 中间，或记录从 RMS
+                // 中途才开始。此时测得的起点是伪起点，实测时长同样只是下限——
+                // 与段尾截断同一数学性质。原实现只算段尾，会把合规的 1500ms RMS
+                // 在「窗口从 7.5s 开始」时误报成「仅持续 500ms，过短」。
+                //
+                // 判据必须同时满足「episode 确实被起点切断」与「段起点就是 episode 起点」：
+                // 只凭 start <= Window.Start 会把所有从 0s 开始的正常用例都判成切断
+                // （窗口起点恒为 0，而 RMS 也常从 0 开始）。episode.BoundaryStart 由
+                // NmEpisodeBuilder 按「窗口起点落在 episode 内部」判定，是权威信号。
+                var startCut = episode.BoundaryStart
+                    && start <= episode.Start + LatencyBoundaryEpsilon;
+
                 observations.Add(new NmObservation(
                     "repeat_message_duration", def.Sender, def.CanIdHex,
                     start, end,
                     $"RMS 实测 {durationMs:F0}ms（允许 {minMs}–{maxMs}ms，" +
                     $"{(burst.IsCandidate ? "含" : "不含")}快发）" +
-                    (truncated ? "，窗口截断：时长为下限" : ""),
-                    truncated ? "boundary" : burst.IsCandidate ? "measured" : "inferred",
+                    (truncated ? "，窗口截断：时长为下限" : "") +
+                    (startCut ? "，起点被窗口/记录边界切断：时长为下限" : ""),
+                    truncated || startCut ? "boundary" : burst.IsCandidate ? "measured" : "inferred",
                     IsInference: !burst.IsCandidate,
                     RuleId: rule.Id));
 
-                // 段被窗口 / episode 边界切断：时长只是下限，不能判超差。
+                // 段被窗口 / episode 边界切断：实测时长只是下限，
+                // 既不能判超上限（可能还没到真实终点），也不能判过短（真实时长只会更长）。
                 if (truncated) continue;
 
-                if (durationMs <= maxMs) continue;
+                // 段首被切断：真实起点更早，真实时长只会更长。
+                // 因此「过短」不可判（下面会跳过），但「超上限」仍成立——
+                // 已经超了上限，真实值只会更超，继续往下判上限是安全的。
+                // 不能像段尾截断那样整体 continue，否则会漏掉真实的超差。
 
-                if (string.IsNullOrEmpty(rule.FindingCode))
+                // 快发形态选择器（spec §2.4 双区间）：吉利对「含快发」与「不含快发」
+                // 给了两个不同区间（1640–1760 / 1440–1560），必须按实测形态选窗口。
+                // <para>
+                // 语义是<b>选择窗口</b>而非<b>断言形态</b>：形态不符说明本条规则的
+                // 允许窗不适用于这一段，应由另一条规则（或无人）来判。
+                // 若在此报「形态不符」，profile 里成对声明两条规则时同一段会被两条都报，
+                // 结论重复且互相矛盾。形态合规性由 burst_shape（NM_03）负责。
+                // </para>
+                // 跳过必须留痕：观测里写明「不适用」，否则「无 finding」会被读成「通过」。
+                if (rule.Expect.WithBurst is { } wantBurst && wantBurst != burst.IsCandidate)
                 {
-                    reasons.Add("RMS 超差，但规则未声明 finding code");
+                    observations.Add(new NmObservation(
+                        "repeat_message_duration_not_applicable", def.Sender, def.CanIdHex,
+                        start, end,
+                        $"RMS 实测 {durationMs:F0}ms，但本规则允许窗" +
+                        $"（{minMs}–{maxMs}ms）只适用于{(wantBurst ? "含" : "不含")}快发的 RMS；" +
+                        $"本次观测到{(burst.IsCandidate ? "含" : "不含")}快发，本条不适用",
+                        "measured", IsInference: false, RuleId: rule.Id));
                     continue;
                 }
 
-                // P 级原语：finding 恒标推断（未直接读内部 T_REPEAT_MESSAGE 定时器）。
+                if (durationMs > maxMs + DurationMsEpsilon)
+                {
+                    if (string.IsNullOrEmpty(rule.FindingCode))
+                    {
+                        reasons.Add("RMS 超差，但规则未声明 finding code");
+                        continue;
+                    }
+
+                    // P 级原语：finding 恒标推断（未直接读内部 T_REPEAT_MESSAGE 定时器）。
+                    findings.Add(new NmFinding(
+                        rule.FindingCode, "warn",
+                        $"{def.CanIdHex} Repeat Message State 持续 {durationMs:F0}ms，" +
+                        $"超出上限 {maxMs}ms（+{durationMs - maxMs:F0}ms）",
+                        new[] { start, end }, IsInference: true,
+                        SuggestedNextCheck: "核对 T_REPEAT_MESSAGE 与 NOS 进入条件",
+                        RuleId: rule.Id, RequirementId: rule.Id, SourceRef: rule.SourceRef));
+                    continue;
+                }
+
+                // 低于下限：RMS 提前结束，同样是违反 NM_06 的双区间。
+                // 段首被切断时真实起点更早、真实时长只会更长，此时的「过短」是裁剪
+                // 造成的假象，必须跳过（review HIGH）。
+                if (startCut) continue;
+
+                if (durationMs >= minMs - DurationMsEpsilon) continue;
+
+                if (string.IsNullOrEmpty(rule.FindingCode))
+                {
+                    reasons.Add("RMS 过短，但规则未声明 finding code");
+                    continue;
+                }
+
                 findings.Add(new NmFinding(
                     rule.FindingCode, "warn",
-                    $"{def.CanIdHex} Repeat Message State 持续 {durationMs:F0}ms，" +
-                    $"超出上限 {maxMs}ms（+{durationMs - maxMs:F0}ms）",
+                    $"{def.CanIdHex} Repeat Message State 过短：仅持续 {durationMs:F0}ms，" +
+                    $"低于下限 {minMs}ms（-{minMs - durationMs:F0}ms）",
                     new[] { start, end }, IsInference: true,
-                    SuggestedNextCheck: "核对 T_REPEAT_MESSAGE 与 NOS 进入条件",
+                    SuggestedNextCheck: "核对 RMS 提前结束的原因（是否被 RMR 或睡眠条件打断）",
                     RuleId: rule.Id, RequirementId: rule.Id, SourceRef: rule.SourceRef));
             }
         }
