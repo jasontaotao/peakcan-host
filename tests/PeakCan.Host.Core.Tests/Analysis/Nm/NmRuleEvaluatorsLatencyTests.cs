@@ -245,7 +245,7 @@ public class NmRuleEvaluatorsLatencyTests
             o => o.Kind == "repeat_message_duration" && o.Detail.Contains("NMSts 不可读",
                 StringComparison.Ordinal));
         var u = Assert.Single(result.Unmodeled);
-        Assert.Equal("NM_06", u.Clause);
+        Assert.Equal("NM_06", u.RuleId);
     }
 
     [Fact]
@@ -259,7 +259,7 @@ public class NmRuleEvaluatorsLatencyTests
 
         Assert.Empty(result.Findings);
         var u = Assert.Single(result.Unmodeled);
-        Assert.Equal("NM_06", u.Clause);
+        Assert.Equal("NM_06", u.RuleId);
         Assert.Contains("未观察到 RMS 锚点", u.Reason, StringComparison.Ordinal);
     }
 

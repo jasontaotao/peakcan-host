@@ -60,8 +60,10 @@ public class NmRuleNegativeSetTests
             o => o.Kind == "repeat_message_duration" && o.RuleId == "NM_06");
         Assert.Equal(1500.0, (rms.End - rms.Start) * 1000.0, 6);
         // NM_01 / NM_05 已实际求值并通过，不能以「未建模」冒充通过。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_01");
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_05");
+        // 规则身份在 RuleId；Clause 只是条款号。NM_01/NM_05 的条款虽唯一，
+        // 但本文件的锁一直针对「这条规则是否进了 Unmodeled」，用 RuleId 才精确。
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_01");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_05");
     }
 
     [Fact]
@@ -86,7 +88,8 @@ public class NmRuleNegativeSetTests
 
         // 非空洞性守卫：burst_shape 必须真的判过一次合规。
         // 10 帧 / 20ms 被判合规时不会留下 finding，也不应退化成「无候选 → Unmodeled」。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_03");
+        // NM_03 / NM_06 / NM_CYCLE_500 共用 §5.5：按条款号断言无法区分是哪条规则。
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -195,7 +198,7 @@ public class NmRuleNegativeSetTests
         AssertNoViolation(report);
 
         // 非空洞性守卫：两条原语都必须真的求值（未进入 Unmodeled）。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_CYCLE_500");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_CYCLE_500");
         // layout_check 在 DLC 一致时不会产 finding；「不在 Unmodeled」是空断言
         // （LayoutCheck 从不设置 unmodeledReason），真正的阴性证据是 DLC 不一致的
         // finding 不存在。正向路径由 LayoutDlcMismatch_ReportsDlcMismatch 覆盖。
@@ -257,7 +260,7 @@ public class NmRuleNegativeSetTests
         var rmsObservation = Assert.Single(ObservationsOf(report),
             o => o.Kind == "repeat_message_duration" && o.RuleId == "NM_06");
         Assert.DoesNotContain("窗口截断", rmsObservation.Detail);
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_06");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_06");
     }
 
     /// <summary>
@@ -326,7 +329,9 @@ public class NmRuleNegativeSetTests
 
     private static NmRuleDef[] Rules() => new[]
     {
-        // spec §4.0：Clauses 是条款号，不是规则名。断言必须落在条款号上。
+        // spec §4.0：Clauses 是条款号，不是规则名。条款号不唯一（NM_03/NM_06/
+        // NM_CYCLE_500 共用 §5.5），所以「某规则是否未建模」的断言落在 RuleId 上；
+        // 条款归因由未建模条目自己的 Clause/RequirementId 承载。
         new NmRuleDef("NM_01", "NID 与 ID 映射一致", "normal",
             new NmRuleWhen("nid_id_mapping"),
             new NmRuleExpect("matches_id_low_byte"), "NM_NID_MISMATCH")

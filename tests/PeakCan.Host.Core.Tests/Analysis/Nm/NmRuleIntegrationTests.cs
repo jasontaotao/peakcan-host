@@ -59,7 +59,7 @@ public class NmRuleIntegrationTests
             "src", null, frames, null, Profile(rules: true), 0, 1.0));
 
         Assert.NotNull(report.UnmodeledRules);
-        Assert.Contains(report.UnmodeledRules!, u => u.Clause == "NM_U1");
+        Assert.Contains(report.UnmodeledRules!, u => u.RuleId == "NM_U1");
         // 「Only」必须有反向断言：不可观测条款只能进 Unmodeled，绝不能产 finding。
         Assert.DoesNotContain(report.Findings, f => f.RuleId == "NM_U1");
     }

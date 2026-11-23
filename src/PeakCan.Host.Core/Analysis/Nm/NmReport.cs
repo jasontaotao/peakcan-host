@@ -60,7 +60,14 @@ public sealed record NmUnmodeledRule(
     string Clause,
     string Reason,
     string? RequirementId = null,
-    string? SourceRef = null);
+    string? SourceRef = null)
+{
+    /// <summary>未实现的规则 ID；Clause 是条款号，两者不是一回事。</summary>
+    public string? RuleId { get; init; }
+
+    /// <summary>结构化原因码，见 spec §9.4。</summary>
+    public string? ReasonCode { get; init; }
+}
 
 public sealed record NmSegment(double Start, double End, string Kind);
 
@@ -124,8 +131,13 @@ public sealed record NmFinding(
     bool IsInference,
     string? SuggestedNextCheck,
     string? RuleId = null,
+    // 已弃用（spec §4.0）：多条款时单值会造假归因。新代码读 Clauses。
     string? RequirementId = null,
-    string? SourceRef = null);
+    string? SourceRef = null)
+{
+    /// <summary>本 finding 覆盖的条款号（来自 rule.Clauses）。</summary>
+    public IReadOnlyList<string> Clauses { get; init; } = Array.Empty<string>();
+}
 
 public sealed record NmTruncation(string Section, int Returned, int Total);
 

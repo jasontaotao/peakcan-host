@@ -35,7 +35,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(500, 0.1));
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.Empty(result.Findings);
         Assert.Contains(result.Unmodeled, u =>
-            u.Clause == "NM_CYCLE" && u.Reason.Contains("共享 ID", StringComparison.Ordinal));
+            u.RuleId == "NM_CYCLE" && u.Reason.Contains("共享 ID", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class NmRuleEvaluatorsTimingTests
         var f = Assert.Single(geely.Findings);
         Assert.Equal("NM_CYCLE_DEVIATION", f.Code);
         Assert.Empty(autosar.Findings);
-        Assert.DoesNotContain(autosar.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.DoesNotContain(autosar.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(100, 0.1));
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(100, 0.1));
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(100, 0.1));
 
         Assert.Empty(result.Findings);
-        Assert.Contains(result.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.Contains(result.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, BurstRule());
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, BurstRuleNoParams(), standardTimings: standard);
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -185,7 +185,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, BurstRule(), windowEnd: 0.1);
 
         Assert.Empty(result.Findings);
-        Assert.Contains(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.Contains(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -199,7 +199,7 @@ public class NmRuleEvaluatorsTimingTests
             timings: new NmTimings(CycleMs: 500, TimeoutMs: 2000, ImmediateCycleMs: 0));
 
         Assert.Empty(result.Findings);
-        Assert.Contains(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.Contains(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -218,7 +218,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.Empty(result.Findings);
         Assert.Contains(result.Unmodeled, u =>
-            u.Clause == "NM_03" && u.Reason.Contains("触到分析边界", StringComparison.Ordinal));
+            u.RuleId == "NM_03" && u.Reason.Contains("触到分析边界", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, BurstRule(), episodes: episodes);
 
         Assert.Equal(2, result.Findings.Count);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -261,7 +261,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.Empty(result.Findings);
         Assert.Contains(result.Unmodeled, u =>
-            u.Clause == "NM_03" && u.Reason.Contains("未观察到快发段", StringComparison.Ordinal));
+            u.RuleId == "NM_03" && u.Reason.Contains("未观察到快发段", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -278,7 +278,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.Empty(result.Findings);
         Assert.Contains(result.Unmodeled, u =>
-            u.Clause == "NM_03" && u.Reason.Contains("episode 之外", StringComparison.Ordinal));
+            u.RuleId == "NM_03" && u.Reason.Contains("episode 之外", StringComparison.Ordinal));
     }
 
     // ==== nmsts_transition ====
@@ -296,7 +296,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, NmstsRule(), roles: [new NmBitRole(3, 0, "NmSts")]);
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_06");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_06");
         var obs = Assert.Single(result.Observations, o => o.Kind == "nmsts_transition");
         Assert.Equal(2.0, obs.Start);
     }
@@ -410,7 +410,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.DoesNotContain(result.Observations, o => o.Kind == "nmsts_transition");
         Assert.Contains(result.Observations, o => o.Kind == "nmsts_transition_unreadable");
-        Assert.Contains(result.Unmodeled, u => u.Clause == "NM_06");
+        Assert.Contains(result.Unmodeled, u => u.RuleId == "NM_06");
     }
 
     [Fact]
@@ -433,7 +433,7 @@ public class NmRuleEvaluatorsTimingTests
             frames, NmstsRule(), roles: [new NmBitRole(3, 0, "NmSts")], episodes: episodes);
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_06");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_06");
         Assert.DoesNotContain(result.Observations, o => o.Kind == "nmsts_transition");
     }
 

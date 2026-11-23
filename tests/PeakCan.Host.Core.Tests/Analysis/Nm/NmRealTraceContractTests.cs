@@ -67,10 +67,10 @@ public class NmRealTraceContractTests
                 f.Message.Contains("0x18FFFAF5", StringComparison.OrdinalIgnoreCase));
         }
         // 求值成功就不该同时进 Unmodeled；第二段 RMS 也不应让规则整体失效。
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_06");
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_06_NOBURST");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_06");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_06_NOBURST");
         // Geely 的另一条未实现条款同样显式可见，证明加载的是完整规则集。
-        Assert.Contains(report.UnmodeledRules!, u => u.Clause == "NM_09");
+        Assert.Contains(report.UnmodeledRules!, u => u.RuleId == "NM_09");
 
         // (2) 全网 NM 静默 > timeout：必须是 all_nm_silent 观测事实，
         //     不得降级成单报文 NM_SENDER_SILENT_BEYOND_TIMEOUT（spec §7.1.2）。
@@ -82,7 +82,7 @@ public class NmRealTraceContractTests
         // (3) 稳态 514–537ms 在 500ms ±50ms（吉利 tolerance_ratio 0.1）内：
         //     不得报周期偏差。先钉住 NM_CYCLE 确实求了值（没进 Unmodeled），
         //     否则「无 finding」可能只是规则没跑。
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_CYCLE");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_CYCLE");
         Assert.DoesNotContain(report.Findings, f => f.Code == "NM_CYCLE_DEVIATION");
 
         // (4) 预留位零约束与 ID 区间必须真的求值，而不是「写了规则但没人跑」。
@@ -101,15 +101,15 @@ public class NmRealTraceContractTests
         foreach (var id in reservedRuleIds)
         {
             Assert.Contains(profile.StandardRules!, r => r.Id == id);
-            Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == id);
+            Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == id);
         }
         Assert.DoesNotContain(report.Findings, f => f.Code == "NM_RESERVED_BIT_SET");
 
         // ID 区间规则同理：先钉住两条规则都在规则集里，再断言未进 Unmodeled。
         Assert.Contains(profile.StandardRules!, r => r.Id == "NM_LAYOUT_ID_EXT");
         Assert.Contains(profile.StandardRules!, r => r.Id == "NM_LAYOUT_ID_STD");
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_LAYOUT_ID_EXT");
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_LAYOUT_ID_STD");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_LAYOUT_ID_EXT");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_LAYOUT_ID_STD");
         Assert.DoesNotContain(report.Findings, f => f.Code == "NM_LAYOUT_VIOLATION");
 
         // 快发形态（NM_03）必须真的在规则集里：否则「快发帧数错误」的节点
@@ -119,8 +119,8 @@ public class NmRealTraceContractTests
         // NM_06 拆成双区间后，两条规则都必须存在且都求过值。
         Assert.Contains(profile.StandardRules!, r => r.Id == "NM_06");
         Assert.Contains(profile.StandardRules!, r => r.Id == "NM_06_NOBURST");
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_06");
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_06_NOBURST");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_06");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_06_NOBURST");
     }
 
     [Fact]

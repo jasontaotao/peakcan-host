@@ -38,12 +38,23 @@ public static class NmRuleEngine
 
         foreach (var rule in rules)
         {
+            // spec §4.0：Clause 是条款号，不是规则名。规则身份由 RuleId 承载。
+            // 取 ordinal 排序后的第一个，与 finding 回填的 RequirementId 同口径，
+            // 避免同一规则的两个字段对「首条款」给出不同答案（不依赖 YAML 声明顺序）。
+            var firstClause = rule.Clauses.Count > 0
+                ? rule.Clauses.Order(StringComparer.Ordinal).First()
+                : null;
+
             // spec §3：不可观测条款只能进 Unmodeled。
             if (rule.Observability == NmObservability.Unobservable)
             {
                 unmodeled.Add(new NmUnmodeledRule(
-                    rule.Id, "条款不可观测（U 级），只能推断，不产 finding",
-                    RequirementId: rule.Id, SourceRef: rule.SourceRef));
+                    firstClause ?? "", "条款不可观测（U 级），只能推断，不产 finding",
+                    RequirementId: firstClause, SourceRef: rule.SourceRef)
+                {
+                    RuleId = rule.Id,
+                    ReasonCode = "unobservable",
+                });
                 continue;
             }
 
@@ -53,17 +64,41 @@ public static class NmRuleEngine
             if (!implemented)
             {
                 unmodeled.Add(new NmUnmodeledRule(
-                    rule.Id, $"原语「{rule.When.Kind}」在 v1 闭集中无实现",
-                    RequirementId: rule.Id, SourceRef: rule.SourceRef));
+                    firstClause ?? "", $"原语「{rule.When.Kind}」在 v1 闭集中无实现",
+                    RequirementId: firstClause, SourceRef: rule.SourceRef)
+                {
+                    RuleId = rule.Id,
+                    ReasonCode = "unimplemented_primitive",
+                });
             }
             else if (unmodeledReason is not null)
             {
                 // 原语已实现，但本条规则缺参数 / 缺 profile 数据 / 期望未实现：
                 // 必须显式进 Unmodeled，否则用户会把「没检查」误读成「通过了」。
                 unmodeled.Add(new NmUnmodeledRule(
-                    rule.Id, unmodeledReason,
-                    RequirementId: rule.Id, SourceRef: rule.SourceRef));
+                    firstClause ?? "", unmodeledReason,
+                    RequirementId: firstClause, SourceRef: rule.SourceRef)
+                {
+                    RuleId = rule.Id,
+                    ReasonCode = "missing_profile_data",
+                });
             }
+        }
+
+        // spec §4.0：条款归因由引擎统一回填，不依赖各 evaluator 记得填。
+        // 9 处 finding 构造分散在三个文件，人工维护迟早漏。
+        var byRule = rules.ToDictionary(r => r.Id, StringComparer.Ordinal);
+        for (var i = 0; i < findings.Count; i++)
+        {
+            if (findings[i].RuleId is not { } rid || !byRule.TryGetValue(rid, out var def)) continue;
+            findings[i] = findings[i] with
+            {
+                Clauses = def.Clauses,
+                // 兼容字段取确定性值：按 ordinal 排序后的第一个，不依赖 YAML 声明顺序。
+                RequirementId = def.Clauses.Count == 0
+                    ? null
+                    : def.Clauses.Order(StringComparer.Ordinal).First(),
+            };
         }
 
         return new NmRuleResult(findings, observations, unmodeled,
