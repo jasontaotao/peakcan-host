@@ -112,7 +112,9 @@ public static class NmGapAnalyzer
                 var canId = group.Key.CanIdHex;
                 var isExtended = group.Key.IsExtended;
                 var display = Display(canId, isExtended);
-                var times = group.Select(f => f.Frame.Timestamp).OrderBy(t => t).ToArray();
+                // 先按时间排成帧数组：掉线判定不只需要时刻，还要读停发前最后一帧的 NMSts。
+                var ordered = group.OrderBy(f => f.Frame.Timestamp).ToArray();
+                var times = ordered.Select(f => f.Frame.Timestamp).ToArray();
                 var lastEpisode = input.Episodes.Count > 0 ? input.Episodes[^1] : null;
                 // 单报文阈值用该报文的生效超时（def > profile > 2000），与周期统计同源；
                 // 全网络静默仍用全局超时。
@@ -125,16 +127,39 @@ public static class NmGapAnalyzer
                     && !OverlapsAllNmSilent(times[^1], lastEpisode.End, input.Episodes)
                     && OthersActiveBetween(times[^1], lastEpisode.End, canId, isExtended, input.NmFrames))
                 {
-                    findings.Add(new NmFinding(
-                        "NM_NODE_DROPOUT", "warn",
-                        $"{display} 从 {times[^1]:F2}s 起未再发送（episode 结束 {lastEpisode.End:F2}s），其它 NM 报文仍在发送",
-                        new[] { times[^1], lastEpisode.End }, IsInference: true,
-                        "检查该发送节点的复位/掉线/发送停止"));
-                    events.Add(new NmEvent(times[^1], "sender_silent", null, canId,
-                        $"{lastEpisode.End - times[^1]:F2}s", lastEpisode.Index, "inferred",
-                        isExtended));
-                    unknowns.Add("dropout_receiver_side_or_node_internal_state_not_excluded（只看发送侧）");
+                    // NM_09：停发前最后一帧处于 Ready Sleep State（NMSts=1）时，
+                    // 停发是合规释放，不是节点掉线——连同 sender_silent 事件与
+                    // 「掉线原因未知」一起抑制。
+                    // NMSts=0 是 Repeat Message State，该状态下停发不是合规释放，
+                    // 必须继续上报；角色缺失或 DLC 不足时无法判定，同样保守上报
+                    // （读不出不等于 RSS），并补 unknown 说明无法排除 RSS 的原因。
+                    var lastNmSts = ReadNmSts(ordered[^1], input.Profile.StandardBitRoles);
+                    if (lastNmSts != NmStsReading.ReadySleep)
+                    {
+                        if (lastNmSts == NmStsReading.MissingRole)
+                        {
+                            unknowns.Add("dropout_cannot_exclude_rss（profile 未声明 NmSts 位，无法区分合规停发与掉线）");
+                        }
+                        else if (lastNmSts == NmStsReading.Unreadable)
+                        {
+                            unknowns.Add("dropout_cannot_exclude_rss（停发前最后一帧读不出 NmSts 位，无法区分合规停发与掉线）");
+                        }
+
+                        findings.Add(new NmFinding(
+                            "NM_NODE_DROPOUT", "warn",
+                            $"{display} 从 {times[^1]:F2}s 起未再发送（episode 结束 {lastEpisode.End:F2}s），其它 NM 报文仍在发送",
+                            new[] { times[^1], lastEpisode.End }, IsInference: true,
+                            "检查该发送节点的复位/掉线/发送停止"));
+                        events.Add(new NmEvent(times[^1], "sender_silent", null, canId,
+                            $"{lastEpisode.End - times[^1]:F2}s", lastEpisode.Index, "inferred",
+                            isExtended));
+                        unknowns.Add("dropout_receiver_side_or_node_internal_state_not_excluded（只看发送侧）");
+                    }
                 }
+
+                // 中间断档（断后又恢复）不做 NMSts 抑制：节点恢复发送说明空档内
+                // 并非一直处于 RSS，仅凭断前最后一帧 NMSts=1 无法把整段超时静默
+                // 解释成一次合规释放；抑制会掩盖真实的发送中断。
 
                 for (int i = 1; i < times.Length; i++)
                 {
@@ -215,4 +240,50 @@ public static class NmGapAnalyzer
     /// <summary>事件/结论里的报文名：扩展帧带 <c>(ext)</c>，避免与同数值标准帧混淆。</summary>
     private static string Display(string canIdHex, bool isExtended)
         => isExtended ? canIdHex + "(ext)" : canIdHex;
+
+    /// <summary>
+    /// 读取一帧的 NMSts 位，位置取自 profile 的 <see cref="NmProfile.StandardBitRoles"/>。
+    /// 返回四态而不是 bool：无法判定（无位角色 / DLC 不足）与 NMSts=0 是两回事，
+    /// 调用方对前者要补 unknown 说明，但两者都必须继续上报掉线。
+    /// </summary>
+    private static NmStsReading ReadNmSts(NmFrame frame, IReadOnlyList<NmBitRole>? roles)
+    {
+        var role = FindRole(roles, "NmSts");
+        if (role is null) return NmStsReading.MissingRole;
+
+        var data = frame.Frame.Data;
+        // 与 NmRuleEvaluators 同口径（spec §7.5.1.2）：DLC 不足即该帧不可读，
+        // 不臆造状态位。
+        if (data.Length <= role.Byte) return NmStsReading.Unreadable;
+
+        return ((data[role.Byte] >> role.Bit) & 1) != 0
+            ? NmStsReading.ReadySleep
+            : NmStsReading.RepeatMessage;
+    }
+
+    /// <summary>按名称定位位角色；profile 未声明该位时返回 null。</summary>
+    private static NmBitRole? FindRole(IReadOnlyList<NmBitRole>? roles, string name)
+    {
+        if (roles is null) return null;
+        // IReadOnlyList 可索引；用循环避开 CA1826（Enumerable.FirstOrDefault）。
+        for (var i = 0; i < roles.Count; i++)
+        {
+            if (string.Equals(roles[i].Name, name, StringComparison.Ordinal)) return roles[i];
+        }
+
+        return null;
+    }
+
+    /// <summary>停发前最后一帧的 NMSts 读取结果。</summary>
+    private enum NmStsReading
+    {
+        /// <summary>profile 未声明 NmSts 位角色，无法判定。</summary>
+        MissingRole,
+        /// <summary>DLC 不足，读不出该位。</summary>
+        Unreadable,
+        /// <summary>NMSts=0：Repeat Message State。</summary>
+        RepeatMessage,
+        /// <summary>NMSts=1：Ready Sleep State（合规停发）。</summary>
+        ReadySleep,
+    }
 }
