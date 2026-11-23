@@ -819,8 +819,10 @@ public static class NmBurstDetector
 | 情形 | 检测方式 | Detector | Evidence |
 |---|---|---|---|
 | `ImmediateCycleMs` 已配置 | `≤ 2.0 × ImmediateCycleMs` | `immediate` | measured |
-| `ImmediateCycleMs` 未配置 | `≤ 0.5 × CycleMs`（M1 现有行为） | `cycle_ratio_fallback` | **inferred** |
-| 两者都无（CycleMs 也无） | 不检测快发 | — | 不选双窗口，用 M1 默认 |
+| `ImmediateCycleMs` 未配置 | `< 0.5 × CycleMs`（**严格小于**，与 M1 的 `NmActivityBuilder.cs:130` 一致） | `cycle_ratio_fallback` | **inferred** |
+| 两者都无（CycleMs 也无） | 不检测快发 | `none`，`IsIndeterminate = true` | 不选双窗口，用 M1 默认 |
+
+两行的比较方向**不同**且都是刻意的：`immediate` 路径用 `≤`（spec §7.4 原文），回退路径用严格 `<`（M1 在 `delta >= 0.5×cycle` 时断开连续段）。恰好等于阈值时两者结论相反，这是沿用各自原有语义的结果，不是笔误。
 
 **回退时不得选 1700**：`cycle_ratio_fallback` 检测到的快发不足以证明「符合 N_ImmediateNM_TIMES」，按 1500 兜底并标 `inferred`。
 
