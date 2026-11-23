@@ -46,6 +46,13 @@ public class NmGapAnalyzerTests
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_SENDER_SILENT_BEYOND_TIMEOUT");
         Assert.Contains(result.Unknowns, u => u.Contains("all_nm_silent_reason_unknown"));
+
+        // 两个 episode 之间（1.0s → 4.0s）的静默只能由「间隙观测」站点产生：
+        // 窗口尾部静默仅 1.0s（< 2s 超时）不会触发尾部站点。
+        // spec §14.5：原因不可证明，观测必须标 inferred。
+        var obs = Assert.Single(result.Observations, o => o.Kind == "all_nm_silent");
+        Assert.True(obs.IsInference);
+        Assert.Equal("inferred", obs.EvidenceKind);
     }
 
     [Fact]

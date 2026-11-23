@@ -71,6 +71,27 @@ public class NmSilenceWiringTests
         Assert.Equal("inferred", obs.EvidenceKind);
     }
 
+    [Fact]
+    public void Analyze_SingleMessageWhoseLastFrameEndsBoundaryEpisode_VerdictIsIndeterminate()
+    {
+        // 单报文 0x500 的末帧（2.0s）就是全网末帧，且窗口在 2.5s 结束：
+        // windowEnd - lastSeen = 0.5s < 2s 超时 → 该 episode 的 BoundaryEnd == true。
+        // messageCutByWindow 必须把这种「报文末帧被窗口切断」降级为不可判明；
+        // 若守卫恒为 false，分类器会因 0.5s < 超时直接给 NotSilent，掩盖边界歧义。
+        var profile = Profile(Def("0x500"));
+        var frames = new[]
+        {
+            Frame(0.0, 0x500), Frame(0.5, 0x500), Frame(1.0, 0x500),
+            Frame(1.5, 0x500), Frame(2.0, 0x500),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 2.5));
+
+        var message = Assert.Single(report.Messages);
+        Assert.Equal(NmSilenceVerdict.IndeterminateAtBoundary, message.SilenceVerdict);
+    }
+
     private static NmProfile Profile(params NmMessageDef[] defs)
         => new(NmProfileSource.Dbc, defs, new NmTimings(),
             new[] { new NmNodeDef("A", 0xF4, null, true) },
