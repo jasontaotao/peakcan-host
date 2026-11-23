@@ -55,7 +55,10 @@ public sealed record NmObservation(
     bool IsInference = false,
     string? RuleId = null);
 
-/// <summary>未建模条款：显式可见，AI 不得据此给结论（spec §7.1.1）。</summary>
+/// <summary>
+/// 未建模条款：显式可见，AI 不得据此给结论（spec §7.1.1）。
+/// <para><see cref="Clause"/> 是条款号（如 §5.5），不是规则 ID；规则身份见 <see cref="RuleId"/>。</para>
+/// </summary>
 public sealed record NmUnmodeledRule(
     string Clause,
     string Reason,

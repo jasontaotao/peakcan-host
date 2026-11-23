@@ -87,6 +87,8 @@ public static class NmRuleEngine
 
         // spec §4.0：条款归因由引擎统一回填，不依赖各 evaluator 记得填。
         // 9 处 finding 构造分散在三个文件，人工维护迟早漏。
+        // 前置条件：规则 ID 唯一（NmStandardValidator 在加载期已保证）；
+        // 重复 ID 在这里会抛 ArgumentException，而不是静默择一。
         var byRule = rules.ToDictionary(r => r.Id, StringComparer.Ordinal);
         for (var i = 0; i < findings.Count; i++)
         {
