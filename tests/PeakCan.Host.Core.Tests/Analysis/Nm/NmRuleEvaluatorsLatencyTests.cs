@@ -15,6 +15,12 @@ public class NmRuleEvaluatorsLatencyTests
     // CA1861：participants 数组在多处传给 NmEpisode，复用同一实例。
     private static readonly string[] ParticipantA = ["A"];
 
+    // C1 回归用：两个独立节点的标准 NM 报文（NID 不同 → 不共享 ID）。
+    private const uint NmIdA = 0x5F4;
+    private const uint NmIdB = 0x5F5;
+    private const uint NmIdPms = 0x5F4;
+    private const uint NmIdBms = 0x5F5;
+
     // ==== repeat_message_duration ====
 
     [Fact]
@@ -242,6 +248,100 @@ public class NmRuleEvaluatorsLatencyTests
         Assert.Equal(0.18, obs.Start, 3);
     }
 
+    [Fact]
+    public void RepeatMessageDuration_TwoCompliantNodes_NoFinding()
+    {
+        // C1 回归（final review）：同一 episode 内两个节点的帧交错出现。
+        // 若把 episode 内全部帧合并成一个流，A 的 NMSts=0 段会被 B 在 1.8s 的帧
+        // 拉长到 1800ms（> 1760），凭空误报超差，并把结论归给先到的 A。
+        // 按 (CAN ID, 帧类型) 分组后：A 0.0→1.5 = 1500ms，B 0.8→1.8 = 1000ms，均合规。
+        var a = new[]
+        {
+            NodeFrame(0.0, NmIdA, "A", nmsts: 0),
+            NodeFrame(0.5, NmIdA, "A", nmsts: 0),
+            NodeFrame(1.0, NmIdA, "A", nmsts: 0),
+            NodeFrame(1.5, NmIdA, "A", nmsts: 0),
+            NodeFrame(2.0, NmIdA, "A", nmsts: 1),
+            NodeFrame(2.5, NmIdA, "A", nmsts: 1),
+        };
+        var b = new[]
+        {
+            NodeFrame(0.8, NmIdB, "B", nmsts: 0),
+            NodeFrame(1.3, NmIdB, "B", nmsts: 0),
+            NodeFrame(1.8, NmIdB, "B", nmsts: 0),
+            NodeFrame(2.3, NmIdB, "B", nmsts: 1),
+            NodeFrame(2.8, NmIdB, "B", nmsts: 1),
+        };
+        var frames = a.Concat(b).OrderBy(f => f.Frame.Timestamp).ToArray();
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1760, anchor: "nmsts"));
+
+        Assert.Empty(result.Findings);
+        Assert.Empty(result.Unmodeled);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_OneNodeOverLimit_ReportsOnlyThatNode()
+    {
+        // 按报文分组后每个节点独立度量：A 的 RMS 0.0→2.1 = 2100ms（超 1760），
+        // B 的 RMS 0.8→2.3 = 1500ms（合规）。只允许一条 finding，且必须点名 A。
+        var a = new[]
+        {
+            NodeFrame(0.0, NmIdA, "A", nmsts: 0),
+            NodeFrame(0.5, NmIdA, "A", nmsts: 0),
+            NodeFrame(1.0, NmIdA, "A", nmsts: 0),
+            NodeFrame(1.5, NmIdA, "A", nmsts: 0),
+            NodeFrame(2.0, NmIdA, "A", nmsts: 0),
+            NodeFrame(2.1, NmIdA, "A", nmsts: 0),
+            NodeFrame(2.6, NmIdA, "A", nmsts: 1),
+        };
+        var b = new[]
+        {
+            NodeFrame(0.8, NmIdB, "B", nmsts: 0),
+            NodeFrame(1.3, NmIdB, "B", nmsts: 0),
+            NodeFrame(1.8, NmIdB, "B", nmsts: 0),
+            NodeFrame(2.3, NmIdB, "B", nmsts: 0),
+            NodeFrame(2.8, NmIdB, "B", nmsts: 1),
+        };
+        var frames = a.Concat(b).OrderBy(f => f.Frame.Timestamp).ToArray();
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1760, anchor: "nmsts"));
+
+        var finding = Assert.Single(result.Findings);
+        Assert.Equal("NM_REPEAT_MESSAGE_DURATION_EXCEEDED", finding.Code);
+        Assert.Contains("0x5F4", finding.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("0x5F5", finding.Message, StringComparison.Ordinal);
+        // 证据区间必须来自 A 自己的 RMS：0.0→2.1 = 2100ms。
+        Assert.Equal(2.1, finding.EvidenceTimes[1] - finding.EvidenceTimes[0], 6);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_RealTraceShape_AttributesToBmsNotPms()
+    {
+        // 真实 trace §14.3 形态：PMS 在 +0.000s 先到，BMS 从 +0.1s 起形成 2100ms RMS。
+        // 合并帧流会把 frames[0] 的 PMS 当作被测节点，finding 点名错误节点。
+        // 分组后 PMS 只有一帧（不成段，跳过），结论必须归给真正形成 RMS 的 BMS。
+        var pms = new[] { NodeFrame(0.0, NmIdPms, "PMS", nmsts: 0) };
+        var bms = new[]
+        {
+            NodeFrame(0.1, NmIdBms, "BMS", nmsts: 0),
+            NodeFrame(0.6, NmIdBms, "BMS", nmsts: 0),
+            NodeFrame(1.1, NmIdBms, "BMS", nmsts: 0),
+            NodeFrame(1.6, NmIdBms, "BMS", nmsts: 0),
+            NodeFrame(2.1, NmIdBms, "BMS", nmsts: 0),
+            NodeFrame(2.2, NmIdBms, "BMS", nmsts: 0),
+            NodeFrame(2.7, NmIdBms, "BMS", nmsts: 1),
+        };
+        var frames = pms.Concat(bms).OrderBy(f => f.Frame.Timestamp).ToArray();
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1760, anchor: "nmsts"));
+
+        var finding = Assert.Single(result.Findings);
+        Assert.Contains("0x5F5", finding.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("0x5F4", finding.Message, StringComparison.Ordinal);
+        Assert.Equal(2.1, finding.EvidenceTimes[1] - finding.EvidenceTimes[0], 6);
+    }
+
     // ==== first_frame_latency ====
 
     [Fact]
@@ -370,6 +470,14 @@ public class NmRuleEvaluatorsLatencyTests
         => new(new NmMessageDef("0x500", false, "NM", "A", 8, true,
                 TestReasons, CycleMs: 500, TimeoutMs: 2000),
             new ReplayFrame(t, 0x500, 8,
+                new byte[] { 0x00, 0, 0, nmsts, 0, 0, 0, 0 },
+                PeakCan.HIL.Core.FrameFlags.None));
+
+    /// <summary>指定 CAN ID / 发送者的标准 NM 帧，用于多报文（多节点）回归用例。</summary>
+    private static NmFrame NodeFrame(double t, uint id, string sender, byte nmsts)
+        => new(new NmMessageDef($"0x{id:X3}", false, "NM", sender, 8, true,
+                TestReasons, CycleMs: 500, TimeoutMs: 2000),
+            new ReplayFrame(t, id, 8,
                 new byte[] { 0x00, 0, 0, nmsts, 0, 0, 0, 0 },
                 PeakCan.HIL.Core.FrameFlags.None));
 }

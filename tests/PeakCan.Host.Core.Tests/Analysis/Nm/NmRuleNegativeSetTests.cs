@@ -122,10 +122,10 @@ public class NmRuleNegativeSetTests
         // 第二个报文 B 在 A 停发后继续正常发送，唯一目的是让 NmGapAnalyzer 的
         // 逐报文分支（perMessage.Length > 1）真正运行——单报文场景该分支被结构性跳过，
         // 即使 fixture 从未停发也照样「通过」，证明不了任何事。
-        // A 的 RMS 观测：0.0→1.5s = 1500ms。注意本场景有两个报文，而
-        // repeat_message_duration 在同一个 episode 内不按报文分组（取 episode 内全部帧），
-        // 交错出现的 B 帧会打断 A 的首个 NMSts=0 段，NM_06 在这里实际进 Unmodeled；
-        // RMS 时长的数值断言放在单报文的 LegalPassiveWakeup_NoViolation 里。
+        // A 的 RMS 观测：0.0→1.5s = 1500ms（1440–1760ms 内）。repeat_message_duration
+        // 按 (CAN ID, 帧类型) 逐报文度量：交错出现的 B 帧不再打断 A 的 NMSts=0 段，
+        // B 全程 NMSts=1 没有 RMS 锚点。数值断言放在单报文的
+        // LegalPassiveWakeup_NoViolation 里，这里保持场景级「无 warn」守卫。
         // 2.0s 进入 RSS 后停发。
         var a = new[]
         {

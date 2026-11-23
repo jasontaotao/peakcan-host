@@ -34,15 +34,25 @@ public class NmRealTraceContractTests
         //     第二段落在最后一个 episode，且后接 NOS 帧——整段 episode 的 BoundaryEnd=true，
         //     但段终点并未触到 episode 末帧。两段都必须被检出，否则「episode 被边界截断」
         //     的过度抑制会吞掉第二段（review C1）。P 级原语必须标推断。
+        //     RMS 按 (CAN ID, 帧类型) 逐报文度量：本 fixture 的两个报文时间戳完全相同
+        //     （0x500/0x510 都超差），因此每段各有两条 finding，共 2 报文 × 2 段 = 4 条。
         var rms = report.Findings
             .Where(f => f.Code == "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
             .ToArray();
-        Assert.Equal(2, rms.Length);
+        Assert.Equal(4, rms.Length);
         Assert.All(rms, f => Assert.True(f.IsInference, "P 级原语必须标推断"));
         Assert.All(rms, f => Assert.Equal("NM_06", f.RuleId));
-        // 两段分别结束于 2.1s 与 8.825s（EvidenceTimes = [start, end]）。
-        Assert.Contains(rms, f => Math.Abs(f.EvidenceTimes[1] - 2.1) < 1e-6);
-        Assert.Contains(rms, f => Math.Abs(f.EvidenceTimes[1] - 8.825) < 1e-6);
+        // 两段分别结束于 2.1s 与 8.825s（EvidenceTimes = [start, end]）；
+        // 每段都必须点名两个节点，不能合并后只归给「先到」的那个。
+        foreach (var segmentEnd in new[] { 2.1, 8.825 })
+        {
+            Assert.Contains(rms, f =>
+                Math.Abs(f.EvidenceTimes[1] - segmentEnd) < 1e-6 &&
+                f.Message.Contains("0x500", StringComparison.Ordinal));
+            Assert.Contains(rms, f =>
+                Math.Abs(f.EvidenceTimes[1] - segmentEnd) < 1e-6 &&
+                f.Message.Contains("0x510", StringComparison.Ordinal));
+        }
         // 求值成功就不该同时进 Unmodeled；第二段 RMS 也不应让规则整体失效。
         Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_06");
         // Geely 的另一条未实现条款同样显式可见，证明加载的是完整规则集。

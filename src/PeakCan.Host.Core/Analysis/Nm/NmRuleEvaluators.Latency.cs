@@ -85,99 +85,109 @@ public static partial class NmRuleEvaluators
             var frames = FramesInEpisode(ctx.NmFrames, episode);
             if (frames.Length < 2) continue;
 
-            // 本 episode 没有 NMSts=0 帧就是正常 NOS，不是 RMS 段，直接跳过。
-            // 只有整段都找不到锚点时才在循环后统一进 Unmodeled。
-            if (!TryReadNmstsSpan(frames, role, out var nmstsStart, out var nmstsEnd)) continue;
-
-            anchorObserved = true;
-
-            var times = frames.Select(f => f.Frame.Timestamp).ToArray();
-            var def = frames[0].Def;
-            var burst = NmBurstDetector.DetectInEpisode(
-                times, episode.Start, episode.End, ctx.Resolve(def));
-
-            // RMS 终点恒为最后一个 NMSts=0 帧；起点由 anchor 决定：
-            // burst_end 取快发段结束，nmsts 取首个 NMSts=0 帧。
-            double start;
-            if (string.Equals(anchor, "burst_end", StringComparison.Ordinal))
+            // 每个 (CAN ID, 帧类型) 是独立节点的状态机，必须逐报文度量 RMS。
+            // 合并 episode 内全部帧会让一个节点的 NMSts=0 段被另一节点的帧拉长/终止：
+            // 既可能凭空造出超差（两个节点都合规却报 warn），也会把结论归给
+            // 「恰好先到」的节点（真实 trace §14.3：PMS 在 +0.000s、BMS 在 +0.095s）。
+            foreach (var messageFrames in GroupByMessage(frames))
             {
-                // 没有候选快发段时不能悄悄退回 nmstsStart：那会把规则要求的测量口径
-                // 换成另一种，用户在报告里看到的就不是 burst_end 的结论。
-                if (!burst.IsCandidate)
-                {
-                    reasons.Add(burst.IsIndeterminate
-                        ? $"{def.CanIdHex} 快发判据缺失，无法按 burst_end 锚定 RMS 起点"
-                        : $"{def.CanIdHex} anchor=burst_end，但未观察到快发段，无法按规则口径测量 RMS");
+                if (messageFrames.Length < 2) continue;
+
+                // 本报文没有 NMSts=0 帧就是正常 NOS，不是 RMS 段，直接跳过。
+                // 只有所有 episode × 所有报文都找不到锚点时才在循环后统一进 Unmodeled。
+                if (!TryReadNmstsSpan(messageFrames, role, out var nmstsStart, out var nmstsEnd))
                     continue;
+
+                anchorObserved = true;
+
+                var times = messageFrames.Select(f => f.Frame.Timestamp).ToArray();
+                var def = messageFrames[0].Def;
+                var burst = NmBurstDetector.DetectInEpisode(
+                    times, episode.Start, episode.End, ctx.Resolve(def));
+
+                // RMS 终点恒为最后一个 NMSts=0 帧；起点由 anchor 决定：
+                // burst_end 取快发段结束，nmsts 取首个 NMSts=0 帧。
+                double start;
+                if (string.Equals(anchor, "burst_end", StringComparison.Ordinal))
+                {
+                    // 没有候选快发段时不能悄悄退回 nmstsStart：那会把规则要求的测量口径
+                    // 换成另一种，用户在报告里看到的就不是 burst_end 的结论。
+                    if (!burst.IsCandidate)
+                    {
+                        reasons.Add(burst.IsIndeterminate
+                            ? $"{def.CanIdHex} 快发判据缺失，无法按 burst_end 锚定 RMS 起点"
+                            : $"{def.CanIdHex} anchor=burst_end，但未观察到快发段，无法按规则口径测量 RMS");
+                        continue;
+                    }
+
+                    // 快发段尾触到 episode / 窗口边界：burst.End 只是下限，起点不可信。
+                    if (burst.IsIndeterminate)
+                    {
+                        reasons.Add(
+                            $"{def.CanIdHex} 快发段 {burst.Start:F3}s–{burst.End:F3}s 触到分析边界，" +
+                            "终点只是下限，无法按 burst_end 锚定 RMS 起点");
+                        continue;
+                    }
+
+                    start = burst.End;
+                }
+                else
+                {
+                    start = nmstsStart;
                 }
 
-                // 快发段尾触到 episode / 窗口边界：burst.End 只是下限，起点不可信。
-                if (burst.IsIndeterminate)
+                var end = nmstsEnd;
+                var durationMs = (end - start) * 1000.0;
+
+                // 时长非正（例如快发段终点越过 NMSts=0 终点）：不是可度量的 RMS，
+                // 既不能写观测也不能判违规，只能显式不可求值。
+                if (durationMs <= 0)
                 {
                     reasons.Add(
-                        $"{def.CanIdHex} 快发段 {burst.Start:F3}s–{burst.End:F3}s 触到分析边界，" +
-                        "终点只是下限，无法按 burst_end 锚定 RMS 起点");
+                        $"{def.CanIdHex} RMS 观测区间非正（{start:F3}s→{end:F3}s），无法度量时长");
                     continue;
                 }
 
-                start = burst.End;
+                // 截断判据必须同时看两个边界：
+                //  - 段尾触到分析窗口（trace 在 RMS 中途结束）；
+                //  - episode 被边界切断 **且** 段尾真的触到 episode 末帧（紧接着就是静默/记录结束）。
+                // 不能只凭 episode.BoundaryEnd 就把整个 episode 内的测量都当成下限：
+                // 真实 trace §14.6 的第二段 RMS 位于最后一个 episode（BoundaryEnd=true），
+                // 但它后面还有 NOS 帧，段尾并未触到 episode 末帧——只按 BoundaryEnd 抑制
+                // 会让第二段 RMS 永远检不出。
+                var truncated = end >= ctx.Window.End - LatencyBoundaryEpsilon
+                    || (episode.BoundaryEnd && end >= episode.End - LatencyBoundaryEpsilon);
+
+                observations.Add(new NmObservation(
+                    "repeat_message_duration", def.Sender, def.CanIdHex,
+                    start, end,
+                    $"RMS 实测 {durationMs:F0}ms（允许 {minMs}–{maxMs}ms，" +
+                    $"{(burst.IsCandidate ? "含" : "不含")}快发）" +
+                    (truncated ? "，窗口截断：时长为下限" : ""),
+                    truncated ? "boundary" : burst.IsCandidate ? "measured" : "inferred",
+                    IsInference: !burst.IsCandidate,
+                    RuleId: rule.Id));
+
+                // 段被窗口 / episode 边界切断：时长只是下限，不能判超差。
+                if (truncated) continue;
+
+                if (durationMs <= maxMs) continue;
+
+                if (string.IsNullOrEmpty(rule.FindingCode))
+                {
+                    reasons.Add("RMS 超差，但规则未声明 finding code");
+                    continue;
+                }
+
+                // P 级原语：finding 恒标推断（未直接读内部 T_REPEAT_MESSAGE 定时器）。
+                findings.Add(new NmFinding(
+                    rule.FindingCode, "warn",
+                    $"{def.CanIdHex} Repeat Message State 持续 {durationMs:F0}ms，" +
+                    $"超出上限 {maxMs}ms（+{durationMs - maxMs:F0}ms）",
+                    new[] { start, end }, IsInference: true,
+                    SuggestedNextCheck: "核对 T_REPEAT_MESSAGE 与 NOS 进入条件",
+                    RuleId: rule.Id, RequirementId: rule.Id, SourceRef: rule.SourceRef));
             }
-            else
-            {
-                start = nmstsStart;
-            }
-
-            var end = nmstsEnd;
-            var durationMs = (end - start) * 1000.0;
-
-            // 时长非正（例如快发段终点越过 NMSts=0 终点）：不是可度量的 RMS，
-            // 既不能写观测也不能判违规，只能显式不可求值。
-            if (durationMs <= 0)
-            {
-                reasons.Add(
-                    $"{def.CanIdHex} RMS 观测区间非正（{start:F3}s→{end:F3}s），无法度量时长");
-                continue;
-            }
-
-            // 截断判据必须同时看两个边界：
-            //  - 段尾触到分析窗口（trace 在 RMS 中途结束）；
-            //  - episode 被边界切断 **且** 段尾真的触到 episode 末帧（紧接着就是静默/记录结束）。
-            // 不能只凭 episode.BoundaryEnd 就把整个 episode 内的测量都当成下限：
-            // 真实 trace §14.6 的第二段 RMS 位于最后一个 episode（BoundaryEnd=true），
-            // 但它后面还有 NOS 帧，段尾并未触到 episode 末帧——只按 BoundaryEnd 抑制
-            // 会让第二段 RMS 永远检不出。
-            var truncated = end >= ctx.Window.End - LatencyBoundaryEpsilon
-                || (episode.BoundaryEnd && end >= episode.End - LatencyBoundaryEpsilon);
-
-            observations.Add(new NmObservation(
-                "repeat_message_duration", def.Sender, def.CanIdHex,
-                start, end,
-                $"RMS 实测 {durationMs:F0}ms（允许 {minMs}–{maxMs}ms，" +
-                $"{(burst.IsCandidate ? "含" : "不含")}快发）" +
-                (truncated ? "，窗口截断：时长为下限" : ""),
-                truncated ? "boundary" : burst.IsCandidate ? "measured" : "inferred",
-                IsInference: !burst.IsCandidate,
-                RuleId: rule.Id));
-
-            // 段被窗口 / episode 边界切断：时长只是下限，不能判超差。
-            if (truncated) continue;
-
-            if (durationMs <= maxMs) continue;
-
-            if (string.IsNullOrEmpty(rule.FindingCode))
-            {
-                reasons.Add("RMS 超差，但规则未声明 finding code");
-                continue;
-            }
-
-            // P 级原语：finding 恒标推断（未直接读内部 T_REPEAT_MESSAGE 定时器）。
-            findings.Add(new NmFinding(
-                rule.FindingCode, "warn",
-                $"{def.CanIdHex} Repeat Message State 持续 {durationMs:F0}ms，" +
-                $"超出上限 {maxMs}ms（+{durationMs - maxMs:F0}ms）",
-                new[] { start, end }, IsInference: true,
-                SuggestedNextCheck: "核对 T_REPEAT_MESSAGE 与 NOS 进入条件",
-                RuleId: rule.Id, RequirementId: rule.Id, SourceRef: rule.SourceRef));
         }
 
         if (!anchorObserved)
@@ -246,6 +256,10 @@ public static partial class NmRuleEvaluators
 
         foreach (var episode in ctx.Episodes)
         {
+            // 与 repeat_message_duration 不同：first_frame_latency 是**网络级**属性
+            // （唤醒/启动后网络上出现第一帧 NM 的延迟），不是某个节点的状态机。
+            // 只有把所有报文合并才能找到「第一帧」；finding 点名该帧的发送者，
+            // 那正是延迟归属的节点。因此这里刻意不按报文分组。
             var frames = FramesInEpisode(ctx.NmFrames, episode);
             if (frames.Length == 0) continue;
 
@@ -315,6 +329,18 @@ public static partial class NmRuleEvaluators
             .ToArray();
 
     /// <summary>
+    /// 按 (CAN ID, 帧类型) 拆分帧：每个报文对应一个独立节点的 NM 状态机。
+    /// 组间按首帧时刻排序，保证报告输出稳定、可复核。
+    /// </summary>
+    private static IEnumerable<NmFrame[]> GroupByMessage(NmFrame[] frames)
+        => frames
+            .GroupBy(f => (f.Def.CanIdHex, f.Def.IsExtended))
+            .OrderBy(g => g.Min(f => f.Frame.Timestamp))
+            .ThenBy(g => g.Key.CanIdHex, StringComparer.Ordinal)
+            .ThenBy(g => g.Key.IsExtended)
+            .Select(g => g.ToArray());
+
+    /// <summary>
     /// 读 NMSts 位，返回本 episode 内**包含首个 NMSts=0 帧的连续 0 段**的首末时刻。
     /// 没有 NMSts=0 帧时返回 false；DLC 不足的帧跳过，且会中断连续性
     /// （读不出不等于 0，不能把两侧的 0 连成一段）。
@@ -363,18 +389,22 @@ public static partial class NmRuleEvaluators
         return true;
     }
 
-    /// <summary>位角色缺失时按 episode 留观测：让用户看到「为什么没判」。</summary>
+    /// <summary>位角色缺失时按 episode × 报文留观测：让用户看到「为什么没判」。</summary>
     private static void AddNoAnchorObservations(
         NmRuleDef rule, NmRuleContext ctx, List<NmObservation> observations, string detail)
     {
         foreach (var episode in ctx.Episodes)
         {
             var frames = FramesInEpisode(ctx.NmFrames, episode);
-            if (frames.Length == 0) continue;
-            observations.Add(new NmObservation(
-                "repeat_message_duration", frames[0].Def.Sender, frames[0].Def.CanIdHex,
-                frames[0].Frame.Timestamp, frames[^1].Frame.Timestamp,
-                detail, "inferred", IsInference: true, RuleId: rule.Id));
+            // 与求值路径同口径：观测必须属于具体报文，不能把多节点合并后只标第一个节点。
+            foreach (var messageFrames in GroupByMessage(frames))
+            {
+                observations.Add(new NmObservation(
+                    "repeat_message_duration", messageFrames[0].Def.Sender,
+                    messageFrames[0].Def.CanIdHex,
+                    messageFrames[0].Frame.Timestamp, messageFrames[^1].Frame.Timestamp,
+                    detail, "inferred", IsInference: true, RuleId: rule.Id));
+            }
         }
     }
 }
