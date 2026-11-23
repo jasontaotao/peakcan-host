@@ -35,7 +35,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(500, 0.1));
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.Empty(result.Findings);
         Assert.Contains(result.Unmodeled, u =>
-            u.Clause == "NM_CYCLE" && u.Reason.Contains("共享 ID", StringComparison.Ordinal));
+            u.RuleId == "NM_CYCLE" && u.Reason.Contains("共享 ID", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class NmRuleEvaluatorsTimingTests
         var f = Assert.Single(geely.Findings);
         Assert.Equal("NM_CYCLE_DEVIATION", f.Code);
         Assert.Empty(autosar.Findings);
-        Assert.DoesNotContain(autosar.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.DoesNotContain(autosar.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(100, 0.1));
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(100, 0.1));
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(100, 0.1));
 
         Assert.Empty(result.Findings);
-        Assert.Contains(result.Unmodeled, u => u.Clause == "NM_CYCLE");
+        Assert.Contains(result.Unmodeled, u => u.RuleId == "NM_CYCLE");
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, BurstRule());
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, BurstRuleNoParams(), standardTimings: standard);
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -185,7 +185,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, BurstRule(), windowEnd: 0.1);
 
         Assert.Empty(result.Findings);
-        Assert.Contains(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.Contains(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -199,7 +199,7 @@ public class NmRuleEvaluatorsTimingTests
             timings: new NmTimings(CycleMs: 500, TimeoutMs: 2000, ImmediateCycleMs: 0));
 
         Assert.Empty(result.Findings);
-        Assert.Contains(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.Contains(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -218,7 +218,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.Empty(result.Findings);
         Assert.Contains(result.Unmodeled, u =>
-            u.Clause == "NM_03" && u.Reason.Contains("触到分析边界", StringComparison.Ordinal));
+            u.RuleId == "NM_03" && u.Reason.Contains("触到分析边界", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, BurstRule(), episodes: episodes);
 
         Assert.Equal(2, result.Findings.Count);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_03");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -261,7 +261,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.Empty(result.Findings);
         Assert.Contains(result.Unmodeled, u =>
-            u.Clause == "NM_03" && u.Reason.Contains("未观察到快发段", StringComparison.Ordinal));
+            u.RuleId == "NM_03" && u.Reason.Contains("未观察到快发段", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -278,7 +278,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.Empty(result.Findings);
         Assert.Contains(result.Unmodeled, u =>
-            u.Clause == "NM_03" && u.Reason.Contains("episode 之外", StringComparison.Ordinal));
+            u.RuleId == "NM_03" && u.Reason.Contains("episode 之外", StringComparison.Ordinal));
     }
 
     // ==== nmsts_transition ====
@@ -296,7 +296,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, NmstsRule(), roles: [new NmBitRole(3, 0, "NmSts")]);
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_06");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_06");
         var obs = Assert.Single(result.Observations, o => o.Kind == "nmsts_transition");
         Assert.Equal(2.0, obs.Start);
     }
@@ -311,7 +311,10 @@ public class NmRuleEvaluatorsTimingTests
         };
         var rule = new NmRuleDef("NM_06", "NMSts 状态段", "wakeup",
             new NmRuleWhen("nmsts_transition", Byte: 3, Bit: 0),
-            new NmRuleExpect("duration_within_ms"), "");
+            new NmRuleExpect("duration_within_ms"), "")
+        {
+            Clauses = ["§5.5"],
+        };
 
         var result = Evaluate(frames, rule, roles: [new NmBitRole(3, 0, "NmSts")]);
 
@@ -378,7 +381,10 @@ public class NmRuleEvaluatorsTimingTests
         };
         var rule = new NmRuleDef("NM_06", "NMSts 状态段", "wakeup",
             new NmRuleWhen("nmsts_transition"),
-            new NmRuleExpect("observe"), "");
+            new NmRuleExpect("observe"), "")
+        {
+            Clauses = ["§5.5"],
+        };
 
         var result = Evaluate(frames, rule, roles: [new NmBitRole(3, 0, "NmSts")]);
 
@@ -404,7 +410,7 @@ public class NmRuleEvaluatorsTimingTests
 
         Assert.DoesNotContain(result.Observations, o => o.Kind == "nmsts_transition");
         Assert.Contains(result.Observations, o => o.Kind == "nmsts_transition_unreadable");
-        Assert.Contains(result.Unmodeled, u => u.Clause == "NM_06");
+        Assert.Contains(result.Unmodeled, u => u.RuleId == "NM_06");
     }
 
     [Fact]
@@ -427,7 +433,7 @@ public class NmRuleEvaluatorsTimingTests
             frames, NmstsRule(), roles: [new NmBitRole(3, 0, "NmSts")], episodes: episodes);
 
         Assert.Empty(result.Findings);
-        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_06");
+        Assert.DoesNotContain(result.Unmodeled, u => u.RuleId == "NM_06");
         Assert.DoesNotContain(result.Observations, o => o.Kind == "nmsts_transition");
     }
 
@@ -436,25 +442,37 @@ public class NmRuleEvaluatorsTimingTests
     private static NmRuleDef CycleRule(int cycleMs, double pct)
         => new("NM_CYCLE", "周期偏差", "normal",
             new NmRuleWhen("cycle_tolerance", CycleMs: cycleMs, Pct: pct),
-            new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION");
+            new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+        {
+            Clauses = ["§5.5"],
+        };
 
     private static NmRuleDef BurstRule(int? intervalMs = 20)
         => new("NM_03", "快发形态", "wakeup",
             new NmRuleWhen("burst_shape", CycleMs: 500),
             new NmRuleExpect("count_equals", Count: 10, IntervalMs: intervalMs, Pct: 0.1),
-            "NM_WAKEUP_BURST_MISMATCH");
+            "NM_WAKEUP_BURST_MISMATCH")
+        {
+            Clauses = ["§5.5"],
+        };
 
     private static NmRuleDef BurstRuleNoParams()
         // 只声明 kind：count / interval_ms / pct 全部依赖 profile 生效时序。
         => new("NM_03", "快发形态", "wakeup",
             new NmRuleWhen("burst_shape"),
             new NmRuleExpect("count_equals"),
-            "NM_WAKEUP_BURST_MISMATCH");
+            "NM_WAKEUP_BURST_MISMATCH")
+        {
+            Clauses = ["§5.5"],
+        };
 
     private static NmRuleDef NmstsRule()
         => new("NM_06", "NMSts 状态段", "wakeup",
             new NmRuleWhen("nmsts_transition", Byte: 3, Bit: 0),
-            new NmRuleExpect("observe"), "");
+            new NmRuleExpect("observe"), "")
+        {
+            Clauses = ["§5.5"],
+        };
 
     /// <summary>构造等间隔周期序列，指定下标处的间隔额外 +40ms 作为超差样本。</summary>
     private static NmFrame[] CycleFrames(int intervalCount, int cycleMs, params int[] deviatingIndexes)

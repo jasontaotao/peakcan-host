@@ -86,6 +86,10 @@ public static class NmAnalyzer
             }
         }
 
+        // spec §9：数据体检在规则求值之前跑。体检不阻断分析，只标注。
+        // 传选择器过滤后的帧集：其它通道/窗口外的帧不属于本报告。
+        var dataQuality = NmDataQualityAnalyzer.Analyze(request, selected, diagnostics);
+
         var findings = new List<NmFinding>();
         var events = new List<NmEvent>();
         var truncations = new List<NmTruncation>();
@@ -149,7 +153,8 @@ public static class NmAnalyzer
                 Direction: direction,
                 IsPartial: partial,
                 Observations: observations.Count == 0 ? null : observations,
-                UnmodeledRules: unmodeled.Count == 0 ? null : unmodeled);
+                UnmodeledRules: unmodeled.Count == 0 ? null : unmodeled,
+                DataQualityChecks: dataQuality);
         }
 
         // 选择阶段（含能力/缺项）完成后即检查取消：此时报告至少带有选择诊断与能力矩阵。
@@ -366,7 +371,7 @@ public static class NmAnalyzer
             // 能被证明两边判的是同一件事——M1 与 cycle_tolerance 都对每个报文组用同一
             // 判据（NmCycleAnalyzer 的有效间隔与显著性），是真正的重复。
             // 其他码不可按码一刀切：例如 NM_NID_MISMATCH 两边判的不是一回事——
-            // M1 比的是 DBC 站地址（NmContentAnalyzer.cs:243-249），NM_01 规则比的是
+            // M1 比的是 DBC 站地址（NmContentAnalyzer.cs:243-249），NM_NID_MAPPING 规则比的是
             // CAN ID 低字节（spec §14.4）。按码去重会删掉语义不同、甚至属于其它报文的
             // 结论。此处刻意写成白名单，不要泛化成按码集合去重。
             const string CycleDeviationCode = "NM_CYCLE_DEVIATION";

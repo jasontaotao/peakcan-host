@@ -29,7 +29,10 @@ public class NmStandardBindingTests
             {
                 new NmRuleDef("NM_05", "预留位必须为 0", "normal",
                     new NmRuleWhen("bit_rule", Role: "RepeatMessageRequest"),
-                    new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+                    new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED")
+                {
+                    Clauses = ["§5.4.3"],
+                },
             },
             Messages: null, Nodes: null, Provenance: "autosar-cannm@4.1.3 < geely-cv@2.0");
 
@@ -182,7 +185,10 @@ public class NmStandardBindingTests
             {
                 new NmRuleDef("NM_05", "预留位必须为 0", "normal",
                     new NmRuleWhen("bit_rule", Role: "RepeatMessageRequest"),
-                    new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+                    new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED")
+                {
+                    Clauses = ["§5.4.3"],
+                },
             },
             null, null, "x@1");
 

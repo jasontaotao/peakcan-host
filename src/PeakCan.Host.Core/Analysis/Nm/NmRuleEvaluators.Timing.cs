@@ -14,23 +14,29 @@ public static partial class NmRuleEvaluators
     /// </summary>
     private static bool CycleTolerance(
         NmRuleDef rule, NmRuleContext ctx, List<NmFinding> findings,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
         if (!string.Equals(rule.Expect.Kind, "within_pct", StringComparison.Ordinal))
         {
             unmodeledReason =
                 $"cycle_tolerance 仅实现 expect.kind=within_pct，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
         if (ctx.NmFrames.Count == 0)
         {
             unmodeledReason = "没有可用的 NM 帧，无法判定周期偏差";
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
             return true;
         }
 
         var reasons = new List<string>();
+        // 聚合多条 reason 时优先报「profile 缺数据」——那是用户可执行的根因；
+        // 其余（共享 ID、样本不足）都是这条 trace 的性质。
+        var missingProfileData = false;
         var nidByte = NmProfilePrecedence.EffectiveNidByte(ctx.Profile);
 
         foreach (var group in ctx.NmFrames.GroupBy(f => (f.Def.CanIdHex, f.Def.IsExtended)))
@@ -43,6 +49,7 @@ public static partial class NmRuleEvaluators
             if (cycleMs <= 0)
             {
                 reasons.Add($"{def.CanIdHex} 无有效周期（{cycleMs}ms），无法判定周期偏差");
+                missingProfileData = true;
                 continue;
             }
 
@@ -74,6 +81,7 @@ public static partial class NmRuleEvaluators
             if (string.IsNullOrEmpty(rule.FindingCode))
             {
                 reasons.Add($"{def.CanIdHex} 周期偏差显著，但规则未声明 finding code");
+                missingProfileData = true;
                 continue;
             }
 
@@ -87,7 +95,13 @@ public static partial class NmRuleEvaluators
                 RuleId: rule.Id, RequirementId: rule.Id, SourceRef: rule.SourceRef));
         }
 
-        if (reasons.Count > 0) unmodeledReason = string.Join("；", reasons.Distinct());
+        if (reasons.Count > 0)
+        {
+            unmodeledReason = string.Join("；", reasons.Distinct());
+            unmodeledCode = missingProfileData
+                ? NmUnmodeledCodes.MissingProfileData
+                : NmUnmodeledCodes.NotApplicable;
+        }
         return true;
     }
 
@@ -98,23 +112,28 @@ public static partial class NmRuleEvaluators
     /// </summary>
     private static bool BurstShape(
         NmRuleDef rule, NmRuleContext ctx, List<NmFinding> findings,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
         if (!string.Equals(rule.Expect.Kind, "count_equals", StringComparison.Ordinal))
         {
             unmodeledReason =
                 $"burst_shape 仅实现 expect.kind=count_equals，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
         if (ctx.NmFrames.Count == 0)
         {
             unmodeledReason = "没有可用的 NM 帧，无法判定快发形态";
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
             return true;
         }
 
         var reasons = new List<string>();
+        // 「判据缺失 / 未声明 finding code」是 profile 问题；截断、无候选段属于 trace 性质。
+        var missingProfileData = false;
 
         foreach (var group in ctx.NmFrames.GroupBy(f => (f.Def.CanIdHex, f.Def.IsExtended)))
         {
@@ -142,6 +161,7 @@ public static partial class NmRuleEvaluators
                     {
                         reasons.Add(
                             $"{def.CanIdHex} 快发判据缺失（ImmediateCycleMs 与 CycleMs 均未配置）");
+                        missingProfileData = true;
                     }
                     continue;
                 }
@@ -161,6 +181,7 @@ public static partial class NmRuleEvaluators
                 if (!string.Equals(burst.Detector, "immediate", StringComparison.Ordinal))
                 {
                     reasons.Add($"{def.CanIdHex} 未配置 ImmediateCycleMs，快发形态无法判定");
+                    missingProfileData = true;
                     continue;
                 }
 
@@ -169,6 +190,7 @@ public static partial class NmRuleEvaluators
                 if (string.IsNullOrEmpty(rule.FindingCode))
                 {
                     reasons.Add($"{def.CanIdHex} 快发形态不合规，但规则未声明 finding code");
+                    missingProfileData = true;
                     continue;
                 }
 
@@ -194,7 +216,13 @@ public static partial class NmRuleEvaluators
             }
         }
 
-        if (reasons.Count > 0) unmodeledReason = string.Join("；", reasons.Distinct());
+        if (reasons.Count > 0)
+        {
+            unmodeledReason = string.Join("；", reasons.Distinct());
+            unmodeledCode = missingProfileData
+                ? NmUnmodeledCodes.MissingProfileData
+                : NmUnmodeledCodes.NotApplicable;
+        }
         return true;
     }
 
@@ -205,27 +233,31 @@ public static partial class NmRuleEvaluators
     /// </summary>
     private static bool NmstsTransition(
         NmRuleDef rule, NmRuleContext ctx, List<NmObservation> observations,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
 
         // 只实现了 observe：其它期望若静默跳过，用户会以为条款已被校验（与兄弟原语同口径）。
         if (!string.Equals(rule.Expect.Kind, "observe", StringComparison.Ordinal))
         {
             unmodeledReason =
                 $"nmsts_transition 仅实现 expect.kind=observe，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
         if (rule.When.Byte is not { } byteIndex || rule.When.Bit is not { } bitIndex)
         {
             unmodeledReason = "nmsts_transition 需要 when.byte 与 when.bit";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
         if (bitIndex is < 0 or > 7)
         {
             unmodeledReason = $"nmsts_transition 的 when.bit={bitIndex} 超出 0..7";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
@@ -234,11 +266,13 @@ public static partial class NmRuleEvaluators
         if (roles is null)
         {
             unmodeledReason = "profile 未声明 bit_roles，无法确认 NMSts 位";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
         if (!TryFindRoleAt(roles, byteIndex, bitIndex, out var roleName))
         {
             unmodeledReason = $"profile 的 bit_roles 中没有 byte{byteIndex}.bit{bitIndex}（NMSts）";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
@@ -246,18 +280,21 @@ public static partial class NmRuleEvaluators
         if (NmProfilePrecedence.EffectiveNidByte(ctx.Profile) is not { } nidByte)
         {
             unmodeledReason = "profile 未声明 layout.nid_byte，无法判断是否共享 CAN ID";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
         if (nidByte == byteIndex)
         {
             unmodeledReason =
                 $"NID 字节与 NMSts 位同在 byte{byteIndex}，无法区分共享 ID 与状态变化";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
         if (ctx.NmFrames.Count == 0)
         {
             unmodeledReason = "没有可用的 NM 帧，无法观察 NMSts 跃迁";
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
             return true;
         }
 
@@ -339,7 +376,12 @@ public static partial class NmRuleEvaluators
             }
         }
 
-        if (reasons.Count > 0) unmodeledReason = string.Join("；", reasons.Distinct());
+        if (reasons.Count > 0)
+        {
+            unmodeledReason = string.Join("；", reasons.Distinct());
+            // 共享 ID、DLC 不足、位读不出：都是这条 trace 的帧性质，不是 profile 缺声明。
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
+        }
         return true;
     }
 

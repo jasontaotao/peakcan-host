@@ -100,6 +100,11 @@ public sealed class GetNmOverviewTool : ChatToolBase
             ["rule_id"] = f.RuleId,
             ["requirement_id"] = f.RequirementId,
             ["source_ref"] = f.SourceRef,
+            // spec §4.0：条款是列表（burst_shape 覆盖 NM_03/NM_04/NM_16），
+            // 单值 requirement_id 会造假归因，仅为兼容旧消费方保留。
+            // 条款号是标识而非字节取值，按 rule_id/source_ref 的口径不脱敏。
+            ["clauses"] = new JsonArray(
+                f.Clauses.Select(c => (JsonNode?)JsonValue.Create(c)).ToArray()),
         });
 
         var root = NmToolOutput.Root(snapshot);
@@ -121,6 +126,28 @@ public sealed class GetNmOverviewTool : ChatToolBase
         };
         root["episodes"] = new JsonArray(episodes.ToArray());
         root["messages"] = new JsonArray(messages.ToArray());
+        // spec §9 / §9.4：数据体检先于结论输出，并用独立布尔位标注「数据可疑」，
+        // 让消费方不必扫描数组就能知道下方的 findings 是否可当结论使用。
+        // 「没查」不算「不通过」：只有 Failed 才置 true。
+        var dataQuality = report.DataQualityChecks ?? Array.Empty<NmDataQualityCheck>();
+        root["data_quality_failed"] =
+            dataQuality.Any(c => c.Status == NmDataQualityStatus.Failed);
+        // 状态用显式字符串映射，枚举改名时线上格式不变。
+        root["data_quality"] = new JsonArray(
+            dataQuality
+            .Select(c => (JsonNode?)new JsonObject
+            {
+                ["code"] = c.Code,
+                ["status"] = c.Status switch
+                {
+                    NmDataQualityStatus.Passed => "passed",
+                    NmDataQualityStatus.Failed => "failed",
+                    _ => "not_checked",
+                },
+                ["detail"] = c.Detail,
+                ["affected_can_ids"] = new JsonArray(
+                    c.AffectedCanIds.Select(i => (JsonNode?)JsonValue.Create(i)).ToArray()),
+            }).ToArray());
         root["findings"] = new JsonArray(findings.ToArray());
         // spec §7.1.1：观测事实独立于违规结论输出，AI 不得据此直接断言故障。
         root["observations"] = report.Observations is null
@@ -143,9 +170,17 @@ public sealed class GetNmOverviewTool : ChatToolBase
             : new JsonArray(report.UnmodeledRules.Select(u => (JsonNode)new JsonObject
             {
                 ["clause"] = u.Clause,
+                // 完整条款列表：多条款规则（NM_STOP_SENDING → NM_09/NM_12）只读
+                // ordinal-first 的单值 `clause` 会丢条款。空列表表示该规则不属于
+                // 条款空间（base 规则），此时用 rule_id 标识规则身份。
+                ["clauses"] = new JsonArray(
+                    u.Clauses.Select(c => (JsonNode?)JsonValue.Create(c)).ToArray()),
                 // 原因里可能混入 CAN ID/NID 等取值（如「byte0 无法读取」旁的实测值），按字节脱敏。
                 ["reason"] = NmEventPrivacy.RedactText(u.Reason, allowedCanIds),
                 ["requirement_id"] = u.RequirementId,
+                // 条款号（clause）与规则身份（rule_id）是两回事，AI 归因必须用 rule_id。
+                ["rule_id"] = u.RuleId,
+                ["reason_code"] = u.ReasonCode,
             }).ToArray());
         root["capabilities"] = new JsonArray(report.Capabilities.Select(c => (JsonNode)new JsonObject
         {

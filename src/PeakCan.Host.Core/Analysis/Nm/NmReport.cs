@@ -55,12 +55,29 @@ public sealed record NmObservation(
     bool IsInference = false,
     string? RuleId = null);
 
-/// <summary>未建模条款：显式可见，AI 不得据此给结论（spec §7.1.1）。</summary>
+/// <summary>
+/// 未建模条款：显式可见，AI 不得据此给结论（spec §7.1.1）。
+/// <para><see cref="Clause"/> 是条款号（如 §5.5），不是规则 ID；规则身份见 <see cref="RuleId"/>。</para>
+/// </summary>
 public sealed record NmUnmodeledRule(
     string Clause,
     string Reason,
     string? RequirementId = null,
-    string? SourceRef = null);
+    string? SourceRef = null)
+{
+    /// <summary>未实现的规则 ID；Clause 是条款号，两者不是一回事。</summary>
+    public string? RuleId { get; init; }
+
+    /// <summary>结构化原因码，见 spec §9.4 / <see cref="NmUnmodeledCodes"/>。</summary>
+    public string? ReasonCode { get; init; }
+
+    /// <summary>
+    /// 本规则覆盖的完整条款列表（来自 rule.Clauses）。
+    /// <see cref="Clause"/> 只是 ordinal-first 的兼容字段：多条款规则
+    /// （NM_STOP_SENDING → NM_09/NM_12）只读 Clause 会丢条款。
+    /// </summary>
+    public IReadOnlyList<string> Clauses { get; init; } = Array.Empty<string>();
+}
 
 public sealed record NmSegment(double Start, double End, string Kind);
 
@@ -124,8 +141,13 @@ public sealed record NmFinding(
     bool IsInference,
     string? SuggestedNextCheck,
     string? RuleId = null,
+    // 已弃用（spec §4.0）：多条款时单值会造假归因。新代码读 Clauses。
     string? RequirementId = null,
-    string? SourceRef = null);
+    string? SourceRef = null)
+{
+    /// <summary>本 finding 覆盖的条款号（来自 rule.Clauses）。</summary>
+    public IReadOnlyList<string> Clauses { get; init; } = Array.Empty<string>();
+}
 
 public sealed record NmTruncation(string Section, int Returned, int Total);
 
@@ -167,4 +189,26 @@ public sealed record NmReport(
     bool IsPartial = false,
     // spec §7.1.1：事实与违规必须分开，否则必然误报。
     IReadOnlyList<NmObservation>? Observations = null,
-    IReadOnlyList<NmUnmodeledRule>? UnmodeledRules = null);
+    IReadOnlyList<NmUnmodeledRule>? UnmodeledRules = null,
+    // spec §9.2：规则求值前的数据体检结果；null 表示未执行体检。
+    IReadOnlyList<NmDataQualityCheck>? DataQualityChecks = null);
+
+/// <summary>数据体检的三态结果（spec §9.2）。</summary>
+public enum NmDataQualityStatus
+{
+    Passed = 0,
+    Failed = 1,
+    // 不是 Failed：数据没问题叫「通过」，数据不够叫「没查成」，结论强度不同。
+    NotChecked = 2,
+}
+
+/// <summary>受影响的时间区间。用具名 record 而非 ValueTuple：后者 JSON 序列化会丢元素名。</summary>
+public sealed record NmTimeRange(double Start, double End);
+
+/// <summary>单项体检结果（spec §9.2）。</summary>
+public sealed record NmDataQualityCheck(
+    string Code,
+    NmDataQualityStatus Status,
+    string Detail,
+    IReadOnlyList<NmTimeRange> Ranges,
+    IReadOnlyList<string> AffectedCanIds);

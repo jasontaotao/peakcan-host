@@ -272,7 +272,10 @@ public static class NmStandardYaml
     {
         public string? Id { get; set; }
         public string? Requirement { get; set; }
+        public string? DeclaredPhase { get; set; }
+        // 兼容旧键：spec §5.3 裁决 phase → declared_phase。
         public string? Phase { get; set; }
+        public List<string>? Clauses { get; set; }
         public RuleWhenDto? When { get; set; }
         public RuleExpectDto? Expect { get; set; }
         public string? Finding { get; set; }
@@ -292,6 +295,7 @@ public static class NmStandardYaml
         public int? CycleMs { get; set; }
         public double? Pct { get; set; }
         public int? MinFrames { get; set; }
+        public int? TimeoutMs { get; set; }
         public string? MinId { get; set; }
         public string? MaxId { get; set; }
         public bool? Extended { get; set; }
@@ -346,10 +350,13 @@ public static class NmStandardYaml
             ? string.Empty
             : RequireNonEmpty(r.Finding, $"规则 {r.Id} 的 finding code")!;
 
+        // 旧键 phase 仍接受，但语义是「声明性元数据」。
+        var declaredPhase = r.DeclaredPhase ?? r.Phase ?? "normal";
+
         return new NmRuleDef(
-            r.Id!, r.Requirement!, r.Phase ?? "normal",
+            r.Id!, r.Requirement!, declaredPhase,
             new NmRuleWhen(w.Kind!, w.Byte, w.Bit, w.Length, w.Role, w.LatencyKind,
-                w.MinSilenceMs, w.CycleMs, w.Pct, w.MinFrames,
+                w.MinSilenceMs, w.CycleMs, w.Pct, w.MinFrames, w.TimeoutMs,
                 w.MinId, w.MaxId, w.Extended),
             new NmRuleExpect(e.Kind!, e.Value, e.Byte, e.Bit, e.Count, e.IntervalMs,
                 e.Pct, e.MinMs, e.MaxMs, e.Anchor, e.WithBurst),
@@ -357,6 +364,7 @@ public static class NmStandardYaml
         {
             SourceRef = r.SourceRef,
             Observability = ParseObservability(r.Observability),
+            Clauses = r.Clauses ?? [],
         };
     }
 }

@@ -10,34 +10,50 @@ public static partial class NmRuleEvaluators
     /// 返回 true 且 <paramref name="unmodeledReason"/> 非空表示原语已实现、但「本条规则」
     /// 无法求值（角色缺失、期望未实现等），调用方仍必须把该规则记进 Unmodeled——
     /// 求值不了的规则绝不能静默当作通过。
+    /// <para>
+    /// <paramref name="unmodeledCode"/> 是结构化的原因码（<see cref="NmUnmodeledCodes"/>）：
+    /// 只要 reason 非空就必须同时给出 code，让消费方能区分「profile 缺数据」
+    /// 与「本条 trace 没有该事件」。
+    /// </para>
     /// </summary>
     internal static bool TryEvaluate(
         NmRuleDef rule, NmRuleContext ctx,
         List<NmFinding> findings, List<NmObservation> observations,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         // 所有原语都必须填充 unmodeledReason：无法求值的规则进 Unmodeled，不得静默通过。
         unmodeledReason = null;
+        unmodeledCode = null;
         switch (rule.When.Kind)
         {
             case "bit_rule":
-                return BitRule(rule, ctx, findings, observations, out unmodeledReason);
+                return BitRule(
+                    rule, ctx, findings, observations, out unmodeledReason, out unmodeledCode);
             case "nid_id_mapping":
-                return NidIdMapping(rule, ctx, findings, observations, out unmodeledReason);
+                return NidIdMapping(
+                    rule, ctx, findings, observations, out unmodeledReason, out unmodeledCode);
             case "layout_check":
-                return LayoutCheck(rule, ctx, findings, out unmodeledReason);
+                return LayoutCheck(rule, ctx, findings, out unmodeledReason, out unmodeledCode);
             case "cycle_tolerance":
-                return CycleTolerance(rule, ctx, findings, out unmodeledReason);
+                return CycleTolerance(
+                    rule, ctx, findings, out unmodeledReason, out unmodeledCode);
             case "burst_shape":
-                return BurstShape(rule, ctx, findings, out unmodeledReason);
+                return BurstShape(rule, ctx, findings, out unmodeledReason, out unmodeledCode);
             case "nmsts_transition":
-                return NmstsTransition(rule, ctx, observations, out unmodeledReason);
+                return NmstsTransition(
+                    rule, ctx, observations, out unmodeledReason, out unmodeledCode);
             case "repeat_message_duration":
                 return RepeatMessageDuration(
-                    rule, ctx, findings, observations, out unmodeledReason);
+                    rule, ctx, findings, observations, out unmodeledReason, out unmodeledCode);
             case "first_frame_latency":
                 return FirstFrameLatency(
-                    rule, ctx, findings, observations, out unmodeledReason);
+                    rule, ctx, findings, observations, out unmodeledReason, out unmodeledCode);
+            case "normal_resume_shape":
+                return NormalResumeShape(
+                    rule, ctx, findings, observations, out unmodeledReason, out unmodeledCode);
+            case "stop_sending":
+                return StopSending(
+                    rule, ctx, observations, out unmodeledReason, out unmodeledCode);
             default:
                 return false;
         }
@@ -46,21 +62,25 @@ public static partial class NmRuleEvaluators
     private static bool BitRule(
         NmRuleDef rule, NmRuleContext ctx,
         List<NmFinding> findings, List<NmObservation> observations,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
 
         // v1 只实现 is_zero。若照 role.Constraint 去判 equals/present，
         // 会把「该位应为 1」当成「1 违规」，凭空造出 finding。
         if (!string.Equals(rule.Expect.Kind, "is_zero", StringComparison.Ordinal))
         {
             unmodeledReason = $"bit_rule 仅实现 expect.kind=is_zero，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
         if (!TryFindRole(ctx, rule.When, out var role, out var roleReason))
         {
             unmodeledReason = roleReason;
+            // 角色定位失败全部来自 profile（无 bit_roles / 名称不存在 / 参数不全）。
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
@@ -111,9 +131,10 @@ public static partial class NmRuleEvaluators
     private static bool NidIdMapping(
         NmRuleDef rule, NmRuleContext ctx,
         List<NmFinding> findings, List<NmObservation> observations,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
 
         // 只实现 matches_id_low_byte。其它期望若静默求值，用户会以为规则要求的语义
         // 已被校验，实际跑的仍是「NID == ID 低字节」——静默降级。
@@ -121,6 +142,7 @@ public static partial class NmRuleEvaluators
         {
             unmodeledReason =
                 $"nid_id_mapping 仅实现 expect.kind=matches_id_low_byte，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
@@ -128,6 +150,7 @@ public static partial class NmRuleEvaluators
         if (nidByte is null)
         {
             unmodeledReason = "profile 未声明 layout.nid_byte";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
@@ -189,9 +212,10 @@ public static partial class NmRuleEvaluators
 
     private static bool LayoutCheck(
         NmRuleDef rule, NmRuleContext ctx, List<NmFinding> findings,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
 
         // 只实现 equals（「帧形态与矩阵一致」）。其它期望若静默求值，
         // 用户会以为规则要求的语义已被校验，实际跑的仍是 DLC/ID 范围比对。
@@ -199,6 +223,7 @@ public static partial class NmRuleEvaluators
         {
             unmodeledReason =
                 $"layout_check 仅实现 expect.kind=equals，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
@@ -209,7 +234,12 @@ public static partial class NmRuleEvaluators
         if (rule.When.MinId is not null || rule.When.MaxId is not null)
         {
             CheckIdRange(rule, ctx, findings, out var rangeReason);
-            if (rangeReason is not null) unmodeledReason = rangeReason;
+            if (rangeReason is not null)
+            {
+                unmodeledReason = rangeReason;
+                // 区间参数缺失/非法全部是 profile 配置问题。
+                unmodeledCode = NmUnmodeledCodes.MissingProfileData;
+            }
             return true;
         }
 

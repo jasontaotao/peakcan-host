@@ -11,6 +11,13 @@ public class NmRuleEngineTests
 {
     private static readonly string[] TestReasons = ["test"];
 
+    // CA1861：同一组条款在规则定义与断言里复用，抽成静态字段。
+    private static readonly string[] BurstShapeClauses = ["NM_03", "NM_04", "NM_16"];
+
+    // R18：故意乱序声明。断言必须取 ordinal 排序后的第一个，而不是 Clauses[0]。
+    private static readonly string[] OutOfOrderClauses = ["§5.6", "§5.4.2"];
+    private static readonly string[] NoClauses = [];
+
     [Fact]
     public void BitRule_MustBeZeroViolated_ProducesFinding()
     {
@@ -169,6 +176,7 @@ public class NmRuleEngineTests
             new NmRuleWhen("max_gap_observe"), new NmRuleExpect("observe"), "")
         {
             Observability = NmObservability.Partial,
+            Clauses = ["§5.5"],
         };
         var ctx = Context(frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00) },
             rules: new[] { rule });
@@ -177,7 +185,8 @@ public class NmRuleEngineTests
 
         Assert.Empty(result.Findings);
         var u = Assert.Single(result.Unmodeled);
-        Assert.Equal("NM_X", u.Clause);
+        Assert.Equal("NM_X", u.RuleId);
+        Assert.Equal("§5.5", u.Clause);
         Assert.Contains("max_gap_observe", u.Reason, StringComparison.Ordinal);
     }
 
@@ -189,6 +198,7 @@ public class NmRuleEngineTests
             new NmRuleExpect("is_zero"), "SHOULD_NOT_APPEAR")
         {
             Observability = NmObservability.Unobservable,
+            Clauses = ["§5.4.3"],
         };
         var ctx = Context(frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
             rules: new[] { rule },
@@ -201,7 +211,9 @@ public class NmRuleEngineTests
         var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
 
         Assert.DoesNotContain(result.Findings, f => f.Code == "SHOULD_NOT_APPEAR");
-        Assert.Contains(result.Unmodeled, u => u.Clause == "NM_U");
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Equal("NM_U", u.RuleId);
+        Assert.Equal("unobservable", u.ReasonCode);
     }
 
     // ==== Fix round 1：无法求值的规则必须进 Unmodeled，不得静默通过 ====
@@ -227,7 +239,7 @@ public class NmRuleEngineTests
 
         Assert.Empty(result.Findings);
         var u = Assert.Single(result.Unmodeled);
-        Assert.Equal("NM_05", u.Clause);
+        Assert.Equal("NM_05", u.RuleId);
         Assert.Contains("RepeatMessageRequst", u.Reason, StringComparison.Ordinal);
     }
 
@@ -247,6 +259,9 @@ public class NmRuleEngineTests
 
         Assert.Empty(result.Findings);
         var u = Assert.Single(result.Unmodeled);
+        Assert.Equal("NM_05", u.RuleId);
+        // 原语已实现、缺 profile 数据：必须与 unimplemented_primitive 区分开。
+        Assert.Equal("missing_profile_data", u.ReasonCode);
         Assert.Contains("bit_roles", u.Reason, StringComparison.Ordinal);
     }
 
@@ -319,6 +334,8 @@ public class NmRuleEngineTests
         Assert.Empty(result.Findings);
         var u = Assert.Single(result.Unmodeled);
         Assert.Contains("equals", u.Reason, StringComparison.Ordinal);
+        // Fix 3：原语已实现、只是 expect 变体未实现——不是 profile 缺数据。
+        Assert.Equal("unimplemented_primitive", u.ReasonCode);
     }
 
     [Fact]
@@ -460,7 +477,7 @@ public class NmRuleEngineTests
 
         Assert.Empty(result.Findings);
         var u = Assert.Single(result.Unmodeled);
-        Assert.Equal("NM_LAYOUT", u.Clause);
+        Assert.Equal("NM_LAYOUT", u.RuleId);
         Assert.Contains("within_pct", u.Reason, StringComparison.Ordinal);
     }
 
@@ -481,7 +498,7 @@ public class NmRuleEngineTests
 
         Assert.Empty(result.Findings);
         var u = Assert.Single(result.Unmodeled);
-        Assert.Equal("NM_01", u.Clause);
+        Assert.Equal("NM_01", u.RuleId);
         Assert.Contains("duration_within_ms", u.Reason, StringComparison.Ordinal);
     }
 
@@ -511,6 +528,7 @@ public class NmRuleEngineTests
             Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED")
         {
             Observability = NmObservability.Partial,
+            Clauses = ["§5.4.3"],
         };
         var ctx = Context(
             frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
@@ -619,6 +637,145 @@ public class NmRuleEngineTests
         Assert.Contains(result.Observations, o => o.Kind == "nid_id_mapping_unreadable");
     }
 
+    // spec §4.0：finding 的条款归因必须来自 rule.Clauses，不能是 rule.Id。
+    // 引擎统一回填，不依赖各 evaluator 各自记得填。
+    [Fact]
+    public void Evaluate_FindingCarriesClausesFromRule()
+    {
+        var rule = Rule("NM_BURST_SHAPE",
+            When("burst_shape", cycleMs: 500),
+            Expect("count_equals", count: 10, intervalMs: 20, pct: 0.1),
+            "NM_WAKEUP_BURST_MISMATCH",
+            clauses: BurstShapeClauses);
+        // 5 帧 @20ms：快发候选成立，但帧数不足 10 → 产 finding。
+        var frames = Enumerable.Range(0, 5)
+            .Select(i => Frame(i * 0.020, 0x500, 0xF4, 0x00))
+            .ToArray();
+        var ctx = Context(frames, rules: new[] { rule });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        var f = Assert.Single(result.Findings);
+        Assert.Equal(BurstShapeClauses, f.Clauses);
+        // 兼容字段：按 ordinal 排序后的第一个，不依赖声明顺序。
+        Assert.Equal("NM_03", f.RequirementId);
+    }
+
+    // Unmodeled 必须能区分「原语未实现」和「数据缺失」——Reason 是自由文本，AI 读不了。
+    [Fact]
+    public void Evaluate_UnmodeledCarriesRuleIdAndReasonCode()
+    {
+        var rule = Rule("NM_GAP",
+            When("max_gap_observe"),
+            Expect("observe"),
+            "",
+            clauses: ["§5.5"]);
+        var ctx = Context(Array.Empty<NmFrame>(), rules: new[] { rule });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Equal("NM_GAP", u.RuleId);
+        Assert.Equal("unimplemented_primitive", u.ReasonCode);
+        // Clause 必须是条款号，不能回退成规则名（R17）。
+        Assert.Equal("§5.5", u.Clause);
+        Assert.Equal("§5.5", u.RequirementId);
+    }
+
+    // spec §4.0 / R18：多条款时 RequirementId 取 ordinal 排序后的第一个，
+    // 与 YAML 声明顺序无关。列表故意乱序：[0] 是 §5.6，正确值是 §5.4.2。
+    [Fact]
+    public void Evaluate_FindingRequirementIdIsOrdinalFirstClause()
+    {
+        var rule = Rule("NM_BURST_SHAPE",
+            When("burst_shape", cycleMs: 500),
+            Expect("count_equals", count: 10, intervalMs: 20, pct: 0.1),
+            "NM_WAKEUP_BURST_MISMATCH",
+            clauses: OutOfOrderClauses);
+        var frames = Enumerable.Range(0, 5)
+            .Select(i => Frame(i * 0.020, 0x500, 0xF4, 0x00))
+            .ToArray();
+        var ctx = Context(frames, rules: new[] { rule });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        var f = Assert.Single(result.Findings);
+        // Clauses 保留声明顺序，供消费方看到全部条款。
+        Assert.Equal(OutOfOrderClauses, f.Clauses);
+        // 若回退成 Clauses[0]，这里会得到 §5.6。
+        Assert.Equal("§5.4.2", f.RequirementId);
+    }
+
+    // 同一条 ordinal-first 规则也必须作用于 Unmodeled（NmRuleEngine 的 firstClause）。
+    [Fact]
+    public void Evaluate_UnmodeledClauseIsOrdinalFirstClause()
+    {
+        var rule = Rule("NM_GAP", When("max_gap_observe"), Expect("observe"), "",
+            clauses: OutOfOrderClauses);
+        var ctx = Context(Array.Empty<NmFrame>(), rules: new[] { rule });
+
+        var u = Assert.Single(NmRuleEngine.Evaluate(ctx.Rules, ctx).Unmodeled);
+
+        // 若回退成 Clauses[0]，这里会得到 §5.6。
+        Assert.Equal("§5.4.2", u.Clause);
+        Assert.Equal("§5.4.2", u.RequirementId);
+    }
+
+    // R17：Clauses 为空时 Clause 不得回退成 rule.Id。规则身份只走 RuleId。
+    [Fact]
+    public void Evaluate_UnmodeledEmptyClausesDoesNotFallBackToRuleId()
+    {
+        var rule = Rule("NM_NO_CLAUSE", When("max_gap_observe"), Expect("observe"), "",
+            clauses: NoClauses);
+        var ctx = Context(Array.Empty<NmFrame>(), rules: new[] { rule });
+
+        var u = Assert.Single(NmRuleEngine.Evaluate(ctx.Rules, ctx).Unmodeled);
+
+        Assert.Equal("", u.Clause);
+        Assert.Null(u.RequirementId);
+        Assert.Equal("NM_NO_CLAUSE", u.RuleId);
+    }
+
+    // Fix 2：未建模条目必须携带完整条款列表。多条款规则只保留 ordinal-first
+    // 的单值 Clause 时，NM_STOP_SENDING → NM_09/NM_12 这类条目会在报告里丢掉条款。
+    [Fact]
+    public void Evaluate_UnmodeledCarriesFullClauseList()
+    {
+        var rule = Rule("NM_BURST_SHAPE", When("max_gap_observe"), Expect("observe"), "",
+            clauses: BurstShapeClauses);
+        var ctx = Context(Array.Empty<NmFrame>(), rules: new[] { rule });
+
+        var u = Assert.Single(NmRuleEngine.Evaluate(ctx.Rules, ctx).Unmodeled);
+
+        Assert.Equal(BurstShapeClauses, u.Clauses);
+        // 兼容字段仍是 ordinal-first，不依赖 YAML 声明顺序。
+        Assert.Equal("NM_03", u.Clause);
+    }
+
+    // Fix 3：原语已实现、profile 齐全，但整条 trace 没有 ≥2s 静默。
+    // 原因码必须是「本条 trace 没有该事件」，不能让 AI 去改一份没问题的 profile。
+    [Fact]
+    public void Evaluate_UnmodeledTraceWithoutEvent_UsesNotApplicableCode()
+    {
+        var rule = new NmRuleDef("NM_RESUME_TO_RMS", "静默后恢复", "wakeup",
+            new NmRuleWhen("normal_resume_shape", MinSilenceMs: 2000, CycleMs: 500,
+                Pct: 0.1, MinFrames: 4),
+            new NmRuleExpect("equals"), "NM_NORMAL_RESUME_SHAPE_MISMATCH")
+        {
+            Clauses = ["NM_02"],
+            Observability = NmObservability.Partial,
+        };
+        var frames = Enumerable.Range(0, 5)
+            .Select(i => Frame(i * 0.5, 0x500, 0xF4, 0x00))
+            .ToArray();
+        var ctx = Context(frames, rules: new[] { rule });
+
+        var u = Assert.Single(NmRuleEngine.Evaluate(ctx.Rules, ctx).Unmodeled);
+
+        Assert.Equal("not_applicable", u.ReasonCode);
+        Assert.Contains("不适用", u.Reason, StringComparison.Ordinal);
+    }
+
     // ==== 构造辅助 ====
 
     private static NmRuleContext Context(
@@ -645,16 +802,23 @@ public class NmRuleEngineTests
 
     private static NmRuleWhen When(
         string kind, string? role = null, byte? byteIndex = null, int? bitIndex = null,
-        string? minId = null, string? maxId = null, bool? extended = null)
+        string? minId = null, string? maxId = null, bool? extended = null,
+        int? cycleMs = null)
         => new(kind, Byte: byteIndex, Bit: bitIndex, Role: role,
-            MinId: minId, MaxId: maxId, Extended: extended);
+            MinId: minId, MaxId: maxId, Extended: extended, CycleMs: cycleMs);
 
-    private static NmRuleExpect Expect(string kind)
-        => new(kind);
+    private static NmRuleExpect Expect(
+        string kind, int? count = null, int? intervalMs = null, double? pct = null)
+        => new(kind, Count: count, IntervalMs: intervalMs, Pct: pct);
 
     private static NmRuleDef Rule(
-        string id, NmRuleWhen when, NmRuleExpect expect, string finding)
-        => new(id, "测试条款", "normal", when, expect, finding);
+        string id, NmRuleWhen when, NmRuleExpect expect, string finding,
+        string[]? clauses = null)
+        => new(id, "测试条款", "normal", when, expect, finding)
+        {
+            SourceRef = "§5.5",
+            Clauses = clauses ?? ["§5.5"],
+        };
 
     private static NmMessageDef Def(string id, bool isExtended = false)
         => new(id, isExtended, "NM", "A", 8, true, TestReasons, CycleMs: 500, TimeoutMs: 2000);

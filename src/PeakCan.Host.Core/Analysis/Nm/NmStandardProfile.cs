@@ -119,13 +119,21 @@ public enum NmBitConstraint
 public sealed record NmRuleDef(
     string Id,
     string Requirement,
-    string Phase,
+    // spec §5.3：phase 不驱动求值作用域，改名让「声明性」这件事在代码里可见。
+    string DeclaredPhase,
     NmRuleWhen When,
     NmRuleExpect Expect,
     string FindingCode)
 {
     public string? SourceRef { get; init; }
     public NmObservability Observability { get; init; } = NmObservability.Observed;
+
+    /// <summary>
+    /// 本规则覆盖的条款号（spec §4.0）。finding 的条款归因一律从这里取，不取 <see cref="Id"/>。
+    /// 一条规则可挂多条（burst_shape → NM_03/NM_04/NM_16）。
+    /// 空列表 = 不参与条款覆盖统计（base profile 的规则可能不属于 OEM 条款空间）。
+    /// </summary>
+    public required IReadOnlyList<string> Clauses { get; init; }
 }
 
 /// <summary>
@@ -144,6 +152,8 @@ public sealed record NmRuleWhen(
     int? CycleMs = null,
     double? Pct = null,
     int? MinFrames = null,
+    /// <summary>stop_sending 的超时窗口；null = 用报文级生效超时。</summary>
+    int? TimeoutMs = null,
     /// <summary>layout_check 的 ID 区间下界（十六进制串，如 <c>0x18FFFA00</c>）。</summary>
     string? MinId = null,
     /// <summary>layout_check 的 ID 区间上界（十六进制串）。</summary>
@@ -239,9 +249,9 @@ public static class NmFindingCodes
             // first_frame_latency（spec §4：T_START_NM_TX / T_WakeUp，P 级）。
             // 原语已实现且超差会产 finding，缺码会让任何声明它的 profile 在加载期被拒。
             "NM_FIRST_FRAME_LATENCY_EXCEEDED",
-            // normal_resume_shape（spec §4：NM_02/NM_15，P 级）。
-            // 原语尚未实现，但码先登记：profile 可以先声明，规则会进 Unmodeled
-            // 而不是加载失败——「未实现」和「码非法」是两件事。
+            // normal_resume_shape（spec §4：NM_02/NM_10/NM_15，P 级）。
+            // 原语已实现；码已登记，声明它的 profile 在求值成功且超差时会产 finding
+            // （吉利 profile 目前因无法区分 NM_10 的目标状态而标 unobservable，规则进 Unmodeled）。
             "NM_NORMAL_RESUME_SHAPE_MISMATCH",
         };
 }

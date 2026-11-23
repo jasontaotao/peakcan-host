@@ -18,7 +18,7 @@ namespace PeakCan.Host.Core.Tests.Analysis.Nm;
 /// 而内容分析恰恰是最容易在合法报文上误报的那条路径。
 /// </para>
 /// <para>
-/// 文件末尾的 <see cref="LastEpisodeRmsFollowedByNos_StillReportsOverage"/> 不是负例，
+/// 文件中的 <see cref="LastEpisodeRmsFollowedByNos_StillReportsOverage"/> 不是负例，
 /// 而是 Task 8 C1（末段 RMS 被整段抑制）的回归守卫：它必须产出 finding。
 /// </para>
 /// </summary>
@@ -60,8 +60,10 @@ public class NmRuleNegativeSetTests
             o => o.Kind == "repeat_message_duration" && o.RuleId == "NM_06");
         Assert.Equal(1500.0, (rms.End - rms.Start) * 1000.0, 6);
         // NM_01 / NM_05 已实际求值并通过，不能以「未建模」冒充通过。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_01");
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_05");
+        // 规则身份在 RuleId；Clause 只是条款号。NM_01/NM_05 的条款虽唯一，
+        // 但本文件的锁一直针对「这条规则是否进了 Unmodeled」，用 RuleId 才精确。
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_01");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_05");
     }
 
     [Fact]
@@ -86,7 +88,8 @@ public class NmRuleNegativeSetTests
 
         // 非空洞性守卫：burst_shape 必须真的判过一次合规。
         // 10 帧 / 20ms 被判合规时不会留下 finding，也不应退化成「无候选 → Unmodeled」。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_03");
+        // NM_03 / NM_06 / NM_CYCLE_500 共用 §5.5：按条款号断言无法区分是哪条规则。
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_03");
     }
 
     [Fact]
@@ -195,7 +198,7 @@ public class NmRuleNegativeSetTests
         AssertNoViolation(report);
 
         // 非空洞性守卫：两条原语都必须真的求值（未进入 Unmodeled）。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_CYCLE_500");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_CYCLE_500");
         // layout_check 在 DLC 一致时不会产 finding；「不在 Unmodeled」是空断言
         // （LayoutCheck 从不设置 unmodeledReason），真正的阴性证据是 DLC 不一致的
         // finding 不存在。正向路径由 LayoutDlcMismatch_ReportsDlcMismatch 覆盖。
@@ -257,7 +260,73 @@ public class NmRuleNegativeSetTests
         var rmsObservation = Assert.Single(ObservationsOf(report),
             o => o.Kind == "repeat_message_duration" && o.RuleId == "NM_06");
         Assert.DoesNotContain("窗口截断", rmsObservation.Detail);
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_06");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_06");
+    }
+
+    [Fact]
+    public void LegalPassiveWakeup_NormalResumeShape_NoViolation()
+    {
+        // spec §12：合法场景零误报。被动唤醒：静默后以正常周期恢复（不快发），完全合规。
+        // A 的第一段 RMS 0.0→1.5s = 1500ms（在 1440–1760ms 内），之后静默恰好 2.0s
+        // （= when.min_silence_ms，也 = 报文超时：停发边界，不构成「超出超时」的掉线），
+        // 再以 500ms 正常周期恢复。
+        // 恢复段用 NMSts=1（NOS）：v1 的 normal_resume_shape 是 NMSts-blind 的
+        // （NM_02/15 进 RMS 与 NM_10 进 NOS 的目标状态差异未建模），所以这里不改
+        // 夹具数据；NMSts=1 的唯一目的是不让 NM_06 把静默前后的两段 NMSts=0
+        // 锚成一条 5.0s 长段而误报超差。不要把它「修正」成 NMSts=0。
+        var a = new[]
+        {
+            Frame(0.0, awb: 0, nmsts: 0), Frame(0.5, awb: 0, nmsts: 0),
+            Frame(1.0, awb: 0, nmsts: 0), Frame(1.5, awb: 0, nmsts: 0),
+            Frame(3.5, awb: 0, nmsts: 1), Frame(4.0, awb: 0, nmsts: 1),
+            Frame(4.5, awb: 0, nmsts: 1), Frame(5.0, awb: 0, nmsts: 1),
+        };
+        // B 全程发送：桥接 A 的静默，否则单报文 trace 的 2.0s 空档会触发
+        // NM_BUS_WIDE_SILENCE——那是对「总线无帧」的真实结论，不是本原语要验的东西。
+        var b = Enumerable.Range(0, 12)
+            .Select(i => Frame(i * 0.5, awb: 0, nmsts: 1, CanIdB, "B"));
+        var frames = a.Concat(b).OrderBy(f => f.Frame.Timestamp).ToArray();
+
+        var report = Evaluate(frames, windowEnd: 6.0);
+
+        AssertNoViolation(report);
+        Assert.DoesNotContain(report.Findings,
+            f => f.Code == "NM_NORMAL_RESUME_SHAPE_MISMATCH");
+
+        // 非空洞性守卫：规则必须在规则集里，且本场景确有 ≥2s 静默 →
+        // 规则真的求值了，而不是因为「无候选静默」被整体丢进 Unmodeled。
+        Assert.Contains(Rules(), r => r.Id == "NM_RESUME_TO_RMS");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_RESUME_TO_RMS");
+    }
+
+    [Fact]
+    public void LegalReleaseToSleep_StopSending_NoViolation()
+    {
+        // spec §4.1：合法释放（节点按 NM_09 停发，其它节点仍在发）不得报任何违规。
+        // A 在 2.0s 按 NM_09 停发（末帧 NMSts=1 表示已进 RSS）；B 全程正常发送。
+        var a = new[]
+        {
+            Frame(0.0, awb: 0, nmsts: 0), Frame(0.5, awb: 0, nmsts: 0),
+            Frame(1.0, awb: 0, nmsts: 0), Frame(1.5, awb: 0, nmsts: 0),
+            Frame(2.0, awb: 0, nmsts: 1),
+        };
+        var b = Enumerable.Range(0, 17)
+            .Select(i => Frame(i * 0.5, awb: 0, nmsts: 1, CanIdB, "B"));
+        // 两个报文的帧必须按时间合并且单调：乱序会触发 NM_TIMESTAMP_REGRESSION。
+        var frames = a.Concat(b).OrderBy(f => f.Frame.Timestamp).ToArray();
+
+        var report = Evaluate(frames, windowEnd: 8.5);
+
+        AssertNoViolation(report);
+
+        // spec §4.1：stop_sending 永不产 finding，任何严重度都不行。
+        // 不能只过滤 warn——AssertNoViolation 同样只筛 warn，info 级 finding
+        // 会从两道断言之间漏过去。
+        Assert.DoesNotContain(report.Findings, f => f.RuleId == "NM_STOP_SENDING");
+        Assert.Contains(ObservationsOf(report),
+            o => o.Kind == "stop_sending" && o.RuleId == "NM_STOP_SENDING");
+        // 已经有观测就不能同时挂「不可求值」，否则报告自相矛盾。
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_STOP_SENDING");
     }
 
     /// <summary>
@@ -326,18 +395,28 @@ public class NmRuleNegativeSetTests
 
     private static NmRuleDef[] Rules() => new[]
     {
+        // spec §4.0：Clauses 是条款号，不是规则名。条款号不唯一（NM_03/NM_06/
+        // NM_CYCLE_500 共用 §5.5），所以「某规则是否未建模」的断言落在 RuleId 上；
+        // 条款归因由未建模条目自己的 Clause/RequirementId 承载。
         new NmRuleDef("NM_01", "NID 与 ID 映射一致", "normal",
             new NmRuleWhen("nid_id_mapping"),
-            new NmRuleExpect("matches_id_low_byte"), "NM_NID_MISMATCH"),
+            new NmRuleExpect("matches_id_low_byte"), "NM_NID_MISMATCH")
+        {
+            Clauses = ["§5.4.2"],
+        },
         new NmRuleDef("NM_05", "预留位必须为 0", "normal",
             new NmRuleWhen("bit_rule", Role: "RepeatMessageRequest"),
-            new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED")
+        {
+            Clauses = ["§5.4.3"],
+        },
         new NmRuleDef("NM_06", "RMS 持续时长", "wakeup",
             new NmRuleWhen("repeat_message_duration", CycleMs: 500),
             new NmRuleExpect("duration_within_ms", MinMs: 1440, MaxMs: 1760,
                 Anchor: "nmsts"), "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
         {
             Observability = NmObservability.Partial,
+            Clauses = ["§5.5"],
         },
         new NmRuleDef("NM_03", "快发形态", "wakeup",
             new NmRuleWhen("burst_shape", CycleMs: 500),
@@ -345,15 +424,44 @@ public class NmRuleNegativeSetTests
             "NM_WAKEUP_BURST_MISMATCH")
         {
             Observability = NmObservability.Partial,
+            Clauses = ["§5.5"],
         },
         // cycle_tolerance 与 layout_check 之前没有任何场景级负例；前者对正常抖动最易误报，
         // 后者此前全仓无测试。放进默认规则集，让每个合法场景顺带覆盖。
         new NmRuleDef("NM_CYCLE_500", "500ms 周期容差 ±10%", "normal",
             new NmRuleWhen("cycle_tolerance", CycleMs: 500, Pct: 0.1),
-            new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION"),
+            new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+        {
+            Clauses = ["§5.5"],
+        },
         new NmRuleDef("NM_LAYOUT", "帧长与矩阵一致", "normal",
             new NmRuleWhen("layout_check"),
-            new NmRuleExpect("equals"), "NM_DLC_MISMATCH"),
+            new NmRuleExpect("equals"), "NM_DLC_MISMATCH")
+        {
+            Clauses = ["§5.4.1"],
+        },
+        // spec §5.3.2 / §7.2：静默后恢复形态（NM_02/NM_15）。P 级，finding 标推断。
+        // 规则 id 与 source_ref 对齐计划 Task 3，便于回溯。
+        // 放进共享规则集后，每个合法场景都会顺带覆盖这条新原语——
+        // 「合规不误报」必须在真实场景上成立，而不是在专门的窄用例里成立。
+        new NmRuleDef("NM_RESUME_TO_RMS", "静默后恢复为正常周期发送", "wakeup",
+            new NmRuleWhen("normal_resume_shape",
+                MinSilenceMs: 2000, CycleMs: 500, Pct: 0.1, MinFrames: 4),
+            new NmRuleExpect("equals"), "NM_NORMAL_RESUME_SHAPE_MISMATCH")
+        {
+            Clauses = ["NM_02", "NM_15"],
+            Observability = NmObservability.Partial,
+            SourceRef = "§5.3.2",
+        },
+        // spec §4.1：停发只产观测，永不产 finding。
+        new NmRuleDef("NM_STOP_SENDING", "进入 Ready Sleep State 后停止发送", "sleep",
+            new NmRuleWhen("stop_sending"),
+            new NmRuleExpect("observe"), "")
+        {
+            Clauses = ["NM_09", "NM_12"],
+            Observability = NmObservability.Partial,
+            SourceRef = "§4.1",
+        },
     };
 
     private static NmFrame[] Steady(

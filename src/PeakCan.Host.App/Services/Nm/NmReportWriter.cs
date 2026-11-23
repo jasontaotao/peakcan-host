@@ -21,6 +21,13 @@ public static class NmReportWriter
         var sb = new StringBuilder();
         sb.AppendLine("# NM 分析报告");
         sb.AppendLine();
+        // spec §9 / §9.4：体检不通过时必须在顶部提示，避免读者把下方结论当成可信结论。
+        if (r.DataQualityChecks is { } dq && dq.Any(c => c.Status == NmDataQualityStatus.Failed))
+        {
+            sb.AppendLine(
+                "> **数据体检未通过**：以下结论仅供指示性参考，请先核对数据质量（见 Data Quality 段）。");
+            sb.AppendLine();
+        }
         // 数字一律用 InvariantCulture：报告内容不应随系统区域设置变化（同 CA1305）。
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"- source: `{r.SourceId}`"));
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
@@ -95,6 +102,24 @@ public static class NmReportWriter
                 $"| {m.CanIdHex} | {Esc(red.Apply(m.Name))} | {Esc(red.Apply(m.Sender))} | {m.FrameCount} | {median} | {m.FirstSeen:F3} | {m.LastSeen:F3} |"));
         }
         sb.AppendLine();
+        // spec §9.2 / §9.4：数据体检放在结论之前——读者必须先知道数据是否可信。
+        // 「未检查」不是「不通过」，更不是「通过」。
+        if (r.DataQualityChecks is { Count: > 0 } checks)
+        {
+            sb.AppendLine("## Data Quality");
+            foreach (var c in checks)
+            {
+                var status = c.Status switch
+                {
+                    NmDataQualityStatus.Passed => "通过",
+                    NmDataQualityStatus.Failed => "不通过",
+                    _ => "未检查",
+                };
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"- `{c.Code}` {status}：{c.Detail}"));
+            }
+            sb.AppendLine();
+        }
         sb.AppendLine("## Findings");
         foreach (var f in r.Findings)
         {
@@ -127,9 +152,17 @@ public static class NmReportWriter
         }
         else
         {
+            // spec §4.0：条款号不是规则名。先用 RuleId 标识规则身份，再列出完整条款列表；
+            // base 规则的 clauses 为空时只渲染 RuleId，不能退化成一个空的加粗标识。
             foreach (var u in r.UnmodeledRules)
+            {
+                var identity = string.IsNullOrEmpty(u.RuleId) ? u.Clause : u.RuleId;
+                var clauses = u.Clauses.Count > 0
+                    ? " [" + string.Join(",", u.Clauses) + "]"
+                    : "";
                 sb.AppendLine(CultureInfo.InvariantCulture,
-                    $"- **{u.Clause}**：{Esc(red.Apply(u.Reason))}");
+                    $"- **{identity}**{clauses}：{Esc(red.Apply(u.Reason))}");
+            }
         }
         sb.AppendLine();
         sb.AppendLine("## Events");
@@ -196,21 +229,21 @@ public static class NmReportWriter
 
     /// <summary>
     /// findings 行的条款追溯后缀。rule_id / source_ref 是条款标识（不是字节取值），
-    /// 仍走脱敏与转义以防未来文本混入节点名；两者皆空时返回空串，保持旧输出不变。
+    /// 仍走脱敏与转义以防未来文本混入节点名；clauses 是纯条款号，按 spec §15 原样输出。
+    /// 三者皆空时返回空串，保持旧输出不变。
     /// </summary>
     private static string TraceSuffix(NmFinding finding, NmRedactor red)
     {
-        var rule = !string.IsNullOrEmpty(finding.RuleId)
-            ? "rule=" + Esc(red.Apply(finding.RuleId))
-            : null;
-        var source = !string.IsNullOrEmpty(finding.SourceRef)
-            ? "source=" + Esc(red.Apply(finding.SourceRef))
-            : null;
+        var parts = new List<string>(3);
+        if (!string.IsNullOrEmpty(finding.RuleId))
+            parts.Add("rule=" + Esc(red.Apply(finding.RuleId)));
+        if (!string.IsNullOrEmpty(finding.SourceRef))
+            parts.Add("source=" + Esc(red.Apply(finding.SourceRef)));
+        // spec §4.0 / R59：条款是标识列表（burst_shape 覆盖 NM_03/04/16），不是字节取值，不脱敏。
+        if (finding.Clauses.Count > 0)
+            parts.Add("clauses=" + string.Join(",", finding.Clauses));
 
-        if (rule is null && source is null) return "";
-        return " [" + (rule is null ? source
-            : source is null ? rule
-            : rule + ", " + source) + "]";
+        return parts.Count == 0 ? "" : " [" + string.Join(", ", parts) + "]";
     }
 
     /// <summary>

@@ -92,7 +92,7 @@ public class NmStandardValidatorTests
                 new NmRuleDef("R_CYCLE", "周期", "normal",
                     new NmRuleWhen("cycle_tolerance", CycleMs: 0),
                     new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
-                { SourceRef = "§5.5" },
+                { SourceRef = "§5.5", Clauses = ["§5.5"] },
             ],
         };
 
@@ -111,7 +111,7 @@ public class NmStandardValidatorTests
                 new NmRuleDef("R_CYCLE", "周期", "normal",
                     new NmRuleWhen("cycle_tolerance"),
                     new NmRuleExpect("equals"), "NM_CYCLE_DEVIATION")
-                { SourceRef = "§5.5" },
+                { SourceRef = "§5.5", Clauses = ["§5.5"] },
             ],
         };
 
@@ -130,7 +130,8 @@ public class NmStandardValidatorTests
             [
                 new NmRuleDef("R_NOREF", "周期", "normal",
                     new NmRuleWhen("cycle_tolerance"),
-                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION"),
+                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+                { Clauses = ["§5.5"] },
             ],
         };
 
@@ -151,7 +152,7 @@ public class NmStandardValidatorTests
                 new NmRuleDef("R_TYPO", "周期", "normal",
                     new NmRuleWhen("cycle_tolerance"),
                     new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATOIN")
-                { SourceRef = "§5.5" },
+                { SourceRef = "§5.5", Clauses = ["§5.5"] },
             ],
         };
 
@@ -169,7 +170,7 @@ public class NmStandardValidatorTests
                 new NmRuleDef("R_OK", "周期", "normal",
                     new NmRuleWhen("cycle_tolerance"),
                     new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
-                { SourceRef = "§5.5" },
+                { SourceRef = "§5.5", Clauses = ["§5.5"] },
             ],
         };
 
@@ -189,7 +190,11 @@ public class NmStandardValidatorTests
                     new NmRuleExpect("duration_within_ms", MinMs: 1760, MaxMs: 1440,
                         Anchor: "nmsts"),
                     "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
-                { SourceRef = "§5.5", Observability = NmObservability.Partial },
+                {
+                    SourceRef = "§5.5",
+                    Observability = NmObservability.Partial,
+                    Clauses = ["§5.5"],
+                },
             ],
         };
 
@@ -209,13 +214,13 @@ public class NmStandardValidatorTests
                 new NmRuleDef("R_PHASE", "周期", "wakeuup",
                     new NmRuleWhen("cycle_tolerance"),
                     new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
-                { SourceRef = "§5.5" },
+                { SourceRef = "§5.5", Clauses = ["§5.5"] },
             ],
         };
 
         var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
         Assert.Contains("wakeuup", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("phase", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("declared_phase", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -231,7 +236,7 @@ public class NmStandardValidatorTests
                 new NmRuleDef("R_PHASE", "周期", phase,
                     new NmRuleWhen("cycle_tolerance"),
                     new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
-                { SourceRef = "§5.5" },
+                { SourceRef = "§5.5", Clauses = ["§5.5"] },
             ],
         };
 
@@ -249,10 +254,65 @@ public class NmStandardValidatorTests
                 new NmRuleDef("R_OBS", "停发观察", "sleep",
                     new NmRuleWhen("stop_sending"),
                     new NmRuleExpect("observe"), "")
-                { SourceRef = "§5.9", Observability = NmObservability.Partial },
+                {
+                    SourceRef = "§5.9",
+                    Observability = NmObservability.Partial,
+                    Clauses = ["§5.9"],
+                },
             ],
         };
 
         NmStandardValidator.Validate(profile); // 不抛即通过
+    }
+
+    // Clauses 为空 = 该规则无法归因到任何条款，条款追溯对它完全失效。
+    // 但 base profile 的规则可能不属于 OEM 条款空间（AUTOSAR §9），
+    // 所以这里只校验「非空列表的每一项形状合法」，空列表交给 Task 9 的 profile 决定。
+    [Fact]
+    public void Validate_ClauseWithInvalidShape_Throws()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_BAD", "周期", "normal",
+                    new NmRuleWhen("cycle_tolerance"),
+                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+                {
+                    SourceRef = "§5.5",
+                    Clauses = ["NM_06_NOBURST"],   // 规则名，不是条款号
+                },
+            ],
+        };
+
+        var ex = Assert.Throws<NmProfileValidationException>(
+            () => NmStandardValidator.Validate(profile));
+        Assert.Contains("NM_06_NOBURST", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("条款", ex.Message, StringComparison.Ordinal);
+    }
+
+    // stop_sending 的 when.timeout_ms 为 0/负数会让规则「立即判停发」，
+    // 与用户意图相反且无从察觉。
+    [Fact]
+    public void Validate_StopSendingNonPositiveTimeoutMs_Throws()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_STOP", "停发观察", "sleep",
+                    new NmRuleWhen("stop_sending", TimeoutMs: 0),
+                    new NmRuleExpect("observe"), "")
+                {
+                    SourceRef = "§5.9",
+                    Observability = NmObservability.Partial,
+                    Clauses = ["§5.9"],
+                },
+            ],
+        };
+
+        var ex = Assert.Throws<NmProfileValidationException>(
+            () => NmStandardValidator.Validate(profile));
+        Assert.Contains("timeout_ms", ex.Message, StringComparison.Ordinal);
     }
 }
