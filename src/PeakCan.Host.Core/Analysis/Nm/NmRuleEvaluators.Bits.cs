@@ -38,6 +38,9 @@ public static partial class NmRuleEvaluators
             case "first_frame_latency":
                 return FirstFrameLatency(
                     rule, ctx, findings, observations, out unmodeledReason);
+            case "normal_resume_shape":
+                return NormalResumeShape(
+                    rule, ctx, findings, observations, out unmodeledReason);
             default:
                 return false;
         }
