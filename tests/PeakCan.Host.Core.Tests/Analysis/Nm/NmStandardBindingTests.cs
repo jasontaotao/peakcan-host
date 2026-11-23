@@ -302,6 +302,180 @@ public class NmStandardProfileLocatorTests
         }
     }
 
+    /// <summary>
+    /// 自引用 + 文件名版本与内容版本不一致（改了版本号忘改文件名）：旧实现按内容 key
+    /// 判重，而 LocateParent 按文件名命中刚加载过的文件，两者永远对不上 → 无限循环。
+    /// 修复后必须立即返回，并由 Flatten 统一报「继承链断裂」。
+    /// </summary>
+    [Fact]
+    public async Task TryLoad_SelfExtendsWithMismatchedVersion_TerminatesAndFlattenThrows()
+    {
+        var dir = NewTempDir();
+        try
+        {
+            // 文件名声明 @2.0，内容却是 @2.1，且 extends 指向文件名声明的旧版本。
+            IO.File.WriteAllText(IO.Path.Combine(dir, "geely-cv@2.0.nmstd.yaml"), """
+                standard:
+                  id: geely-cv
+                  version: "2.1"
+                  extends: geely-cv@2.0
+                overrides:
+                  timings:
+                    cycle_ms: 500
+                """);
+
+            var resolved = await TryLoadWithTimeoutAsync(IO.Path.Combine(dir, "bus.dbc"));
+
+            Assert.NotNull(resolved);
+            // 同一文件不得被重复登记：注册表只有内容声明的 key。
+            Assert.Single(resolved!.Registry);
+            Assert.True(resolved.Registry.ContainsKey("geely-cv@2.1"));
+
+            var ex = Assert.Throws<NmProfileValidationException>(
+                () => NmStandardFlattener.Flatten(resolved.Selected, resolved.Registry));
+            Assert.Contains("继承链断裂", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            IO.Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 两份 profile 互相 extends：定位阶段必须在注册表命中已有 key 时停止，
+    /// 把环留给 Flatten 报「循环」，而不是继续读文件。
+    /// </summary>
+    [Fact]
+    public async Task TryLoad_TwoProfilesExtendingEachOther_Terminates()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var oemDir = IO.Path.Combine(root, "oem");
+            var baseDir = IO.Path.Combine(root, "base");
+            IO.Directory.CreateDirectory(oemDir);
+            IO.Directory.CreateDirectory(baseDir);
+
+            // 子 profile 在 oem/，父 profile 在 base/：DBC 同目录只有一份候选，
+            // 避免「多份候选」异常，同时让 LocateParent 走 base 兄弟目录分支。
+            IO.File.WriteAllText(IO.Path.Combine(oemDir, "a@1.nmstd.yaml"), """
+                standard:
+                  id: a
+                  version: "1"
+                  extends: b@1
+                """);
+            IO.File.WriteAllText(IO.Path.Combine(baseDir, "b@1.nmstd.yaml"), """
+                standard:
+                  id: b
+                  version: "1"
+                  extends: a@1
+                """);
+
+            var resolved = await TryLoadWithTimeoutAsync(IO.Path.Combine(oemDir, "bus.dbc"));
+
+            Assert.NotNull(resolved);
+            Assert.True(resolved!.Registry.ContainsKey("a@1"));
+            Assert.True(resolved.Registry.ContainsKey("b@1"));
+
+            var ex = Assert.Throws<NmProfileValidationException>(
+                () => NmStandardFlattener.Flatten(resolved.Selected, resolved.Registry));
+            Assert.Contains("循环", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            IO.Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 文件名 x@1 与内容 x@2 不一致且 extends x@1：不得把同一文件当成父级再登记一次，
+    /// 注册表里不能出现凭空多出的层。
+    /// </summary>
+    [Fact]
+    public async Task TryLoad_FilenameVersionDiffersFromContent_DoesNotInheritWrongLayer()
+    {
+        var dir = NewTempDir();
+        try
+        {
+            IO.File.WriteAllText(IO.Path.Combine(dir, "x@1.nmstd.yaml"), """
+                standard:
+                  id: x
+                  version: "2"
+                  extends: x@1
+                """);
+
+            var resolved = await TryLoadWithTimeoutAsync(IO.Path.Combine(dir, "bus.dbc"));
+
+            Assert.NotNull(resolved);
+            Assert.Single(resolved!.Registry);
+            Assert.True(resolved.Registry.ContainsKey("x@2"));
+            // 文件名声明、内容不匹配的层不得被当成父级挤进注册表。
+            Assert.False(resolved.Registry.ContainsKey("x@1"));
+        }
+        finally
+        {
+            IO.Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 父文件按文件名能找到，但内部 id@version 与文件名不一致：必须停止解析，
+    /// 不能把内容 key 不同的层登记成父级（否则会静默合并错误的层）。
+    /// </summary>
+    [Fact]
+    public async Task TryLoad_ParentContentKeyMismatch_StopsInsteadOfRegisteringWrongLayer()
+    {
+        var root = NewTempDir();
+        try
+        {
+            var oemDir = IO.Path.Combine(root, "oem");
+            var baseDir = IO.Path.Combine(root, "base");
+            IO.Directory.CreateDirectory(oemDir);
+            IO.Directory.CreateDirectory(baseDir);
+
+            IO.File.WriteAllText(IO.Path.Combine(oemDir, "y@1.nmstd.yaml"), """
+                standard:
+                  id: y
+                  version: "1"
+                  extends: x@1
+                """);
+            // 文件名是 x@1，但内容声明 x@3：继承链指向错误层。
+            IO.File.WriteAllText(IO.Path.Combine(baseDir, "x@1.nmstd.yaml"), """
+                standard:
+                  id: x
+                  version: "3"
+                """);
+
+            var resolved = await TryLoadWithTimeoutAsync(IO.Path.Combine(oemDir, "bus.dbc"));
+
+            Assert.NotNull(resolved);
+            Assert.True(resolved!.Registry.ContainsKey("y@1"));
+            Assert.False(resolved.Registry.ContainsKey("x@3"));
+            Assert.False(resolved.Registry.ContainsKey("x@1"));
+
+            var ex = Assert.Throws<NmProfileValidationException>(
+                () => NmStandardFlattener.Flatten(resolved.Selected, resolved.Registry));
+            Assert.Contains("继承链断裂", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            IO.Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 带超时调用 TryLoad：旧实现遇到继承链自引用会死循环，
+    /// 测试必须快速失败而不是挂住 CI（超时上限 10 秒）。
+    /// </summary>
+    private static async Task<NmStandardProfileLocator.Resolved?> TryLoadWithTimeoutAsync(string dbcPath)
+    {
+        var task = Task.Run(() => NmStandardProfileLocator.TryLoad(dbcPath));
+        var finished = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(10)));
+        Assert.True(ReferenceEquals(task, finished),
+            "TryLoad 未在 10 秒内返回：继承链疑似自引用导致死循环");
+        return await task;
+    }
+
     /// <summary>把仓库真实的 profiles/{base,oem} 布局复制到临时根目录。</summary>
     private static void CopyGeelyLayout(string root)
     {

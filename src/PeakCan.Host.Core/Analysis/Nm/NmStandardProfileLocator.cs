@@ -60,6 +60,10 @@ public static class NmStandardProfileLocator
 
         // 父级可能继续 extends：沿链逐级定位，直到没有 extends、文件缺失或成环。
         // 成环时停止定位（不在此抛异常），把循环留给 Flatten 报——见方法注释。
+        // 已访问文件路径：文件名与内部 id@version 不一致时（改了版本号忘改文件名），
+        // LocateParent 会按文件名命中刚加载过的文件；只靠 registry 的内容 key 判重
+        // 会永远对不上，导致死循环。路径集合保证同一文件只解析一次。
+        var visitedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedPath };
         var current = selected;
         var currentPath = selectedPath;
         while (!string.IsNullOrWhiteSpace(current.Extends))
@@ -70,7 +74,15 @@ public static class NmStandardProfileLocator
             var parentPath = LocateParent(currentPath, parentKey);
             if (parentPath is null) break;
 
+            // 重复命中同一文件说明链自引用，停止定位，由 Flatten 报「循环」。
+            if (!visitedPaths.Add(parentPath)) break;
+
             var parent = NmStandardYaml.LoadFile(parentPath);
+
+            // 文件名声明的 key 必须与内容 key 一致，否则继承链会指向错误的层。
+            // 不在此抛异常：交给 Flatten 统一报「继承链断裂」，保持错误出口唯一。
+            if (!string.Equals(KeyOf(parent), parentKey, StringComparison.Ordinal)) break;
+
             registry[KeyOf(parent)] = parent;
             current = parent;
             currentPath = parentPath;
