@@ -69,11 +69,18 @@ public class NmRealTraceContractTests
         // 求值成功就不该同时进 Unmodeled；第二段 RMS 也不应让规则整体失效。
         Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_RMS_DURATION_BURST");
         Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_RMS_DURATION_NOBURST");
-        // Geely 的 stop_sending 规则必须真的在规则集里，并保持「只产观测、不产 finding」。
-        // 本窗口末帧（9.789s）距窗尾不足 2s 超时，规则正确落进 Unmodeled
-        // （没有可归因的停发段），所以不能拿「有 stop_sending 观测」当非空洞性守卫。
+        // Geely 的 stop_sending 规则必须真的在规则集里，并显式落在 Unmodeled。
+        // 本窗口末帧（9.789s）距窗尾不足 2s 超时，规则没有可归因的停发段，
+        // 所以「在规则集里」之外还应钉住它确实被标记为未求值，而不是静默消失。
         Assert.Contains(profile.StandardRules!, r => r.Id == "NM_STOP_SENDING");
-        Assert.DoesNotContain(report.Findings, f => f.RuleId == "NM_STOP_SENDING");
+        Assert.Contains(report.UnmodeledRules!, u => u.RuleId == "NM_STOP_SENDING");
+
+        // spec §4：静默后快发是 NM_03/NM_16（本地唤醒）的合规形态，不是 NM_02/NM_15 的违规。
+        // v1 无法区分唤醒源，所以这条规则必须保持 unobservable —— 一旦它在这里产出 finding，
+        // 说明有人把它改回了 partial，误报就会回到真实数据上。
+        Assert.DoesNotContain(report.Findings,
+            f => f.Code == "NM_NORMAL_RESUME_SHAPE_MISMATCH");
+        Assert.Contains(report.UnmodeledRules!, u => u.RuleId == "NM_RESUME_TO_RMS");
 
         // (2) 全网 NM 静默 > timeout：必须是 all_nm_silent 观测事实，
         //     不得降级成单报文 NM_SENDER_SILENT_BEYOND_TIMEOUT（spec §7.1.2）。
