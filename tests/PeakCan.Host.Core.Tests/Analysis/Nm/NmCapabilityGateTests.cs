@@ -26,7 +26,12 @@ public class NmCapabilityGateTests
         Array.Empty<string>(),
         new NmProvenance(),
         Layout: withLayout ? new NmLayout(0, 1, 2, 0) : null,
-        Features: withLayout ? new NmFeatures(PnEnabled: false) : null);
+        Features: withLayout ? new NmFeatures(PnEnabled: false) : null,
+        // 「完整 profile」必须声明 PNI 位角色：PnCheck 的判据现在包含角色存在性，
+        // 没有角色时 CheckCbv 不执行，能力矩阵也不应声称可用。
+        StandardBitRoles: withLayout
+            ? new[] { new NmBitRole(1, 6, "PartialNetworkInfo") }
+            : null);
 
     private static ReplayFrame[] Frames()
         => Enumerable.Range(0, 20)
