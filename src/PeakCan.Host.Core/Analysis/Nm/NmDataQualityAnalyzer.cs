@@ -20,15 +20,21 @@ public static class NmDataQualityAnalyzer
     /// <paramref name="frames"/> 必须是选择器过滤后的帧集（通道/窗口/RTR/错误帧），
     /// 不能传 <see cref="NmAnalysisRequest.Frames"/>：否则会把其它通道或窗口外的
     /// 帧 ID 报成未知，且时间区间会越出报告自身的窗口。
+    /// <para>
+    /// <paramref name="diagnostics"/> 是选择器对原始帧序的诊断：过滤后的帧集已按时间
+    /// 排序，<c>non_monotonic</c> 只能从这里拿到「原始顺序是否回退」及其位置（R48）。
+    /// </para>
     /// </summary>
     public static IReadOnlyList<NmDataQualityCheck> Analyze(
-        NmAnalysisRequest request, IReadOnlyList<ReplayFrame> frames)
+        NmAnalysisRequest request,
+        IReadOnlyList<ReplayFrame> frames,
+        NmSelectionDiagnostics diagnostics)
     {
         var checks = new List<NmDataQualityCheck>(4)
         {
             CheckUnknownId(request, frames),
             CheckDlcMismatch(request, frames),
-            CheckNonMonotonic(frames),
+            CheckNonMonotonic(request, frames, diagnostics),
             CheckNidMapping(request, frames),
         };
         return checks;
@@ -130,6 +136,7 @@ public static class NmDataQualityAnalyzer
 
         var wrongTimes = new List<double>();
         var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var compared = 0;
         foreach (var frame in frames)
         {
             var hex = "0x" + frame.Id.ToString("X", CultureInfo.InvariantCulture);
@@ -146,11 +153,21 @@ public static class NmDataQualityAnalyzer
             }
 
             // 没有声明 DLC 的 ID 属于 unknown_id 的判定范围，这里不臆造期望值。
-            if (declared is { } dlc && frame.Dlc != dlc)
+            if (declared is not { } dlc) continue;
+
+            compared++;
+            if (frame.Dlc != dlc)
             {
                 wrongTimes.Add(frame.Timestamp);
                 ids.Add(hex);
             }
+        }
+
+        // spec §9.2：一帧都没比对就报 Passed，与空帧集报通过是同一类假通过。
+        if (compared == 0)
+        {
+            return NotChecked(
+                "dlc_mismatch", "帧 ID 均未在 DBC 或 profile 中声明 DLC，没有可比对的帧");
         }
 
         return wrongTimes.Count == 0
@@ -167,11 +184,15 @@ public static class NmDataQualityAnalyzer
     /// <summary>
     /// spec §9.1：时间戳必须单调。非单调要报受影响区间，供上层剔除。
     /// <para>
-    /// 只按传入顺序比较：不排序、不依赖 <see cref="NmFrameSelector"/> 的回退标志（R44），
-    /// 否则本检查的结果会随调用方是否先行过滤而漂移。
+    /// 回退只能在 <see cref="NmFrameSelector"/> 过滤原始帧序时识别：传给本分析的
+    /// 帧集已按时间排序，再比较就永远单调。这里消费选择器的诊断（R48）——裸
+    /// <c>bool</c> 不带时间，故诊断补了第一处回退的位置，区间取回退点到窗口末端。
     /// </para>
     /// </summary>
-    private static NmDataQualityCheck CheckNonMonotonic(IReadOnlyList<ReplayFrame> frames)
+    private static NmDataQualityCheck CheckNonMonotonic(
+        NmAnalysisRequest request,
+        IReadOnlyList<ReplayFrame> frames,
+        NmSelectionDiagnostics diagnostics)
     {
         // spec §9.2：没有帧就没有可检查的对象——不能因为「循环没跑」而报通过。
         if (frames.Count == 0)
@@ -179,23 +200,18 @@ public static class NmDataQualityAnalyzer
             return NotChecked("non_monotonic", "窗口内没有可检查的帧，无法判定时间戳单调性");
         }
 
-        var regressions = new List<double>();
-        double? previous = null;
-        foreach (var frame in frames)
+        if (diagnostics.TimestampRegressionAt is not { } regressionAt)
         {
-            if (previous is { } p && frame.Timestamp < p) regressions.Add(frame.Timestamp);
-            previous = frame.Timestamp;
+            return new NmDataQualityCheck(
+                "non_monotonic", NmDataQualityStatus.Passed,
+                "原始帧序时间戳单调",
+                Array.Empty<NmTimeRange>(), Array.Empty<string>());
         }
 
-        return regressions.Count == 0
-            ? new NmDataQualityCheck(
-                "non_monotonic", NmDataQualityStatus.Passed,
-                "时间戳单调",
-                Array.Empty<NmTimeRange>(), Array.Empty<string>())
-            : new NmDataQualityCheck(
-                "non_monotonic", NmDataQualityStatus.Failed,
-                $"{regressions.Count} 处时间戳回退，相关区间结论不可靠",
-                [new NmTimeRange(regressions.Min(), regressions.Max())], Array.Empty<string>());
+        return new NmDataQualityCheck(
+            "non_monotonic", NmDataQualityStatus.Failed,
+            $"原始帧序在 {regressionAt.ToString("F3", CultureInfo.InvariantCulture)}s 处时间戳回退，此后区间结论不可靠",
+            [new NmTimeRange(regressionAt, request.End)], Array.Empty<string>());
     }
 
     /// <summary>
@@ -204,6 +220,11 @@ public static class NmDataQualityAnalyzer
     /// <para>
     /// 判据是 <c>nid_byte</c> 本身而非 <see cref="NmProfile.StandardRules"/>（R46）：
     /// 声明了 layout 但没声明规则的 profile 仍然可判 NID。
+    /// </para>
+    /// <para>
+    /// <b>前提（R49）</b>：本检查把<b>每一帧</b>都当作 NM 帧解释（应用报文的该字节没有
+    /// NID 语义）。因此声明 <c>nid_byte</c> 等于断言整个通道（本报告窗口内）都使用该布局；
+    /// 同一通道混有其它报文时，应用帧可能被误报。Detail 必须带此限定，不能给出无条件结论。
     /// </para>
     /// </summary>
     private static NmDataQualityCheck CheckNidMapping(
@@ -224,6 +245,7 @@ public static class NmDataQualityAnalyzer
         // spec §14.4：扩展帧 NID == CAN ID 低字节；标准帧 NID == ID - 0x400。
         var wrongTimes = new List<double>();
         var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var compared = 0;
         foreach (var frame in frames)
         {
             var data = frame.Data;
@@ -233,6 +255,7 @@ public static class NmDataQualityAnalyzer
             // 这类帧不得臆造期望值。
             if (!frame.IsExtended && frame.Id < 0x400) continue;
 
+            compared++;
             var expected = frame.IsExtended
                 ? (byte)(frame.Id & 0xFF)
                 : (byte)((frame.Id - 0x400) & 0xFF);
@@ -243,14 +266,22 @@ public static class NmDataQualityAnalyzer
             }
         }
 
+        // spec §9.2：一帧都没比对就报 Passed，与空帧集报通过是同一类假通过。
+        if (compared == 0)
+        {
+            return NotChecked(
+                "nid_mapping",
+                "所有帧都无法读取 NID（DLC 不足或标准帧 CAN ID < 0x400），没有可比对的帧");
+        }
+
         return wrongTimes.Count == 0
             ? new NmDataQualityCheck(
                 "nid_mapping", NmDataQualityStatus.Passed,
-                "NID 与 CAN ID 映射一致",
+                "NID 与 CAN ID 映射一致（按 layout.nid_byte 声明解释）",
                 Array.Empty<NmTimeRange>(), Array.Empty<string>())
             : new NmDataQualityCheck(
                 "nid_mapping", NmDataQualityStatus.Failed,
-                $"{wrongTimes.Count} 帧 NID 与 CAN ID 映射不一致",
+                $"{wrongTimes.Count} 帧 NID 与 CAN ID 映射不一致（按 layout.nid_byte 声明解释）",
                 [new NmTimeRange(wrongTimes.Min(), wrongTimes.Max())], ids.ToArray());
     }
 

@@ -46,7 +46,21 @@ public class NmFrameSelectorTests
         var selected = NmFrameSelector.Select(Request(frames), out var diag);
 
         Assert.True(diag.TimestampRegression);
+        // R48：spec §9.1 要的是受影响区间，诊断必须带上第一处回退的时间戳。
+        Assert.Equal(0.5, diag.TimestampRegressionAt);
         Assert.Equal(ExpectedTimestamps, selected.Select(f => f.Timestamp));
+    }
+
+    // R48：「没回退」与「没记录」必须可区分——单调输入的时间戳位置为 null。
+    [Fact]
+    public void Select_MonotonicTimestamps_HasNoRegressionTimestamp()
+    {
+        var frames = new[] { F(1.0, 0x100), F(2.0, 0x100) };
+
+        NmFrameSelector.Select(Request(frames), out var diag);
+
+        Assert.False(diag.TimestampRegression);
+        Assert.Null(diag.TimestampRegressionAt);
     }
 
     [Fact]

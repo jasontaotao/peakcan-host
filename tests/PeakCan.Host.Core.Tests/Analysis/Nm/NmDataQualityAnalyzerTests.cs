@@ -17,6 +17,10 @@ public class NmDataQualityAnalyzerTests
     private static readonly string[] AllCheckCodes =
         ["dlc_mismatch", "nid_mapping", "non_monotonic", "unknown_id"];
 
+    /// <summary>选择器无异常时的诊断；各检查不得因 nil 诊断而改变三态语义。</summary>
+    private static readonly NmSelectionDiagnostics NoSelectionIssues =
+        new(0, 0, 0, 0, 0, 0, TimestampRegression: false, MultiChannel: false);
+
     [Fact]
     public void UnknownId_FrameNotInProfile_IsFailed()
     {
@@ -113,32 +117,36 @@ public class NmDataQualityAnalyzerTests
             FrameAt(5.0, 0x18FFFB27, 0x27),
         };
 
-        var checks = NmDataQualityAnalyzer.Analyze(Request(all, profile), [all[0]]);
+        var checks = NmDataQualityAnalyzer.Analyze(
+            Request(all, profile), [all[0]], NoSelectionIssues);
 
         Assert.Equal(NmDataQualityStatus.Passed,
             Assert.Single(checks, c => c.Code == "unknown_id").Status);
     }
 
     // spec §9.1：时间戳非单调必须报区间，不能只报一个 bool。
+    // R48：过滤后的帧集已排序，回退只能来自选择器诊断；诊断要带第一处回退的位置。
     [Fact]
     public void NonMonotonic_ReportsAffectedRange()
     {
         var profile = Profile("0x18FFFAF4");
-        var frames = new[]
+        var frames = new[] { FrameAt(0.0, 0x18FFFAF4, 0xF4) };
+        var diagnostics = NoSelectionIssues with
         {
-            FrameAt(0.0, 0x18FFFAF4, 0xF4),
-            FrameAt(1.0, 0x18FFFAF4, 0xF4),
-            FrameAt(0.5, 0x18FFFAF4, 0xF4),   // 回退
-            FrameAt(1.5, 0x18FFFAF4, 0xF4),
+            TimestampRegression = true,
+            TimestampRegressionAt = 1.0,
         };
 
-        var checks = Run(frames, profile);
+        var checks = NmDataQualityAnalyzer.Analyze(
+            Request(frames, profile, end: 2.0), frames, diagnostics);
 
         var check = Assert.Single(checks, c => c.Code == "non_monotonic");
         Assert.Equal(NmDataQualityStatus.Failed, check.Status);
-        Assert.NotEmpty(check.Ranges);
-        // R44：Detail 要点出回退次数，用户才能区分一次回退与二十次。
-        Assert.Contains("1 处", check.Detail);
+        var range = Assert.Single(check.Ranges);
+        Assert.Equal(1.0, range.Start);
+        Assert.Equal(2.0, range.End);   // 回退点之后到窗口末端都不可靠
+        // Detail 要点出回退的位置，用户才能定位坏数据。
+        Assert.Contains("1.000s", check.Detail);
     }
 
     [Fact]
@@ -181,6 +189,21 @@ public class NmDataQualityAnalyzerTests
         var check = Assert.Single(checks, c => c.Code == "nid_mapping");
         Assert.Equal(NmDataQualityStatus.Failed, check.Status);
         Assert.Contains("0x18FFFAF4", check.AffectedCanIds);
+        // R49：结论必须带前提限定——应用帧的该字节没有 NID 语义。
+        Assert.Contains("layout.nid_byte", check.Detail);
+    }
+
+    // R49/Fix 2：所有帧都读不出 NID 时没有比对对象，不能报 Passed。
+    [Fact]
+    public void NidMapping_NoReadableFrames_IsNotChecked()
+    {
+        var profile = Profile("0x18FFFAF4");   // NidByte = 0
+        var frames = new[] { FrameAt(0.0, 0x18FFFAF4, 0xF4, dlc: 0) };   // 没有 byte0 可读
+
+        var checks = Run(frames, profile);
+
+        Assert.Equal(NmDataQualityStatus.NotChecked,
+            Assert.Single(checks, c => c.Code == "nid_mapping").Status);
     }
 
     // R45：DBC 存在时按 DBC 的 DLC 比对。
@@ -223,16 +246,17 @@ public class NmDataQualityAnalyzerTests
             Assert.Single(checks, c => c.Code == "dlc_mismatch").Status);
     }
 
-    // R45：两个来源都未声明 DLC 的帧不属于 DLC 检查（那是 unknown_id 的范围）。
+    // R45/Fix 2：两个来源都未声明 DLC 的帧不参与比对；一帧都没比对上时必须 NotChecked，
+    // 「没有比对对象」不等于「比对通过」。
     [Fact]
-    public void DlcMismatch_UndeclaredFrameId_IsSkipped()
+    public void DlcMismatch_NoFrameHasDeclaredDlc_IsNotChecked()
     {
         var profile = Profile("0x18FFFAF4");
         var frames = new[] { FrameAt(0.0, 0x18FFFB27, 0x27, dlc: 6) };
 
         var checks = Run(frames, profile, DbcWith(0x123));
 
-        Assert.Equal(NmDataQualityStatus.Passed,
+        Assert.Equal(NmDataQualityStatus.NotChecked,
             Assert.Single(checks, c => c.Code == "dlc_mismatch").Status);
     }
 
@@ -263,8 +287,9 @@ public class NmDataQualityAnalyzerTests
         Assert.All(checks, c => Assert.Equal(NmDataQualityStatus.NotChecked, c.Status));
     }
 
-    // R44/R46：三项新检查都只能看传进来的 frames，不能偷看 request.Frames。
-    // 被排除的帧若被扫到，会同时制造 DLC、NID、时间戳三类误报。
+    // R45/R46：dlc_mismatch 与 nid_mapping 只能看传进来的 frames，不能偷看 request.Frames；
+    // non_monotonic 改由选择器诊断驱动后不再比较帧序（无回退诊断即 Passed）。
+    // 被排除的帧若被扫到，会同时制造 DLC 与 NID 误报。
     [Fact]
     public void NewChecks_ScanOnlyProvidedFrames()
     {
@@ -275,23 +300,29 @@ public class NmDataQualityAnalyzerTests
             FrameAt(0.5, 0x18FFFAF4, 0x00, dlc: 6),
         };
 
-        var checks = NmDataQualityAnalyzer.Analyze(Request(all, profile), [all[0]]);
+        var checks = NmDataQualityAnalyzer.Analyze(
+            Request(all, profile), [all[0]], NoSelectionIssues);
 
         Assert.Equal(NmDataQualityStatus.Passed,
             Assert.Single(checks, c => c.Code == "dlc_mismatch").Status);
         Assert.Equal(NmDataQualityStatus.Passed,
             Assert.Single(checks, c => c.Code == "non_monotonic").Status);
-        Assert.Equal(NmDataQualityStatus.Passed,
-            Assert.Single(checks, c => c.Code == "nid_mapping").Status);
+        var nid = Assert.Single(checks, c => c.Code == "nid_mapping");
+        Assert.Equal(NmDataQualityStatus.Passed, nid.Status);
+        // R49：Passed 也必须带前提限定。
+        Assert.Contains("layout.nid_byte", nid.Detail);
     }
 
     private static IReadOnlyList<NmDataQualityCheck> Run(
-        ReplayFrame[] frames, NmProfile profile, DbcDocument? dbc = null)
-        => NmDataQualityAnalyzer.Analyze(Request(frames, profile, dbc), frames);
+        ReplayFrame[] frames, NmProfile profile, DbcDocument? dbc = null,
+        NmSelectionDiagnostics? diagnostics = null)
+        => NmDataQualityAnalyzer.Analyze(
+            Request(frames, profile, dbc), frames, diagnostics ?? NoSelectionIssues);
 
     private static NmAnalysisRequest Request(
-        ReplayFrame[] frames, NmProfile profile, DbcDocument? dbc = default)
-        => new("test", null, frames, dbc, profile, 0, 1.0);
+        ReplayFrame[] frames, NmProfile profile, DbcDocument? dbc = default,
+        double end = 1.0)
+        => new("test", null, frames, dbc, profile, 0, end);
 
     // declaresNidByte: false 时 profile 完全不声明 layout（Layout/StandardLayout 都为空），
     // 用于验证 NID 检查的判据确实是「能否解析出生效 nid_byte」。

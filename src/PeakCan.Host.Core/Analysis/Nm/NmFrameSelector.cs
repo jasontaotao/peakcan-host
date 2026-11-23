@@ -11,7 +11,10 @@ public sealed record NmSelectionDiagnostics(
     int ReceiveFrames,
     int DirectionUnknownFrames,
     bool TimestampRegression,
-    bool MultiChannel);
+    bool MultiChannel,
+    // 第一处时间戳回退的位置。spec §9.1 要求体检报告受影响区间，bool 装不下；
+    // 只在 TimestampRegression 为 true 时非 null。
+    double? TimestampRegressionAt = null);
 
 /// <summary>
 /// 把原始帧归一到"可分析的 NM 输入"：单通道、窗口内、时间升序、去掉错误帧与 RTR。
@@ -34,6 +37,7 @@ public static class NmFrameSelector
 
         var filtered = new List<ReplayFrame>(frames.Count);
         bool regression = false;
+        double? firstRegressionAt = null;
         double previous = double.NegativeInfinity;
         int errors = 0, rtr = 0, tx = 0, rx = 0, unknown = 0, dropped = 0;
 
@@ -43,7 +47,12 @@ public static class NmFrameSelector
             if (frame.Timestamp < request.Start || frame.Timestamp >= request.End) { dropped++; continue; }
             if ((frame.Flags & FrameFlags.ErrFrame) != 0) { errors++; continue; }
             if ((frame.Flags & FrameFlags.Rtr) != 0) { rtr++; continue; }
-            if (frame.Timestamp < previous) regression = true;
+            if (frame.Timestamp < previous)
+            {
+                regression = true;
+                // 只记第一处：体检报告的是「从哪开始不可靠」，不是回退次数。
+                firstRegressionAt ??= frame.Timestamp;
+            }
             previous = frame.Timestamp;
             if (frame.IsTransmit == true) tx++;
             else if (frame.IsTransmit == false) rx++;
@@ -53,7 +62,7 @@ public static class NmFrameSelector
 
         filtered.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
         diagnostics = new NmSelectionDiagnostics(
-            errors, rtr, dropped, tx, rx, unknown, regression, false);
+            errors, rtr, dropped, tx, rx, unknown, regression, false, firstRegressionAt);
         return filtered;
     }
 }

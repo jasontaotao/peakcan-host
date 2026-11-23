@@ -88,7 +88,7 @@ public static class NmAnalyzer
 
         // spec §9：数据体检在规则求值之前跑。体检不阻断分析，只标注。
         // 传选择器过滤后的帧集：其它通道/窗口外的帧不属于本报告。
-        var dataQuality = NmDataQualityAnalyzer.Analyze(request, selected);
+        var dataQuality = NmDataQualityAnalyzer.Analyze(request, selected, diagnostics);
 
         var findings = new List<NmFinding>();
         var events = new List<NmEvent>();
