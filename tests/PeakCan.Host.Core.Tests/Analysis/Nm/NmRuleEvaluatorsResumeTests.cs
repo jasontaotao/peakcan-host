@@ -99,9 +99,21 @@ public class NmRuleEvaluatorsResumeTests
 
         var result = EvaluateStopSending(frames.ToArray());
 
+        // 零 finding 是**结构性**保证：StopSending 的签名根本不接收 findings 列表，
+        // 此断言只防未来把列表接进来，不构成行为覆盖。
         Assert.Empty(result.Findings);
-        Assert.NotEmpty(result.Observations);
-        Assert.Contains(result.Observations, o => o.Kind == "stop_sending");
+
+        var aStop = Assert.Single(result.Observations,
+            o => o.Kind == "stop_sending" && o.CanIdHex == "0x18FFFAF4");
+        // 末帧 NMSts=1 → 合规释放：这是实测事实，不是推断。
+        // 若 lastFrameInReadySleep 没被传（brief 的原始缺陷），归因会退回
+        // SilentWithOtherNmActive，此断言即变红。
+        Assert.False(aStop.IsInference);
+        Assert.Equal("measured", aStop.EvidenceKind);
+
+        // B 发送到 8.0s、窗口到 9.0s（间隔 < 超时）：B 从未停发，不应有停发观察。
+        Assert.DoesNotContain(result.Observations,
+            o => o.Kind == "stop_sending" && o.CanIdHex == "0x18FFFAF5");
     }
 
     private readonly record struct Outcome(
@@ -202,5 +214,6 @@ public class NmRuleEvaluatorsResumeTests
             [new NmNodeDef("A", StationAddress: 0xF4, IsNmNode: true)],
             Array.Empty<NmConfigConflict>(), Array.Empty<string>(), new NmProvenance(),
             Layout: new NmLayout(NidByte: 0, CbvByte: 1),
-            Features: new NmFeatures(PnEnabled: false));
+            Features: new NmFeatures(PnEnabled: false),
+            StandardBitRoles: [new NmBitRole(3, 0, "NmSts")]);
 }
