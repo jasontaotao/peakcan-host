@@ -1,10 +1,10 @@
-# NM M2：企标包与语义层设计（Rev 4）
+# NM M2：企标包与语义层设计（Rev 5）
 
-- 日期：2026-11-23（Rev 4，第三轮对抗式评审后修正）
-- 状态：设计（待评审）
+- 日期：2026-11-23（Rev 5，S1–S3 与 S4 部分实施后的回溯对齐）
+- 状态：设计（Rev 5 待评审）
 - 上游：`2026-11-19-nm-ai-analysis-design.md`（M1，已交付）、§6.5 企标包、§14.2 M2 分期
 - 首批企标输入：`02 _ 吉利商用车CAN网络管理需求规范_V2.0_20250227.pdf`（「吉利规范」）
-- 修正历史见 §16（Rev 2→3）、§17（Rev 3→4）、§18（Rev 1→2）
+- 修正历史见 §16（Rev 2→3）、§17（Rev 3→4）、§18（Rev 1→2）、§19（Rev 4→5）
 
 ## 1. 目标与边界
 
@@ -103,21 +103,21 @@
 | 条款 | 内容 | 级别 | 原语 | finding / 说明 |
 |---|---|---|---|---|
 | NM_01 | KL30 上电初始化 → 睡眠 | U | — | 不可观测 |
-| NM_02 | 睡眠 + 远程唤醒 → RMS 正常发送 | P | `resume_after_silence` | 可观测「静默后以正常周期恢复」，唤醒源未知 |
-| NM_03 | 睡眠 + 本地唤醒 → 快速发送 + AWB=1 | P | `burst_shape` + `bit_set` | 快发形态可验；AWB 值可验；唤醒源不可验 |
+| NM_02 | 睡眠 + 远程唤醒 → RMS 正常发送 | P | `normal_resume_shape` | 可观测「静默后以正常周期恢复」，唤醒源未知 |
+| NM_03 | 睡眠 + 本地唤醒 → 快速发送 + AWB=1 | P | `burst_shape` + `bit_rule`（`is_one`） | 快发形态可验；AWB 值可验；唤醒源不可验。**v1 只实现快发形态**：`bit_rule` 仅支持 `is_zero`，AWB=1 需 `is_one` + wakeup 作用域，未实现 |
 | NM_04 | 计数器到 0 → 正常发送子状态 | O | `burst_shape` | 快发段结束、间隔回到正常周期 |
 | NM_05 | RMS 下 T_NM_TIMEOUT 超时 → 状态不变、定时器重置 | U | — | **内部定时器不可观测** |
-| NM_06 | RMS T_REPEAT_MESSAGE 超时 → NOS | P | `nmsts_transition` | 靠 NMSts 位观测，需 NMSts 已配置 |
+| NM_06 | RMS T_REPEAT_MESSAGE 超时 → NOS | P | `repeat_message_duration`（内部读 NMSts 作锚点） | NMSts 不是独立规则，是 `repeat_message_duration` 内部通过 `FindNmstsRole` 读取的锚点（§7.2）。双区间拆成 `with_burst=true/false` 两条规则 |
 | NM_07 | NOS + 重复报文请求 → RMS 快速/正常 | U（跳转） | — | 规范明确「跳转逻辑均不开发」；**但 RMR 位取值本身是 O**（§5.4.3） |
 | NM_08 | NOS 下 T_NM_TIMEOUT 超时 | U | — | 内部定时器不可观测 |
 | NM_09 | NOS 满足睡眠条件 → RSS 停发 | P | `stop_sending` | 停发可观测；「满足睡眠条件」不可观测 |
-| NM_10 | RSS + 本地唤醒 → NOS | P | `resume_after_silence` | 同上 |
+| NM_10 | RSS + 本地唤醒 → NOS | P | `normal_resume_shape` | 恢复后目标是 **NOS（NMSts=1）**，与 NM_02/15 的 RMS（NMSts=0）不同。用 `expect_nmsts=1` 区分（§7.2） |
 | NM_11 | RSS + 重复报文请求 → RMS | U（跳转） | — | 同 NM_07 |
 | NM_12 | RMS 超时 + 睡眠条件 → RSS | P | `stop_sending` | 同 NM_09 |
 | NM_13 | RSS + T_NM_TIMEOUT 超时 → 预睡眠 | U | — | 内部定时器 |
 | NM_14 | 成功收发一帧 → T_NM_TIMEOUT 重置 | U | — | 内部定时器 |
-| NM_15 | 预睡眠 + 远程唤醒 → RMS 正常发送 | P | `resume_after_silence` | 同 NM_02 |
-| NM_16 | 预睡眠 + 本地唤醒 → RMS 快速发送 | P | `burst_shape` | 同 NM_03 |
+| NM_15 | 预睡眠 + 远程唤醒 → RMS 正常发送 | P | `normal_resume_shape` | 同 NM_02 |
+| NM_16 | 预睡眠 + 本地唤醒 → RMS 快速发送 | P | `burst_shape` + `bit_rule`（`is_one`） | 同 NM_03（AWB 半边同样未实现） |
 | NM_17 | 预睡眠 + T_WAIT_BUS_SLEEP 超时 → 睡眠 | U | — | 内部定时器 |
 | §5.4.1 | 报文布局、ID 范围 | O | `layout_check` | `NM_LAYOUT_VIOLATION` |
 | §5.4.2 | NID = ID 映射（扩展帧低字节 / 标准帧 ID−0x400） | O | `nid_id_mapping` | `NM_NID_MISMATCH` |
@@ -133,6 +133,62 @@
 | 附录 A | 网关跨网段协同 | U | — | 需多通道 + 拓扑，M3 |
 
 **`Unmodeled` 清单必须出现在报告与面板中**，AI 不得对未建模条款给结论。
+
+### 4.0 规则 ID 与条款号是两个不同的东西（Rev 5 明确）
+
+§4 表里多条条款共用一个原语、同一份证据：
+
+| 原语 | 覆盖条款 |
+|---|---|
+| `normal_resume_shape` | NM_02 / NM_10 / NM_15 |
+| `burst_shape` | NM_03 / NM_04 / NM_16 |
+| `stop_sending` | NM_09 / NM_12 |
+
+因此**不能用条款号当规则 ID**——那会为同一份判据造出多条重复规则，同一条 finding 报多遍。
+
+**约定**：
+
+- **规则 ID 是描述性的**（`NM_BURST_SHAPE` / `NM_RESUME_NORMAL` / `NM_STOP_SENDING` / `NM_NID_MAPPING` / `NM_RMR` / `NM_RMS_DURATION_BURST` / `NM_RMS_DURATION_NOBURST` / …），只用于定位规则、不承担条款语义。
+- **条款号由规则上的 `clauses` 字段显式声明**（见 §5.3），一条规则可挂多条条款。
+- **finding 的条款号是列表，不是单值**（见下）。
+
+**为什么必须是列表**：`burst_shape` 覆盖 NM_03 / NM_04 / NM_16。若 finding 只带一个 `RequirementId`，就必须挑一条当「主条款」——但 `NmBurstDetector` 只观测「10 帧 × 20ms」形态，**分不出是睡眠唤醒、预睡眠唤醒还是计数器归零**（唤醒源不可观测，§3）。挑 NM_03 等于断言「这是睡眠 + 本地唤醒」，证据不支持。
+
+这不是「丢信息」，是**造假归因**。而且「无 finding」会被 AI 读成「NM_04/16 通过」——正是 §3 最忌讳的静默通过。
+
+因此 `NmFinding` 新增 `IReadOnlyList<string> Clauses`，新代码一律读 `Clauses`。
+
+**`RequirementId` 的兼容策略：不能用 `Clauses[0]`。** 列表顺序一变（比如 YAML 里重排 `clauses:`），旧字段就换了一个条款——缓存、报告、断言全部漂移，而这是一次「无害重排」引发的。Rev 5 决定：
+
+- `RequirementId` **标记为已弃用**，新报告不填。
+- 若必须保留一段时间，取值规则必须是**确定性**的（如按 ordinal 排序后的第一个），不能依赖声明顺序。
+- 消费方（`GetNmOverviewTool`）改用 `Clauses`。
+
+**值域必须先定（Rev 5 未闭合，见 §19.5）**
+
+`rule.clauses` 里存什么，有两种互斥选择，**必须二选一并在全文统一**：
+
+| 方案 | 值示例 | 优点 | 缺点 |
+|---|---|---|---|
+| A. 存复合 `Id` | `GEELY:§5.5/cycle` | 唯一、可继承、跨文档不撞 | 冗长；报告与 AI 看到的是长串，需额外映射回 `Clause` 展示 |
+| B. 存裸 `Clause` | `§5.5` | 简洁、直接可展示 | **撞键**：§4 表里 `§5.5` 出现 4 次、`§5.4.4` 出现 2 次，无法定位到具体行 |
+
+**Rev 5 倾向方案 A**（唯一性优先），但**本节暂不锁定**——因为下游展示链路未定义，锁了会制造返工。
+
+**四条契约测试（在值域确定前，其中两条必然空转）**：
+
+| 检查 | 做法 | 现状 |
+|---|---|---|
+| 形状合法 | 锚定正则。方案 A 用 `\A[A-Z]+:...\z`，方案 B 用 `\ANM_\d{2}\z` 等 | **取决于值域选择** |
+| 成员资格 | 每个条款引用必须存在于目录，加载期报错 | 需先打通展平链路（`Flattened` 无 `Clauses`，见 §19.4） |
+| 完整性 | 每条 OEM 规则的 `Clauses` 非空 | 需先能区分 OEM/base（当前只能靠 `Extends == null`，会误判） |
+| 不得是规则 ID | 断言引用项 ≠ 任何规则 ID | **方案 A 下恒真**（复合 Id 与裸规则名永不相等）→ 空转 |
+
+**必须承认的局限（Rev 5）**：这四条能挡住「引用了不存在的条款」，**挡不住「引用了存在但语义错误的条款」**。仓库里已有活反例——`geely-cv@2.0.nmstd.yaml` 的 `NM_09` 写 `source_ref: §5.9`，但 §4 表里 §5.9 是「诊断报文不唤醒」（U 级、M3），NM_09 是「RSS 停发」。四条检查没有一条能发现它。
+
+**要挡住语义错挂，只能靠人工 review 或 CI 解析 §4 表做双向对照**（§11.1 的「追溯矩阵完整」，目前不存在）。不要宣称这四条测试提供了语义正确性保证。
+
+**当前已是 active bug（不是未来风险）**：`NM_01` 规则实际是 §5.4.2 NID 映射、`NM_05` 规则实际是 §5.4.3 RMR 位——而 spec §4 里 `NM_01` 是 KL30 初始化、`NM_05` 是 T_NM_TIMEOUT，**两者都是 U 级不可观测**。今天的报告会给一个「不可观测条款」发 NID finding。
 
 ### 4.1 关键修正：单节点静默不是违规
 
@@ -299,47 +355,125 @@ public static class NmTimingDefaults
 
 ### 5.3 规则
 
+**本节代码块与 `NmStandardProfile.cs` 实际定义一致（Rev 5 契约对齐）**。此前 Rev 4 的草案把 `Observability` 写成第 4 个位置参数、把 `Phase`/`SourceRef` 位置错排，按草案实施会重排全部 34 个构造点。
+
 ```csharp
 /// <summary>一条企标规则。</summary>
 public sealed record NmRuleDef(
-    string Id,
+    string Id,                           // 描述性规则名，不是条款号（§4.0）
     string Requirement,                  // 本地完整条款文本
-    string Phase,                        // wakeup | normal | sleep
-    NmObservability Observability,       // O | P | U
+    string Phase,                        // wakeup | normal | sleep（**不驱动求值作用域**，见下）
     NmRuleWhen When,
     NmRuleExpect Expect,
-    string FindingCode,
-    string? SourceRef = null);
+    string FindingCode)
+{
+    public string? SourceRef { get; init; }
+    public NmObservability Observability { get; init; } = NmObservability.Observed;
 
-/// <summary>条件与期望共用同一套 field selector。</summary>
-public sealed record NmFieldSelector(
-    byte Byte,
-    int Bit = -1,        // -1 = 整个字节
-    int Length = 8);     // 位宽；Bit>=0 时有效
+    // Rev 5 新增。见 §4.0。
+    // 值域：条款目录的 NmClauseDef.Id（复合键，含文档前缀）。
+    // OEM profile 必填非空；base profile 允许为空（其条款不在 OEM 命名空间内）。
+    // 用 required init 属性而非位置参数：不改变现有 6 个位置参数的顺序，
+    // 34 个构造点全部编译失败并给出清晰错误（这是刻意的摩擦，不静默漏填）。
+    public required IReadOnlyList<string> Clauses { get; init; }
+}
 ```
+
+**`Phase` 的现状与裁决（Rev 5 收紧）**：引擎**全窗口求值所有规则**，`phase` 不驱动作用域——`NmStandardProfile.cs` 的 `NmRulePhases` 注释已写明「spec 未定义按阶段过滤的语义」。校验器只拒绝拼错的值。
+
+**光加警告不够。** `phase` 是每条规则的必填字段，YAML 里写 `phase: wakeup` 的用户自然会认为作用域生效；而它会让 S4/S5 的抑制与覆盖统计出错（一条 `phase: sleep` 的规则在全窗口跑，产出的 finding 会被归到错误的阶段）。
+
+**Rev 5 裁决：采用方案 B（改名 + 标注）。**
+
+| 项 | 决定 |
+|---|---|
+| C# 属性 | `Phase` → `DeclaredPhase`（编译器强制 34 个构造点更新，不静默漏改） |
+| YAML 首选键 | `declared_phase` |
+| YAML 兼容键 | `phase` 仍接受，但加载期产一条 assumption：「`phase` 已改名 `declared_phase`，且该字段不驱动求值作用域」 |
+| 报告 | `NmReport.Assumptions` 固定输出一条：「规则 phase 为声明性元数据，引擎全窗口求值」——只要选中的 profile 有非 `normal` 的 `DeclaredPhase` |
+| 语义 | 仅展示与筛选，**不参与求值作用域** |
+
+**为什么不选 A（删字段）**：现有 profile 已用 `phase: wakeup` / `sleep` 表达设计意图，删掉会丢信息；且删字段的破坏面与改名相同，收益更小。
+
+**为什么不选 C（实现作用域）**：spec 从未定义 `wakeup`/`normal`/`sleep` 的时间范围与切换条件。凭空实现等于发明规范，会让现有报告结论变化。
+
+**改名而不是只加警告**：fable 评审指出「必填字段却不生效，警告不够」——用户看到 `phase: wakeup` 会认为作用域有效。名字本身必须诚实。
+
+**连带影响**：`expect_nmsts`（§7.2）也受此限制——只在「静默恢复后」检查 NMSts，不等于已限定「正确的 wakeup 状态」。NM_10 的完整语义需要作用域，本轮无法闭合。
+
+**`NmFieldSelector` 在 Core 中不存在**（Rev 5 契约对齐）：实际用的是 `NmRuleWhen` 的 `Byte`/`Bit`/`Length` 字段。Rev 4 草案里的 `NmFieldSelector` 是未落地的设计，删除。
 
 参数用结构化 record 而非字符串字典：YAML 加载时由 YamlDotNet 直接转数值，类型错误在加载期暴露，不推迟到自定义校验器。
 
 ### 5.4 标准 profile 文件模型
 
+**本节代码块与 `NmStandardProfile.cs` 实际定义一致（Rev 5 契约对齐）**。此前 Rev 4 的草案写的是 `Patch` / `NmMessageDef` / `NmNodeDef` / `NmContentField` / `NmExceptionDef`——前三个与实现不符，后两个**在 Core 中根本不存在**。
+
 ```csharp
-public sealed record NmStandardProfile(
-    string StandardId,
-    string? Vendor = null,
-    string Version = "1.0",
-    string? Extends = null,
-    NmStandardSource? Source = null,
-    // 三态 patch（见 §6.2）：承载 Timings/Layout/Features/BitRoles 的覆盖与删除
-    NmStandardPatch? Patch = null,
-    // 完整值（非 patch 模式时使用；与 Patch 二选一）
-    NmStandardTimings? Timings = null,
-    NmStandardLayout? Layout = null,
-    NmStandardFeatures? Features = null,
-    IReadOnlyList<NmMessageDef>? Messages = null,
-    IReadOnlyList<NmNodeDef>? Nodes = null,
-    IReadOnlyList<NmRuleDef>? Rules = null,
-    IReadOnlyList<NmContentField>? Content = null,
-    IReadOnlyList<NmExceptionDef>? Exceptions = null);
+public sealed record NmStandardProfile
+{
+    public required string StandardId { get; init; }
+    public string? Vendor { get; init; }
+    public string Version { get; init; } = "1.0";
+    public string? Extends { get; init; }
+    public NmStandardSource? Source { get; init; }
+    // 三态 patch 的实际承载者（见 §6.2）。Rev 4 草案叫 Patch，实现叫 Overrides。
+    public NmStandardOverrides? Overrides { get; init; }
+    public IReadOnlyList<NmStandardMessage>? Messages { get; init; }
+    public IReadOnlyList<NmStandardNode>? Nodes { get; init; }
+    public IReadOnlyList<NmRuleDef>? Rules { get; init; }
+
+    // Rev 5 新增：条款目录。见 §4.0 / §5.5。
+    public IReadOnlyList<NmClauseDef>? Clauses { get; init; }
+
+    // 便利访问器：绝大多数调用方只关心展平后的值，不需要知道它们在 Overrides 下。
+    public NmStandardTimings? Timings => Overrides?.Timings;
+    public NmStandardLayout? Layout => Overrides?.Layout;
+    public NmStandardFeatures? Features => Overrides?.Features;
+}
+```
+
+**`content` / `exceptions` 两段在实现中不存在**（Rev 5 契约对齐）。Rev 4 的 §11 边界表说它们「可选段，暂不解析，S3 补解析」——实际从未落地，Core 里没有 `NmContentField` / `NmExceptionDef` 类型。Rev 5 明确：**它们是未实现的设计，不是「暂缓解析的可选段」**。若将来要加，需先定义类型与语义。
+
+**`NmStandardOverrides`（实现中的三态 patch 承载者）**：
+
+```csharp
+public sealed record NmStandardOverrides
+{
+    public NmStandardTimings? Timings { get; init; }
+    public NmStandardLayout? Layout { get; init; }
+    public NmStandardFeatures? Features { get; init; }
+
+    /// <summary>要显式删除的父级项。支持 bit_roles[byte.bit] / rules[id] / messages[id] / nodes[name]。</summary>
+    public IReadOnlyList<string>? Remove { get; init; }
+}
+```
+
+**`ApplyRemove` 的既有缺陷（Rev 5 记录）**：`rules.Remove(key)` 不检查 key 是否存在（`NmStandardFlattener.cs:107-109`），笔误或规则重命名后旧 `remove:` 静默变 no-op。`messages` / `nodes` / `bit_roles` 同理。规则重命名（§19 修订 #14）会放大这个缺陷，必须同批修为「remove 不存在的 key 报错」。
+
+/// <summary>
+/// 条款目录的一条（Rev 5）。数据驱动而非代码硬编码——换一家车企换一份 profile，
+/// 不换一行代码（§1.1 目标 1）。
+/// <para>
+/// <b>ID 必须是文档内唯一键</b>：§4 表里 `§5.5` 出现 4 次（周期/快发/首帧/T_REPEAT）、
+/// `§5.4.4` 出现 2 次（NMSts 位 / 用户数据业务含义）。若直接用节号当键，
+/// 要么撞键、要么合并成一行导致覆盖状态失真。
+/// </para>
+/// <para>
+/// 且 base 与 OEM 的条款不在同一命名空间：base 的 `source_ref` 是
+/// 「AUTOSAR SWS CanNm 4.1.3 §9」，OEM 是「§5.x」。没有文档维度会把 AUTOSAR §9
+/// 误读成吉利 §9。
+/// </para>
+/// </summary>
+public sealed record NmClauseDef(
+    // 复合唯一键：<文档>:<节号>[/<细分>]，如 GEELY:§5.5/cycle、AUTOSAR:§9。
+    string Id,
+    // 面向人的条款号（AI 与报告展示用）：NM_02 / §5.5 / 附录A。
+    // 可重复（§5.5 有 4 条），因此**不能**当字典键。
+    string Clause,
+    NmObservability Level,               // O | P | U
+    string Requirement,                  // 条款原文摘要
+    string? SourceRef = null);
 
 /// <summary>YAML 中的 timing 段，字段可空以表达「未覆盖」。</summary>
 public sealed record NmStandardTimings(
@@ -366,19 +500,89 @@ public sealed record NmStandardFeatures(
     bool? ActiveWakeupBitEnabled = null,
     bool? RepeatMsgIndEnabled = null,
     bool? PnEnabled = null);
-
-/// <summary>三态 patch：set 覆盖、remove 删除，未出现则继承。</summary>
-public sealed record NmStandardPatch(
-    NmStandardPatchSet? Set = null,
-    IReadOnlyList<string>? Remove = null);
-
-public sealed record NmStandardPatchSet(
-    NmStandardTimings? Timings = null,
-    NmStandardLayout? Layout = null,
-    NmStandardFeatures? Features = null);
 ```
 
+**Rev 4 草案里的 `NmStandardPatch` / `NmStandardPatchSet` 在实现中不存在**——实际用的是 `NmStandardOverrides`（见上）。删掉，避免实施者按不存在的类型写代码。
+
 **展平后的输出**：`NmStandardProfile`（含继承链）→ `NmProfile`（现有类型）+ `NmGlobalTiming`（§5.2）。`NmGlobalTiming` 不是独立存储，是展平产物的派生物。
+
+**条款目录的消费规则（Rev 5 重做）**
+
+> **⚠ 前置依赖未满足：本节的覆盖模型当前不可实现。**
+>
+> 三态覆盖要求引擎输出**逐规则状态**（`EvaluatedNoFinding` 等），而现有 `NmRuleResult` 只有四个聚合列表，合规规则不产任何输出（见 §7.1.1）。在 `NmRuleEvaluation` 落地之前，本节只能作为设计意图，不能作为实施依据。
+>
+> 同样未定的还有：`rule.clauses` 存复合 `Id` 还是裸 `Clause`（两者在 §4.0 的正则与 §5.3 的注释里不一致）、条款目录在 `Flattened`/`ApplyRemove`/`Bind`/`NmProfile`/hash 五处的链路（均未打通）。
+>
+> **Rev 5 决定**：本节保留为设计目标，**S5 实施不以本节为准**；待 §7.1.1 的逐规则状态落地后再回来补。见 §19.4。
+
+「覆盖」必须是**三态**而非布尔——「求值成功」不等于「这条 trace 上验证了」：
+
+| 状态 | 判据 | 进 `UnmodeledRules` |
+|---|---|---|
+| `Covered` | 有规则覆盖该条款，且其 verdict 为 `Pass` 或 `Violation`（**不是「产出了证据」**） | 否 |
+| `Partial` | 规则 verdict 为 `Indeterminate`（样本不足/截断/缺配置），且无其它适用结果 | **是**，原因码 `partial_evidence` |
+| `NotCovered` | 没有任何规则覆盖该条款 | **是**，原因码 `uncovered` |
+
+**`Covered` 的判据不能写成「产出了 finding 或 observation」**：合规规则**零输出**——`BitRule` / `NidIdMapping` / `LayoutCheck` / `CycleTolerance` / `BurstShape` 在合法场景下都是 `return true` 就结束，既不产 finding 也不产 observation。按「有输出才算覆盖」的定义，**真实合规且充分求值的规则反而永远不是 Covered**。
+
+所以覆盖必须由 §7.1.1 的**逐规则 verdict**（`Pass` / `Violation` / `NotApplicable` / `Indeterminate`）判定，不能从「findings/observations 是否非空」反推。observation 只能作为证据补充，不能替代 verdict。
+
+**这也是本节标「不可实施」的原因**——见本节开头的警告与 §19.5。
+
+**必须处理的七种情形（Rev 4 的五情形表漏了全部七种）**：
+
+| # | 情形 | 状态 | 说明 |
+|---|---|---|---|
+| 1 | 规则成功且产 finding/observation | `Covered` | 正常 |
+| 2 | 规则**部分**成功：某些报文样本不足 | `Partial` | `RepeatMessageDuration` 按报文收集 `reasons`，会同时产 finding 和 Unmodeled。**同一条规则既覆盖又未覆盖** |
+| 3 | 规则返回 success 但产 `*_not_applicable` 观测 | **不参与聚合**（`NotApplicable`） | `with_burst` 不匹配时走这条路径。它既不是「覆盖」也不是「未覆盖」——是「本条 trace 上这条规则不适用」 |
+| 4 | 同一条款被多条规则覆盖，结果不同 | 见下方聚合规则 | **不能简单「取最差」**，见下 |
+| 5 | 目录标 `level: U`，但有规则覆盖它 | `NotCovered` + `ReasonCode = unobservable` | U 级条款无论如何不产 finding（§3）。**原因码必须是 `unobservable` 不是 `uncovered`**——两者在 §9.4 是不同码。同时加载期应拒绝「O/P 级规则挂 U 级条款」 |
+| 6 | `rule.clauses` 引用了目录中不存在的 ID | **加载期报错** | 静默丢弃会让 finding 带一个查不到的条款号 |
+| 7 | profile 声明了规则但完全没有 `clauses:` 段 | **加载期报错**（不是警告） | 有规则却无目录 = 所有条款都无法归因，核心特性完全失效。只有纯 base 或显式 opt-out 才允许缺目录 |
+
+**多规则聚合规则（Rev 5 修正「取最差」）**
+
+「取最差」是错的，而且错在主路径上：吉利的 `NM_06` / `NM_06_NOBURST` 是一对 `with_burst` 变体，**每条 trace 必然有一条 `not_applicable`**。若它参与最差聚合，加上「finding 也算 Covered」，真实违规会被稳定判成 `Partial`——§14.6 要求检出的两段真实 RMS 违规会全部降级。
+
+正确聚合：
+
+1. **先剔除 `NotApplicable`**——它不代表任何验证结论。
+2. 剩余结果里：
+   - 有任一 `Violation` 或 `Pass` → 该条款至少被验证过，可判 `Covered`（finding 仍照常产出）。
+   - 只有 `Indeterminate`（样本不足/截断/缺配置），且无 `Pass`/`Violation` → `Partial`。
+   - 剔除后**为空**（全部 `NotApplicable`）→ `Partial`，原因 `all_rules_not_applicable`。
+3. 只有**零条规则覆盖**才是 `NotCovered`。
+
+**对「一条 Covered、一条 NotCovered」**：若两者确实适用于同一作用域，判 `Partial`（部分已验证），不判 `NotCovered`——`NotCovered` 的定义是「没有任何规则覆盖」。
+
+**继承与删除语义（Rev 4 未定义）**：
+
+- 子 profile `remove: rules[<id>]` 删掉父规则后，父的条款目录仍在 → 该条款变 `NotCovered`。这是正确行为，但**必须可区分于「从未声明」**，故 `NotCovered` 的原因码要写明「规则已被 remove」。
+- `ApplyRemove` 当前对不存在的 key **静默无效**（`rules.Remove(key)` 无返回值检查）。规则重命名后旧的 `remove:` 会变成 no-op。**必须改为：remove 的 key 不存在时报错**——这是独立于本设计的既有缺陷，但规则重命名会放大它。
+- 条款目录本身支持 `remove: clauses[<id>]`，语义同 rules。
+
+**注意（含一个实现阻碍）**：U 级条款不必在 profile 的 `rules:` 里造一条不产 finding 的假规则——只在 `clauses:` 目录里声明 `level: U` 即可。
+
+**但这在当前代码里行不通**：`NmAnalyzer.cs:352` 的门是 `if (request.Profile.StandardRules is { Count: > 0 })`——**只有 `clauses:` 目录、没有 `rules:` 的 profile 根本不会调用规则引擎**，U 级条款永远进不了 `UnmodeledRules`。
+
+修法：把门改成 `StandardRules.Count > 0 || StandardClauses.Count > 0`，且引擎在「无规则但有目录」时仍要输出目录中未覆盖的条款。这与 §19.5「条款目录全链路未打通」是同一批改动。
+
+**base profile 的条款归属（Rev 5 修正判据）**：base 的 `NM_CYCLE` 规则没有吉利条款可填（它是 `AUTOSAR SWS CanNm 4.1.3 §9`）。
+
+**不能用 `Extends == null` 区分 base/OEM**——一个不继承任何东西的独立 OEM profile 会被误判成 base。当前 `NmStandardProfile` 只有 `StandardId`/`Vendor`/`Extends`，没有类型标志。
+
+**正确判据是按规则的实际归因**，不按 profile 类型：
+
+| 规则情形 | 处理 |
+|---|---|
+| `Clauses` 非空 | 每项必须在目录中解析，否则加载期报错 |
+| `Clauses` 为空 | 该规则**不参与条款覆盖统计**（既不是 Covered 也不是 NotCovered） |
+
+若产品上要求「OEM 规则必须全部可归因」，就加显式字段 `kind: base|oem`，**不要从 `Extends` 推断**。
+
+**`Clauses` 的必填性**：`required` 只保证构造时赋值，不保证非空。非空约束由加载期校验器执行，且按上述「按归因」而非「按类型」判定。
 
 ## 6. 三层继承与展平
 
@@ -403,24 +607,28 @@ Rev 1 的「所有差异都记冲突」会让正常 overlay 全是冲突。
 
 **三态语义不能建在最终 record 的可空属性上**：YamlDotNet 反序列化时「字段缺失」与「显式 null」对可空属性都会得到 `null`，展平阶段无法区分继承还是删除。
 
-必须用**显式 patch DTO**：
+**实现采用的形态（Rev 5 契约对齐）**：自然 YAML 结构 + `overrides.remove` 列表，**不用 `patch:` 块**。Rev 4 的 `patch: { set: ..., remove: ... }` 草案从未落地。
 
 ```yaml
-# 方式 A：显式 set/remove 块
-patch:
-  set:
-    features: { pn_enabled: false }
+overrides:
+  timings:
+    cycle_ms: 500          # 出现 = 覆盖
+  layout:
+    bit_roles:
+      - { byte: 3, bit: 0, name: NmSts, constraint: none }
   remove:
-    - bit_roles[6]        # 删除 base 的 PNI 位
+    - bit_roles[1.6]       # 显式删除 base 的 PNI 位
 ```
 
 | 写法 | 语义 |
 |---|---|
-| `set` 块内的值 | 替换父值 |
-| `remove` 列表 | 显式删除父值 |
-| 未出现在两者中的字段 | 继承父值 |
+| `overrides` 下出现的字段 | 替换父值 |
+| `overrides.remove` 列表 | 显式删除父值 |
+| 两者都未出现的字段 | 继承父值 |
 
-若坚持用自然 YAML 结构（非 set/remove），则必须在反序列化前保留 **YAML 节点级 presence 信息**（`YamlMappingNode.Children` 的键是否存在），不能用最终 record 判断。S1 必须先做一个小实验验证 YamlDotNet 的行为，再定方案。
+**为什么这个形态能区分「缺失」与「删除」**：删除必须写进 `remove:` 列表，而不是靠「把字段设为 null」——后者与「字段缺失」在反序列化后无法区分。这与 §6.2 开头的要求一致。
+
+**已知实现缺陷**：`remove` 的 key 不存在时静默无效（见 §5.4 的 `ApplyRemove` 缺陷记录）。
 
 **继承差异不记冲突**。冲突只发生在**同一事实的多个独立来源**（DBC / sidecar / project profile）给出不同值且都非空时，记 `NmConfigConflict`。
 
@@ -434,16 +642,20 @@ patch:
 
 ### 7.1 接口
 
+**实现现状（Rev 5 契约对齐）**——Rev 4 草案里多出的四个字段从未落地：
+
 ```csharp
 public sealed record NmRuleContext(
     IReadOnlyList<NmFrame> NmFrames,
-    IReadOnlyList<ReplayFrame> RawFrames,      // 数据体检需要：未知 ID、重复帧、通道
     IReadOnlyList<NmEpisode> Episodes,
     NmProfile Profile,
-    NmEffectiveTiming Timing,
-    NmWindow Window,
-    DbcDocument? Dbc,                           // §5.4.1 布局核对、信号位角色
-    NmSelectionDiagnostics? Selection);
+    // 持全局时序而非单个 NmEffectiveTiming：规则跨报文求值，传单个生效时序会让多报文场景用错周期。
+    NmGlobalTiming Timing,
+    NmWindow Window)
+{
+    public IReadOnlyList<NmRuleDef> Rules { get; init; } = Array.Empty<NmRuleDef>();
+    public NmEffectiveTiming Resolve(NmMessageDef def) => NmTiming.Resolve(def, Timing);
+}
 
 public sealed record NmRuleResult(
     IReadOnlyList<NmFinding> Findings,          // 违规
@@ -452,9 +664,48 @@ public sealed record NmRuleResult(
     IReadOnlyList<NmTruncation> Truncations);
 ```
 
+**Rev 4 草案里有、实现中不存在的字段**：`RawFrames` / `Dbc` / `Selection`（`NmRuleContext`），以及 `Timing` 用的是 `NmEffectiveTiming` 而非 `NmGlobalTiming`。
+
+**这个缺口影响什么、不影响什么（Rev 5 明确）**：
+
+| 影响 | 不影响 |
+|---|---|
+| 任何需要原始帧或 DBC 的**规则原语**都做不了 | 数据体检——它走独立的 `NmDataQualityAnalyzer`，入参是 `NmAnalysisRequest`（含 `Frames`/`Dbc`/`Profile`/`Standard`），不经规则引擎 |
+| §5.4.1 布局核对无法在规则里查 DBC 信号重叠 | 现有六个原语都不需要这些字段 |
+
+**结论**：`RawFrames`/`Dbc`/`Selection` 要么在将来切片补上，要么从本节删掉——但**不能假装它们存在**。Rev 5 不补，因为它们对 S4/S5 不是阻塞项。
+
 **`Finding` 与 `Observation` 必须分开**。这是 Rev 1 的结构性缺陷：把「静默 2.9s」直接当 finding 会误报。
 
-### 7.1.1 报告契约必须先冻结（S1 前置）
+### 7.1.1 逐规则状态是缺失的（Rev 5 新增，阻断条款覆盖）
+
+`NmRuleResult` 只有四个聚合列表，**没有「这条规则求值成功了」的逐规则状态**。`TryEvaluate` 返回的 `true` 被引擎消费后即丢弃。
+
+后果：**合规的规则不产任何输出**。`BitRule` / `NidIdMapping` / `LayoutCheck` / `CycleTolerance` / `BurstShape` 在合法场景下都是 `return true`，既不产 finding 也不产 observation。因此无法从 `NmRuleResult` 反推「哪些条款被验证过」。
+
+**这是 §5.5 条款覆盖模型的前置依赖**：覆盖状态必须由引擎显式输出，不能由「findings/observations 是否非空」反推。
+
+```csharp
+public sealed record NmRuleEvaluation(
+    string RuleId,
+    NmRuleStatus Status,
+    string? ReasonCode,                       // 与 NmUnmodeledRule.ReasonCode 同一词表
+    IReadOnlyList<string> EvidenceRefs);      // 产出的 finding/observation 标识
+
+public enum NmRuleStatus
+{
+    EvaluatedNoFinding,      // 求值成功、未发现违规（这是最常见的合法情形）
+    EvaluatedWithFinding,
+    Partial,                 // 部分报文/段有结论，其余不可判
+    NotApplicable,           // 本条 trace 上不适用（如 with_burst 不匹配）
+    Unmodeled,
+    Suppressed,              // 被数据体检抑制
+}
+```
+
+`NmRuleResult` 增加 `IReadOnlyList<NmRuleEvaluation> Evaluations`。**没有这一项，§5.5 的 `Covered` 无法计算**——见 §19.4。
+
+### 7.1.2 报告契约必须先冻结（S1 前置）
 
 Rev 2 的 `Observations`/`Unmodeled` 只存在于规则结果层，现有 `NmReport` 装不下（`NmReport.cs:93-114` 只有 Findings/Unknowns/Assumptions）。若不先扩契约，实现时只能把 observation 塞回 finding、把 Unmodeled 压成字符串——正是 Rev 1 的错误。
 
@@ -472,9 +723,17 @@ public sealed record NmObservation(
 /// <summary>未建模条款：显式可见，AI 不得据此给结论。</summary>
 public sealed record NmUnmodeledRule(
     string Clause,                        // "NM_05" / "§5.9" / "附录A"
-    string Reason,                        // "内部定时器不可观测"
+    string Reason,                        // 人类可读原因
     string? RequirementId = null,
-    string? SourceRef = null);
+    string? SourceRef = null)
+{
+    // Rev 5 新增：Clause 改成条款号后，「哪条规则未实现/被抑制」会从结构化输出里消失，
+    // Reason 只是自由文本，AI 无法区分「未实现」和「被数据体检抑制」。
+    public string? RuleId { get; init; }
+
+    // 与 §9.4 的七值词表一致，供 AI 与测试做结构化判定。
+    public string? ReasonCode { get; init; }
+}
 ```
 
 `NmReport` 增加 `Observations` 与 `UnmodeledRules` 两个集合，`NmMessageReport` 增加 `SilenceVerdict`：
@@ -532,11 +791,26 @@ public enum NmSilenceVerdict
 | `first_frame_latency` | `kind`(start_nm_tx / wakeup), `max_ms` | P | 首帧延迟（区分两种前置状态） |
 | `repeat_message_duration` | `with_burst`, `min_ms`, `max_ms`, `anchor` | P | RMS 持续时长；anchor 取 `nmsts` 或 `burst_end` |
 | `nmsts_transition` | `byte`, `bit` | O | NMSts 状态段变化（只产 observation） |
-| `normal_resume_shape` | `min_silence_ms`, `cycle_ms`, `pct`, `min_frames` | P | 静默后恢复为**正常周期**发送（NM_02/NM_15） |
+| `normal_resume_shape` | `min_silence_ms`, `cycle_ms`, `pct`, `min_frames` | P | 静默后恢复为**正常周期**发送（NM_02/NM_10/NM_15） |
 | `stop_sending` | `timeout_ms` | P | 停发观察（不判违规，见 §4.1） |
-| `max_gap_observe` | `value` | P | 间隔观察，仅产 observation |
+| `max_gap_observe` | `value` | P | 间隔观察，仅产 observation。**v1 不实现**：无 §4 条款映射、`value` 语义未定义（见下） |
 
 **`normal_resume_shape` 是 Rev 3 新增**：Rev 2 用 `resume_after_silence`（只有 `min_silence_ms`）覆盖 NM_02/NM_15，但规范要求远程唤醒后进入 **RMS 正常发送子状态**并以 `T_NM_MessageCycle` 发送（`spec.txt:477-483`）。只判「静默后有帧」会把「恢复后不快发、周期错误、只发一帧」都当成合规。
+
+**Rev 5 补正**：上句只写了 NM_02/NM_15，实际 §4 表里 **NM_10 也挂 `normal_resume_shape`**。但三者目标状态不同——NM_02/15 恢复后进入 **RMS（NMSts=0）**，NM_10 恢复后进入 **NOS（NMSts=1）**。
+
+**这个差异是可以判定的，不是能力限制。** NMSts 已被三处读取（`RepeatMessageDuration` 的 `FindNmstsRole`、`NmstsTransition`、静默分类器），加一个参数就能区分：
+
+| 规则 | `expect_nmsts` | 覆盖条款 |
+|---|---|---|
+| `NM_RESUME_TO_RMS` | `0` | NM_02 / NM_15 |
+| `NM_RESUME_TO_NOS` | `1` | NM_10 |
+
+`expect_nmsts` 缺省为 null = 不检查目标状态（此时该规则对三条条款都标 `Partial`，原因码 `target_state_unverified`）。
+
+**不要用「一条规则覆盖三条、报告加个 caveat」糊过去**：finding 是单次产出的结构化数据，caveat 写在 message 里 AI 读不到，写在目录里又落不到 finding 上。
+
+**`max_gap_observe` 的 v1 状态（Rev 5 明确）**：§4 条款表里**没有任何条款**映射到它，且 spec 只写了「间隔观察」四个字，没有定义 `value` 的单位、语义、阈值来源。强行实现只能造出无法回溯到企标原文的结论。**v1 明确不实现**，规则若声明它会进 Unmodeled（`ReasonCode = unimplemented_primitive`，这是正确行为，不是缺陷）。
 
 **NM_06 的时长判定**：NMSts 跃迁（O 级 observation）作为边界锚点，时长由 `repeat_message_duration` 独立判定。缺少 NMSts 配置时只能 inferred，不能反过来说条款已验证。
 
@@ -544,14 +818,14 @@ public enum NmSilenceVerdict
 
 理由：语义无法在不引入通用表达式语言的前提下精确定义，或依赖不可观测输入。NMSts 用 `nmsts_transition` 专用原语，不做通用序列匹配。
 
-**未知 `when`/`expect` 原语（Rev 6 修正）**：分两个阶段处理，不再统一「不抛异常」。
+**未知 `when`/`expect` 原语（早期评审轮次修正；「Rev 6」指当时的一次内部修订，不是本文件版本号）**：分两个阶段处理，不再统一「不抛异常」。
 
 | 阶段 | 行为 | 理由 |
 |---|---|---|
 | **加载期**（`NmStandardYaml.Load`） | 原语不在 `NmRulePrimitives` 闭集内 → **抛 `NmProfileValidationException`**，消息列出全部合法值 | 拼错的原语名（`cycle_tolerence`）若静默进 Unmodeled，用户会以为条款已被校验——这是最危险的静默失败 |
 | **求值期**（`NmRuleEngine.Evaluate`） | 闭集内但 v1 尚无实现的原语 → 进 `Unmodeled`，不产 finding，不抛异常 | 引擎必须能处理「profile 合法但当前版本未实现」的情形，不能崩溃 |
 
-Rev 5 及更早写的「未知原语一律进 Unmodeled 不抛异常」只覆盖了求值期，遗漏了加载期拼写错误的危害。闭集校验把这类错误前移到加载期，是本设计的刻意收紧。
+本文件早期版本写的「未知原语一律进 Unmodeled 不抛异常」只覆盖了求值期，遗漏了加载期拼写错误的危害。闭集校验把这类错误前移到加载期，是本设计的刻意收紧。（本条修正发生在当前 Rev 5 之前的一次内部修订，不是「Rev 6 已修正」——本文件的版本号就是 Rev 5。）
 
 ### 7.3 主动唤醒判定（降级为「疑似不一致」）
 
@@ -891,20 +1165,157 @@ public static IReadOnlyList<NmSegment> Build(
 
 跑规则前先做一致性检查，结果放报告顶部。**体检不通过不阻断分析，但明示「数据存疑，结论仅供参考」**。
 
-| 检查 | 不通过处理 |
-|---|---|
-| 报文 ID 是否在 DBC 中 | `data_quality: unknown_id`，该报文不做语义判定 |
-| 实测 DLC 与 DBC 是否一致 | 已有 `NM_DLC_MISMATCH`，升级为体检项 |
-| NID 是否与 ID 映射一致 | `data_quality: nid_id_mismatch` |
-| 时间戳是否单调 | 非单调 → `data_quality: non_monotonic`，记录被剔除区间 |
-| 帧率是否合理 | 异常 → `data_quality: implausible_rate` |
-| **重复帧**（同 ID 同 payload 同/近时间戳） | `data_quality: duplicate_frames`，归因不确定 |
-| **Tx/Rx 回环** | `data_quality: loopback_suspected`，不去重后静默继续 |
-| **时间跳变幅度** | 大正向跳变/基准重置 → `data_quality: time_jump` |
-| **窗口首尾截断** | `data_quality: truncated_window`，相关规则抑制 |
-| **多通道混录** | 保持显式通道选择，不自动混算 |
+### 9.1 实现范围（Rev 5 收敛）
 
-体检结果携带**具体受影响区间和规则抑制范围**。
+Rev 4 列了十项，但其中多项 spec 从未定义判据。Rev 5 按「判据是否可复核」重新划分：
+
+**v1 实现（五项）**：
+
+| 检查 | 状态 | 依赖 | 判据是否已定义 |
+|---|---|---|---|
+| 报文 ID 是否在 DBC 中 | **新检测器** | 原始帧 + DBC | ✅ 帧 ID ∉ DBC 报文集合 |
+| 窗口首尾截断 | **新检测器** | 原始帧 + 窗口 | ❌ **未定义，见下** |
+| 时间戳是否单调 | 检测器已有（`NmFrameSelector` 的 bool），**缺区间** | 原始帧 | ✅ 后一帧时间戳 < 前一帧 |
+| 实测 DLC 与 DBC 是否一致 | 检测器已有（`NM_DLC_MISMATCH`），**缺 DQ 外壳** | 原始帧 + DBC | ✅ 逐帧 `Frame.Dlc != Def.Dlc` |
+| NID 是否与 ID 映射一致 | 检测器已有（`nid_id_mapping` 规则），**仅选中企标 profile 时可用** | profile + 帧 | ✅ 扩展帧 NID==ID 低字节；标准帧 NID==ID−0x400 |
+
+**`truncated_window` 的判据缺失（Rev 5 自认）**：本节开头说「只保留判据可复核的五项」，但这一项**没有可计算定义**。「首帧/末帧落在窗口边界」会让每一份录制都算截断，等于永远报警。
+
+必须补一个能区分的定义，例如：**窗口首（或末）一个 cycle 内存在 NM 帧，但窗口外没有数据可供判定该段是否延续**——即「段的起点/终点恰好是窗口边界，且无法确认它在窗口外是否继续」。
+
+**在这个定义补上之前，该项不得实施**；宁可先做四项，也不要造一个永远为真的告警。
+
+**v1 明确不做（五项）**：
+
+| 检查 | 不做的理由 |
+|---|---|
+| `implausible_rate` | spec 未定义「帧率合理」的判据（相对什么基准？偏差多少算异常？） |
+| `duplicate_frames` | 「同/近时间戳」的「近」未定义 |
+| `loopback_suspected` | Tx/Rx 回环的匹配窗口未定义 |
+| `time_jump` | 「大正向跳变」的阈值未定义 |
+| 多通道混录 | 已在选择层按显式通道处理（`NmFrameSelector`），不是体检项 |
+
+**这五项不是「暂时没空做」，是「判据未定义」**。强行实现会产出无法回溯到任何企标条款的结论，违背 §3 的可观测性纪律。要做得先在 spec 里定义判据。
+
+### 9.2 报告模型：三态检查表，不是问题列表（Rev 5 重做）
+
+> **⚠ 本节有四个未定的强制点，实施前必须补齐（Rev 5 记录）：**
+>
+> 1. **`Code` 是开放字符串** —— 重蹈 spec 自己修过的「未注册 finding code」问题，应建闭集。
+> 2. **「固定五项每项必有一行」没有机制保证** —— 只能靠测试，或改成五个具名属性。
+> 3. **`null` vs 空列表表达「不适用 vs 查了没抑制」太脆** —— record 相等性对 `IReadOnlyList` 是引用相等，任何消费方写 `?? Array.Empty<string>()` 就抹掉语义。建议改显式结构（如 `NmRuleSuppression(bool Applicable, IReadOnlyList<string> RuleIds)`）。
+> 4. **抑制映射只定义了两项** —— `unknown_id` / `truncated_window` 抑制谁写了，`dlc_mismatch` / `non_monotonic` / `nid_mapping` 失败时抑制谁**完全没写**。
+>
+> 另外 **DQ 检查哪一份帧集未定义**：`NmFrameSelector` 在多通道未指定时返回空帧集，五项检查会在空集上全部 `Passed`——正是本节要消灭的假通过。必须写明 DQ 看原始帧还是选择后的帧。
+
+**Rev 4 的模型实现不了 S5。** 一个「问题列表」无法区分两件事：
+
+- 检查跑了、通过了
+- 检查压根没跑（无 DBC / 无 profile / 缺 `nid_byte`）
+
+§9.1 自己要求「无 profile 时 `nid_mapping` 明示未检查，不得记为通过」——问题列表装不下这个语义。
+
+```csharp
+/// <summary>单项体检结果。status 三态，不是「有没有 issue」。</summary>
+public sealed record NmDataQualityCheck(
+    string Code,                    // unknown_id / dlc_mismatch / nid_mapping / ...
+    NmDataQualityStatus Status,     // Passed | Failed | NotChecked
+    string Detail,                  // 人类可读说明；NotChecked 时必须写清缺什么
+    // 受影响区间可能有多个（non_monotonic 多段），单值装不下。
+    // 用具名 record 而非 ValueTuple：后者在 JSON 序列化与 record 相等性上都有坑。
+    IReadOnlyList<NmTimeRange> Ranges,
+    IReadOnlyList<string> AffectedCanIds,
+    // null = 该检查不做规则抑制；空列表 = 算了但没抑制任何规则。
+    // 用 null 与空列表区分「不适用」与「查了没抑制」，避免二义性。
+    IReadOnlyList<string>? SuppressedRuleIds);
+
+public sealed record NmTimeRange(double Start, double End);
+
+public enum NmDataQualityStatus
+{
+    Passed = 0,
+    Failed = 1,
+    // 不是 Failed：数据没问题是「通过了」，数据不够是「没查成」，两者结论强度不同。
+    NotChecked = 2,
+}
+```
+
+**`NmReport.DataQualityChecks` 是固定五项**（按 §9.1 的 v1 范围），每项必有一行，`Status` 必填。不通过时另附 `Detail` 与区间。
+
+**为什么不用「issue 列表 + 空即通过」**：`NotChecked` 会被误读成 `Passed`，而 AI 会据此对未检查项下结论——这正是 §3 要消灭的静默通过。
+
+### 9.3 计算位置：独立的 `NmDataQualityAnalyzer`
+
+**不做成规则原语的理由（Rev 5 修正措辞）**：
+
+1. **职责划分**：数据体检不是企标条款，没有 `clause` 可挂；OEM 规范不定义它，它是工具层的输入质量保证。
+2. **现有引擎没有规则间依赖/调度模型**：`NmRuleEngine.Evaluate` 只顺序遍历规则并直接调 `TryEvaluate`（`NmRuleEngine.cs:33-67`）。要实现「规则 A 抑制规则 B」需要引入分阶段求值与优先级——**这不是理论上的悖论，只是 v1 不愿扩展现有调度模型**。
+3. **输入需求不同**：体检需要原始帧与 DBC，而 `NmRuleContext` 没有这两样（§7.1）。
+
+**Rev 5 更正**：此前把第 2 条写成「顺序悖论」，是把设计选择伪装成理论不可能。正确表述是「v1 选择独立前置 analyzer，以避免扩展现有规则调度模型」。
+
+**也不能塞进 `NmAnalyzer`**（现已 458 行）。新增独立类：
+
+```csharp
+public static class NmDataQualityAnalyzer
+{
+    // 入参是 NmAnalysisRequest（已含 Frames / Dbc / Standard），不需要扩 NmRuleContext。
+    public static NmDataQualityResult Analyze(NmAnalysisRequest request);
+}
+```
+
+`NmAnalyzer` 在顶部调用一次，把 `SuppressedRuleIds` 传给引擎。
+
+**关于 §7.1 的 `NmRuleContext` 缺 `RawFrames`/`Dbc`/`Selection`**：这是既有缺口，但**与本设计无关**——体检不走规则引擎。§7.1 那三个字段要么在将来切片补上，要么删掉；Rev 5 不处理，但要在此注明它不影响 S5。
+
+### 9.4 规则抑制必须前置于求值
+
+报告顶部写「数据存疑」、下面照样列出基于该数据的 warn finding——这种自相矛盾必须避免。
+
+**执行顺序**：U 级规则 → 抑制集 → `TryEvaluate`。被抑制的规则在求值**之前**转成 `NmUnmodeledRule` 并 `continue`。
+
+**`NmUnmodeledRule` 必须新增 `RuleId` 与 `ReasonCode`**：Clause 改成条款号后，「哪条规则被抑制/未实现」在结构化输出里会消失，`Reason` 只是自由文本，AI 无法区分：
+
+| ReasonCode | 含义 |
+|---|---|
+| `unimplemented_primitive` | 原语在闭集中但 v1 无实现 |
+| `missing_profile_data` | 缺参数/缺位角色 |
+| `unobservable` | U 级条款 |
+| `uncovered` | 目录中有、无规则覆盖 |
+| `partial_evidence` | 规则部分成功 |
+| `data_quality_suppressed` | 被体检抑制 |
+| `not_applicable` | 本条 trace 不适用 |
+
+**`AffectedCanIds → SuppressedRuleIds` 的映射不能自动算**：`NmRuleDef` 没有 message/node scope（`phase` 也不驱动作用域）。要么给规则加 scope，要么由 `NmDataQualityAnalyzer` 手工映射。**v1 选后者**。
+
+**但映射必须按「输入缺失使哪项判据不可判定」精确推导，不能按「受影响 ID 一刀切」（Rev 5 修正）。**
+
+两个具体的反例，都证明「一刀切抑制」会删掉真实结论：
+
+| 反例 | 一刀切的后果 | 正确做法 |
+|---|---|---|
+| `unknown_id` → 抑制该 ID 的**所有**语义规则 | `layout_check` 正是查「ID 是否落在 OEM 允许区间」的规则——ID 不在 DBC 时它**恰恰最该跑**。抑制后只剩一条泛化的 DQ failure，用户看不到「这个 ID 越界了」 | 只抑制**依赖 DBC 解码**的规则（如需要 DBC 信号定义的）；OEM profile 自带的 ID 区间 / DLC / 位约束照常执行 |
+| `truncated_window` → 统一抑制 `repeat_message_duration` / `normal_resume_shape` / `stop_sending` | 现有代码**已经**做了精确降级：段首截断时「超上限」仍可判（真实起点更早，超了只会更超），只有段尾截断才整体跳过（`NmRuleEvaluators.Latency.cs:159-199`）。统一抑制会把这个能力退掉 | 抑制信息必须携带 **start/end 方向**与受影响的具体判据；或让 evaluator 接收 DQ 上下文自行精确降级，而不是引擎统一 `continue` |
+
+**结论**：`SuppressedRuleIds` 不能由 `AffectedCanIds` 机械推导。映射表必须逐项论证「这条规则是否真的因为该输入缺失而不可判」，并写进注释。做不到精确映射时，**宁可标 `Partial` 也不标 `Suppressed`**——少判一项好过删掉真实结论。
+
+**与「体检不阻断分析」的张力（Rev 5 记录）**：§9 顶部说「体检不通过不阻断分析」，而本节要求抑制规则——两者是不同安全策略。裁决：**抑制只用于「该项判据确实不可判定」的情形**，其余一律降级为 `Partial` 或保留结论并标注数据存疑。
+
+### 9.5 消费方
+
+新字段 `NmReport.DataQualityChecks` 必须同步接入：
+
+| 消费方 | 现状 | 要做什么 |
+|---|---|---|
+| `GetNmOverviewTool`（AI 工具 JSON） | 正在输出 `finding.RequirementId` 与 `unmodeled.RequirementId`（`GetNmOverviewTool.cs:100-101,148`） | 改 `Clauses` 后必须同步改这里，否则 AI 拿到旧/空值；`NmUnmodeledRule` 新增的 `RuleId` 也要输出 |
+| `NmReportWriter`（Markdown） | **只输出 `rule=` 和 `source=`，从未输出 `RequirementId`**（`NmReportWriter.cs:201-214`） | 新增条款输出（与 DQ 字段同批）。注意：§4.0 曾说它是「追溯出口」——**这句不成立**，它从来没输出过 |
+| 面板 | 无 unmodeled 区、无 DQ 区 | **本轮不做**，归 S7（§11 文件所有权表把 `NmPanelFlow` / XAML 划给 S6） |
+
+**`NM_03` / `NM_16` 的条款必须拆分（Rev 5）**：§4.0 说 `burst_shape` 覆盖 NM_03/04/16，但 §4 表同时承认 AWB 半边未实现。若目录按 §4 表一行一条，`burst_shape` 会声称覆盖整个 NM_03 并报 `Covered`，而 AWB 从未检查——这是本节要消灭的静默通过换了个入口。
+
+**现在就要拆**：`GEELY:NM_03/burst`（Covered）+ `GEELY:NM_03/awb`（NotCovered，原因 `unimplemented_primitive`）。不能等 AWB 实现。
+
+**缓存必须纳入新数据**：`NmFlow` 的 supplement hash 只拼了 `StandardTimings`/`StandardBitRoles`/`StandardRules`/`StandardLayout`/`StandardFeatures`。条款目录（`StandardClauses`）不在其中 → 改目录不失效缓存，旧报告被复用。**必须把 `StandardClauses` 加进 `NmProfile`、`NmStandardProfileBinding` 和 hash**（按 Id 排序）。
 
 ## 10. UI（本轮范围）
 
@@ -999,8 +1410,8 @@ Rev 2 的顺序有问题：S2 的原语依赖统一时序，却排在 S3 之前�
 **S1 不产出 `NmProfile`**：展平产物 `NmStandardFlattener.Flattened` 是中间 DTO，转 `NmProfile` 需要位角色合并与 timing 解析，归 S2。
 | **S2** | `NmGlobalTiming`/`NmEffectiveTiming`/`Resolve` + 13 个调用点迁移（**保持 M1 行为不变**，报文级优先语义不得丢） | 四组合回归测试；无 profile 时输出逐字节一致；`NmSpecClosureTests` 全绿 |
 | **S3** | O 级原语（`layout_check`/`nid_id_mapping`/`bit_rule`/`cycle_tolerance`/`burst_shape`/`nmsts_transition`）+ 合成 fixture | 每原语：注入故障必触发、合法场景零误报 |
-| **S4** | P 级原语（`first_frame_latency`/`repeat_message_duration`/`normal_resume_shape`/`stop_sending`/`max_gap_observe`）+ episode/静默推断 | 合法释放负例集零误报；主动唤醒两阶段判定 |
-| **S5** | 数据体检 + 真实 trace 端到端 | 体检项单测；contract test（必须出现 + 必须不出现） |
+| **S4** | P 级原语（`first_frame_latency`/`repeat_message_duration`/`normal_resume_shape`/`stop_sending`）+ episode/静默推断 | **Rev 5 据实修正**：截至 Rev 5，S4 只完成 `first_frame_latency` + `repeat_message_duration`；`normal_resume_shape` / `stop_sending` **未实现**（`TryEvaluate` 无对应 case，走 `default: return false`），验收不含它们。`max_gap_observe` 不做（§7.2）。主动唤醒两阶段判定**未实现**——`bit_rule` 只支持 `is_zero`，AWB=1 需要 `is_one` + wakeup 作用域 |
+| **S5** | 数据体检（§9.1 五项）+ 真实 trace 端到端 | 体检项单测；contract test（必须出现 + 必须不出现）。**Rev 5 收敛**：§9.1 后半五项因判据未定义不做。报告模型见 §9.2（三态检查表） |
 | **S6** | Activity 段模型（§7.5：NMSts 切段 + 快发子状态 + `Evidence` + 双窗口裁决）+ 笔刷/文案/图例 | §7.5.5 验收；`NmSpecClosureTests` 回归门 |
 | **S7** | 只读选择器 + 标定面板 + 缓存 key + watcher | 面板结构测试；切 profile 必重算；canonical hash 稳定性测试 |
 
@@ -1018,6 +1429,12 @@ Rev 2 的顺序有问题：S2 的原语依赖统一时序，却排在 S3 之前�
 | 测试（`NmSpecClosureTests` / `NmMultiEpisodeActivityTests` / `NmPanelFlowTests`） | 时序相关 | 段相关 |
 
 **`NmSegment` 字段由 S6 一次落全**，S2 不得引用未存在的字段。
+
+**S6 归属待确认（Rev 5 补记）**：旧计划 `2026-11-23-nm-m2-rule-engine.md` 第 3622 行声明 S6「由并行会话 `claude-proj2-1a` 实现」。**该声明无法核实**——`git worktree list` 只有一个工作树，但并行会话完全可以在同一工作目录内修改文件（该计划第 22 行自己也这么写）。因此：
+
+- 本 spec 不改变上述文件所有权划分。
+- 任何后续切片在动 `NmActivityBuilder` / `NmSegment` / `NmPanelFlow` / `TraceViewerViewNmPanel.xaml(.cs)` 之前，**必须先向用户确认 S6 的实际归属**，不得自行认领。
+- S4/S5 的实施（Rev 5 范围）**不触碰**这些文件。
 
 S3/S4 的规则逻辑只用合成数据验，避免「用坏数据调规则」。
 
@@ -1181,7 +1598,7 @@ payload `08 01 00 00 00 00 00 00`，ID `0x18FFFA27`（低字节 0x27）：
 
 | # | Rev 2 问题 | 严重度 | Rev 3 修正 |
 |---|---|---|---|
-| R3-1 | `Finding/Observation/Unmodeled` 只在规则结果层，`NmReport` 装不下 | CRITICAL | §7.1.1 冻结报告契约：`NmObservation` + `NmUnmodeledRule` 进 `NmReport`，全层复用 |
+| R3-1 | `Finding/Observation/Unmodeled` 只在规则结果层，`NmReport` 装不下 | CRITICAL | §7.1.2 冻结报告契约：`NmObservation` + `NmUnmodeledRule` 进 `NmReport`，全层复用（Rev 5 后该节号从 7.1.1 改为 7.1.2） |
 | R3-2 | NM_02/NM_15 只有 `resume_after_silence`，判不了「以正常周期发送」 | CRITICAL | §7.2 新增 `normal_resume_shape`（周期+容差+最少帧数） |
 | R3-3 | §4.1 把 `NM_ALL_NM_SILENT`（timeoutMs）与 `NM_BUS_WIDE_SILENCE`（max(2×cycle,500)）阈值写混 | HIGH | §4.1 按 `NmGapAnalyzer.cs:29-32` 实际代码分开列出 |
 | R3-4 | §14.5 把「正常释放」当事实，超出可证明范围 | HIGH | §14.5 改为「原因未知，恢复行为为 inferred」 |
@@ -1221,7 +1638,7 @@ payload `08 01 00 00 00 00 00 00`，ID `0x18FFFA27`（低字节 0x27）：
 | R4-10 | `normal` 段被当成完整 NOS 生命周期 | MEDIUM | §7.5.1.3 明确「发送段」，hover 文案限定 |
 | R4-11 | §5.1.1 与 §8 对 DBC 信号重叠给出相反指令 | MEDIUM | §8 改为「仍执行 OEM 约束 + 记冲突」 |
 | R4-12 | UI 只改 hover 签名，`NmTimelineSegmentVm` 无证据字段 | MEDIUM | §7.5.2.1 补 VM 三字段 + `BuildTimelineRows` 映射 |
-| R4-13 | 报告契约缺 `SilenceVerdict` 字段、`NmObservation.IsInference`、消费方改造点 | MEDIUM | §7.1.1 补字段 + 四个消费方清单 + AI 负例 |
+| R4-13 | 报告契约缺 `SilenceVerdict` 字段、`NmObservation.IsInference`、消费方改造点 | MEDIUM | §7.1.2 补字段 + 四个消费方清单 + AI 负例（Rev 5 后该节号从 7.1.1 改为 7.1.2） |
 | R4-14 | R3-16 声称的 observation 断言未进 §12 | MEDIUM | §12 补一行 |
 | R4-15 | §14.3/§14.6 仍称「正常释放」 | LOW | 改为「原因未知」 |
 
@@ -1273,3 +1690,69 @@ S1 落地后 code-reviewer 提 5 HIGH / 7 MEDIUM，均已修或明确降级：
 - 吉利 CBV 无 PNI 位，bit6 是预留
 - trace 帧数、快发段 10 帧 × 19–21ms、稳态 535ms、PMS payload 均核对无误
 - 规则与 finding 需带 `rule_id`/`requirement`/`source_ref` 可追溯
+
+## 19. Rev 4 → Rev 5 修正清单
+
+Rev 4 之后的 S1–S4 实施与一次独立设计评审，暴露出 Rev 4 内部不一致与若干「写了但无法实现」的条款。Rev 5 逐条收敛。
+
+| # | Rev 4 的问题 | 严重度 | Rev 5 修正 |
+|---|---|---|---|
+| 1 | **spec 声称「S1–S4 实施后」，实际 S4 只完成一半**：`normal_resume_shape` / `stop_sending` 在 `TryEvaluate` 里无 case，走 `default: return false`；`NmRealTraceContractTests` 仍断言 `NM_09` 在 Unmodeled | CRITICAL | 标题改「S1–S3 与 S4 部分」；§11 S4 验收据实修正，明确两项未实现 |
+| 2 | **规则 ID 与条款号未区分，且已是 active bug**：`NM_01` 规则实为 §5.4.2 NID 映射、`NM_05` 规则实为 §5.4.3 RMR——而 §4 表里这两条都是 U 级不可观测。今天的报告给不可观测条款发 NID finding | CRITICAL | 新增 §4.0；`NmFinding` 加 `Clauses` **列表**（单值会造假归因）；契约测试锚定正则 + 成员资格 + 完整性 |
+| 3 | **条款目录 ID 模型不成立**：§4 表里 `§5.5` 出现 4 次、`§5.4.4` 出现 2 次，节号不能当唯一键；base 的 `AUTOSAR ... §9` 与吉利 `§5.x` 不在同一命名空间 | HIGH | `NmClauseDef` 改复合键 `Id` + 可重复的 `Clause`；区分文档维度 |
+| 4 | **未覆盖的条款在报告里完全不可见**：引擎只遍历 `rules`，未声明的条款既无 finding 也无 Unmodeled | CRITICAL | `NmStandardProfile.Clauses` 目录（数据驱动，不硬编码进 Core）；引擎把「目录中有、无规则覆盖」写进 `UnmodeledRules` |
+| 5 | 五情形覆盖表漏 7 类，其中 `not_applicable` 最严重：`with_burst` 不匹配时规则返回 success + 观测，按布尔模型算「已覆盖」，实际没验证 | HIGH | 覆盖改三态 `Covered/Partial/NotCovered` + 原因码；补 7 情形 + 继承/remove 语义 |
+| 6 | §9 十项体检中五项判据未定义 | HIGH | §9.1 收敛为五项可实现项，其余标「判据未定义，v1 不做」 |
+| 7 | **§9 的报告模型实现不了 S5**：问题列表无法区分「通过」与「没查」，与 §9.1 自己要求的「无 profile 时明示未检查」矛盾 | HIGH | §9.2 改三态 `NmDataQualityCheck`（Passed/Failed/NotChecked）+ 固定五项；`SuppressedRuleIds` 用 null/空区分 |
+| 8 | §9 未说明体检在哪层算 | HIGH | §9.3 独立 `NmDataQualityAnalyzer`；明确**不做成规则原语**（无 clause 可挂、现有引擎无规则调度模型、非企标条款） |
+| 9 | `NmUnmodeledRule` 没有 `RuleId`/`ReasonCode`，Clause 改成条款号后「哪条规则未实现」在结构化输出里消失 | HIGH | §9.4 新增 `RuleId` + `ReasonCode` 七值枚举 |
+| 10 | §7.2 `max_gap_observe` 无 §4 条款映射，`value` 语义未定义 | MEDIUM | 明确 v1 不实现 |
+| 11 | §11 S4 验收含「主动唤醒两阶段判定」，但 `bit_set` 不是闭集原语（闭集里是 `bit_rule`，只支持 `is_zero`） | HIGH | S4 验收删去此项；诊断改为「缺 `is_one` + wakeup 作用域」 |
+| 12 | NM_10 的「不区分目标状态」被当成能力限制 | MEDIUM | 实际可判定（NMSts 已被三处读取）：加 `expect_nmsts`，拆成 `NM_RESUME_TO_RMS` / `NM_RESUME_TO_NOS` |
+| 13 | 条款目录不进缓存 hash | HIGH | `StandardClauses` 加进 `NmProfile` / `NmStandardProfileBinding` / `NmFlow` hash |
+| 14 | `ApplyRemove` 对不存在的 key 静默无效，规则重命名后旧 `remove:` 变 no-op | MEDIUM | 规则重命名必须同批修；remove 不存在的 key 改为报错 |
+| 15 | `NmReportWriter` 从未输出 `RequirementId`，§4.0 声称的「Markdown 追溯出口」不成立 | MEDIUM | writer 需新增 clause 输出（与 DQ 字段同批） |
+| 16 | §11 声称 S6 归并行会话 `claude-proj2-1a`，无法核实 | MEDIUM | 不改所有权划分，但要求动这些文件前必须向用户确认归属 |
+
+### 19.1 Rev 5 明确「不是缺陷」的两件事
+
+1. **`NM_06` 用 `repeat_message_duration` 判时长不是挂错**——§7.2 第 541 行明确要求锚点与时长分离；PDF 的 NM_06 也是 T_REPEAT_MESSAGE 超时。Rev 4 的 §4 表才是错的。但 NMSts **不是独立规则**，是 `repeat_message_duration` 内部读的锚点（`FindNmstsRole`）。
+2. **U 级条款不建 profile 规则**——只在 `clauses:` 目录里标 `level: U`。不需要为「让它出现」而塞 10 条不产 finding 的假规则。**但前提是 `NmAnalyzer` 的 `StandardRules.Count > 0` 门要放宽**（见 §5.5 的阻碍说明），否则只有目录的 profile 不进引擎。
+
+### 19.2 Rev 5 撤回的一个错误判断
+
+Rev 5 初稿曾写「`NM_10` 与 NM_02/15 共用一条规则，接受精度损失」——**这个判断是错的**。NMSts 可观测且已被多处读取，区分 RMS/NOS 只需加一个 `expect_nmsts` 参数。撤回。
+
+### 19.3 未解决、留给后续切片的问题
+
+| 问题 | 影响 | 能否留给后续 |
+|---|---|---|
+| `NmRuleContext` 缺 `RawFrames`/`Dbc`/`Selection` | 规则引擎无法做任何需要原始帧的判定 | **可留**——不影响 S5（体检走独立分析器）；但其它需要原始帧的原语仍是硬缺口 |
+| §7.3 主动唤醒两阶段判定整节未实现 | `NM_ACTIVE_WAKEUP_SUSPECT` 只有注册无产出者 | **可留，但有条件**：NM_03/NM_16 的 AWB 半边必须保持 `Partial`/`NotCovered`，**不能因为 `burst_shape` 实现了就报 Covered**（见 §9.5 的条款拆分要求） |
+| §11.1 的「追溯矩阵完整」CI 校验不存在 | 条款目录靠手工维护，作者忘写就静默失效 | **完整版可留，最低版不能留**：至少要有「目录中每条 O/P 条款必须有规则覆盖或明确 Partial/NotCovered」的 machine-readable 自检，否则漏写仍然静默 |
+| `phase` 不驱动求值作用域 | 必填字段却不生效，用户会误以为作用域有效；且会让 S4/S5 的抑制与覆盖统计出错 | **不可留**——必须在 §5.3 的三选一中裁决（删字段/改名/实现作用域） |
+
+### 19.4 契约对齐：Rev 4 类型草案与实现不符的六处
+
+Rev 5 曾把新机制（条款目录、三态覆盖、DQ 三态）写进 §5.3 / §5.4 / §7.1 的类型草案——而这些草案**本身就和代码不一致**。按草案实施会改错。已逐一对齐：
+
+| # | Rev 4 草案 | 实现 | 处理 |
+|---|---|---|---|
+| 1 | `NmRuleDef` 位置参数含 `Observability`（第 4 位）、`Clauses`（第 8 位） | 6 个位置参数 + `SourceRef`/`Observability` 两个 init 属性 | 已改为实际定义；`Clauses` 用 `required` init 属性，不重排 |
+| 2 | `NmStandardProfile` 是位置 record，含 `Patch` / `NmMessageDef` / `NmNodeDef` | property-init 类，含 `Overrides` / `NmStandardMessage` / `NmStandardNode` | 已改为实际定义 |
+| 3 | `NmContentField` / `NmExceptionDef` | **Core 中不存在** | 已删除，标注为「未实现的设计」 |
+| 4 | `NmStandardPatch` / `NmStandardPatchSet` | **不存在**，实际是 `NmStandardOverrides` | 已删除 |
+| 5 | §6.2 用 `patch: { set:, remove: }` 块 | 实际是 `overrides:` + `overrides.remove` | 已改为实际形态 |
+| 6 | §7.1 `NmRuleContext` 含 `RawFrames`/`Dbc`/`Selection`，`Timing` 是 `NmEffectiveTiming` | 三个字段都不存在，`Timing` 是 `NmGlobalTiming` | 已改为实际定义，缺口单独标注 |
+| 7 | §7.2 正文写「Rev 6 修正」 | 本文件是 Rev 5 | 已加注「指当时内部修订轮次，非本文件版本」 |
+
+### 19.5 Rev 5 之后仍不可实施的部分（明确记录，避免误当已完成）
+
+| 设计 | 阻断原因 | 解锁条件 |
+|---|---|---|
+| §5.5 三态条款覆盖 | 引擎无逐规则状态，合规规则不产任何输出（§7.1.1） | `NmRuleResult.Evaluations` 落地 |
+| §4.0 四条契约测试 | 正则按 `Clause` 写、成员资格按 `Id` 查，两者不自洽；且复合 Id 下「不得是规则 ID」恒真 | 先定 `rule.clauses` 存 `Id` 还是 `Clause` |
+| §9.2 DQ 三态模型 | 四个强制点未定（Code 闭集、五项保证、null/空语义、抑制映射） | 补齐强制点 + 定义 DQ 帧集 |
+| 条款目录全链路 | `Flattened`/`ApplyRemove`/`Bind`/`NmProfile`/hash 五处均未打通 | 五处同批改 |
+
+**这四项不是「v1 不做」，是「设计未闭合」。** 写进本节是为了让后续实施者知道：看到 §5.5 / §4.0 / §9.2 时不能直接照着写代码。
