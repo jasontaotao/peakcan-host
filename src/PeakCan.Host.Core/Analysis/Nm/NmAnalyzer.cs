@@ -86,6 +86,9 @@ public static class NmAnalyzer
             }
         }
 
+        // spec §9：数据体检在规则求值之前跑。体检不阻断分析，只标注。
+        var dataQuality = NmDataQualityAnalyzer.Analyze(request);
+
         var findings = new List<NmFinding>();
         var events = new List<NmEvent>();
         var truncations = new List<NmTruncation>();
@@ -149,7 +152,8 @@ public static class NmAnalyzer
                 Direction: direction,
                 IsPartial: partial,
                 Observations: observations.Count == 0 ? null : observations,
-                UnmodeledRules: unmodeled.Count == 0 ? null : unmodeled);
+                UnmodeledRules: unmodeled.Count == 0 ? null : unmodeled,
+                DataQualityChecks: dataQuality);
         }
 
         // 选择阶段（含能力/缺项）完成后即检查取消：此时报告至少带有选择诊断与能力矩阵。

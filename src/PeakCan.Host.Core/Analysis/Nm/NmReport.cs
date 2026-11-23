@@ -182,4 +182,26 @@ public sealed record NmReport(
     bool IsPartial = false,
     // spec §7.1.1：事实与违规必须分开，否则必然误报。
     IReadOnlyList<NmObservation>? Observations = null,
-    IReadOnlyList<NmUnmodeledRule>? UnmodeledRules = null);
+    IReadOnlyList<NmUnmodeledRule>? UnmodeledRules = null,
+    // spec §9.2：规则求值前的数据体检结果；null 表示未执行体检。
+    IReadOnlyList<NmDataQualityCheck>? DataQualityChecks = null);
+
+/// <summary>数据体检的三态结果（spec §9.2）。</summary>
+public enum NmDataQualityStatus
+{
+    Passed = 0,
+    Failed = 1,
+    // 不是 Failed：数据没问题叫「通过」，数据不够叫「没查成」，结论强度不同。
+    NotChecked = 2,
+}
+
+/// <summary>受影响的时间区间。用具名 record 而非 ValueTuple：后者 JSON 序列化会丢元素名。</summary>
+public sealed record NmTimeRange(double Start, double End);
+
+/// <summary>单项体检结果（spec §9.2）。</summary>
+public sealed record NmDataQualityCheck(
+    string Code,
+    NmDataQualityStatus Status,
+    string Detail,
+    IReadOnlyList<NmTimeRange> Ranges,
+    IReadOnlyList<string> AffectedCanIds);
