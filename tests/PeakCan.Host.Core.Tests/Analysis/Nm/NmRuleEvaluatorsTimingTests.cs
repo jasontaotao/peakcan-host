@@ -35,6 +35,38 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(500, 0.1));
 
         Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_CYCLE");
+    }
+
+    [Fact]
+    public void CycleTolerance_SharedIdWithAlternatingNids_Suppressed()
+    {
+        // 同一 CAN ID 下两个 NID 交替：间隔会被放大成假偏差，必须与 M1 同口径抑制。
+        var frames = Enumerable.Range(0, 12)
+            .Select(i => Frame(i * 0.56, 0x500, i % 2 == 0 ? (byte)0x11 : (byte)0x22, 0))
+            .ToArray();
+
+        var result = Evaluate(frames, CycleRule(500, 0.1));
+
+        Assert.Empty(result.Findings);
+        Assert.Contains(result.Unmodeled, u =>
+            u.Clause == "NM_CYCLE" && u.Reason.Contains("共享 ID", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CycleTolerance_ProfileTolerance_IsNotOverriddenByBaseRule()
+    {
+        // 15% 偏差（575ms vs 500ms）：吉利 10% 容差应报，基础 20% 容差不报。
+        // 基础规则若硬编码 pct，会把吉利收紧的 10% 覆盖回 20%，同一 trace 两条路径结论相反。
+        var frames = CycleFrames(intervalCount: 11, cycleMs: 575);
+
+        var geely = EvaluateWithProfile(frames, "profiles/oem/geely-cv@2.0.nmstd.yaml");
+        var autosar = EvaluateWithProfile(frames, "profiles/base/autosar-cannm@4.1.3.nmstd.yaml");
+
+        var f = Assert.Single(geely.Findings);
+        Assert.Equal("NM_CYCLE_DEVIATION", f.Code);
+        Assert.Empty(autosar.Findings);
+        Assert.DoesNotContain(autosar.Unmodeled, u => u.Clause == "NM_CYCLE");
     }
 
     [Fact]
@@ -46,6 +78,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(100, 0.1));
 
         Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_CYCLE");
     }
 
     [Fact]
@@ -58,6 +91,7 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, CycleRule(100, 0.1));
 
         Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_CYCLE");
     }
 
     [Fact]
@@ -104,6 +138,32 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, BurstRule());
 
         Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_03");
+    }
+
+    [Fact]
+    public void BurstShape_RuleOmitsParameters_UsesProfileTiming()
+    {
+        // 规则只声明 kind：期望帧数 / 快发周期 / 容差全部来自生效时序（8 帧 @25ms）。
+        var frames = BurstFrames(count: 8, intervalSec: 0.025);
+        var standard = new NmStandardTimings { ImmediateCount = 8, ImmediateCycleMs = 25 };
+
+        var result = Evaluate(frames, BurstRuleNoParams(), standardTimings: standard);
+
+        Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_03");
+    }
+
+    [Fact]
+    public void BurstShape_RuleOmitsParameters_WrongFrameCount_ProducesFinding()
+    {
+        // 同样只声明 kind：6 帧不足 profile 的 8 帧，必须判不合规。
+        var frames = BurstFrames(count: 6, intervalSec: 0.025);
+        var standard = new NmStandardTimings { ImmediateCount = 8, ImmediateCycleMs = 25 };
+
+        var result = Evaluate(frames, BurstRuleNoParams(), standardTimings: standard);
+
+        Assert.Single(result.Findings);
     }
 
     [Fact]
@@ -142,6 +202,85 @@ public class NmRuleEvaluatorsTimingTests
         Assert.Contains(result.Unmodeled, u => u.Clause == "NM_03");
     }
 
+    [Fact]
+    public void BurstShape_EpisodeEndBoundary_GoesToUnmodeled()
+    {
+        // 生产路径：有 episode 时逐 episode 判。段尾落在 episode 末尾，形态可能被切断。
+        var frames = BurstFrames(count: 10, intervalSec: 0.020);
+        var end = frames[^1].Frame.Timestamp;
+        var episodes = new[]
+        {
+            new NmEpisode(0, frames[0].Frame.Timestamp, end, "active", null,
+                Array.Empty<string>(), false, false),
+        };
+
+        var result = Evaluate(frames, BurstRule(), episodes: episodes);
+
+        Assert.Empty(result.Findings);
+        Assert.Contains(result.Unmodeled, u =>
+            u.Clause == "NM_03" && u.Reason.Contains("触到分析边界", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BurstShape_TwoEpisodes_DoNotMergeIntoOneBurst()
+    {
+        // 两个 episode 各 5 帧（4 个间隔），中间是静默。逐 episode 判定应得 2 个不合规段；
+        // 若忽略 episode 边界把两段当一条整体求最长连续段，只会得到 1 个（最长仍是 5 帧）。
+        var frames = new[]
+        {
+            Frame(0.00, 0x500, 0xF4, 0), Frame(0.02, 0x500, 0xF4, 0),
+            Frame(0.04, 0x500, 0xF4, 0), Frame(0.06, 0x500, 0xF4, 0),
+            Frame(0.08, 0x500, 0xF4, 0),
+            Frame(1.00, 0x500, 0xF4, 0), Frame(1.02, 0x500, 0xF4, 0),
+            Frame(1.04, 0x500, 0xF4, 0), Frame(1.06, 0x500, 0xF4, 0),
+            Frame(1.08, 0x500, 0xF4, 0),
+        };
+        var episodes = new[]
+        {
+            new NmEpisode(0, 0.00, 0.09, "active", null, Array.Empty<string>(), false, false),
+            new NmEpisode(1, 1.00, 1.09, "active", null, Array.Empty<string>(), false, false),
+        };
+
+        var result = Evaluate(frames, BurstRule(), episodes: episodes);
+
+        Assert.Equal(2, result.Findings.Count);
+        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_03");
+    }
+
+    [Fact]
+    public void BurstShape_NoCandidateAtAll_GoesToUnmodeled()
+    {
+        // 全窗口没有任何连续短间隔：规则没有实际断言形态，不能静默当作通过。
+        var frames = new[]
+        {
+            Frame(0.0, 0x500, 0xF4, 0), Frame(1.0, 0x500, 0xF4, 0),
+            Frame(2.0, 0x500, 0xF4, 0), Frame(3.0, 0x500, 0xF4, 0),
+        };
+
+        var result = Evaluate(frames, BurstRule());
+
+        Assert.Empty(result.Findings);
+        Assert.Contains(result.Unmodeled, u =>
+            u.Clause == "NM_03" && u.Reason.Contains("未观察到快发段", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BurstShape_FramesOutsideAllEpisodes_GoesToUnmodeled()
+    {
+        // 帧全部落在所有 episode 之外：没有可判定的段，必须显式给出原因。
+        var frames = BurstFrames(count: 6, intervalSec: 0.020);
+        var episodes = new[]
+        {
+            new NmEpisode(0, 5.0, 6.0, "active", null, Array.Empty<string>(), false, false),
+        };
+
+        var result = Evaluate(frames, BurstRule(), episodes: episodes);
+
+        Assert.Empty(result.Findings);
+        Assert.Contains(result.Unmodeled, u =>
+            u.Clause == "NM_03" && u.Reason.Contains("episode 之外", StringComparison.Ordinal));
+    }
+
     // ==== nmsts_transition ====
 
     [Fact]
@@ -157,8 +296,29 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(frames, NmstsRule(), roles: [new NmBitRole(3, 0, "NmSts")]);
 
         Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_06");
         var obs = Assert.Single(result.Observations, o => o.Kind == "nmsts_transition");
         Assert.Equal(2.0, obs.Start);
+    }
+
+    [Fact]
+    public void NmstsTransition_NonObserveExpect_GoesToUnmodeled()
+    {
+        // 原语只实现 observe：配了 duration_within_ms 也不能静默跳过期望。
+        var frames = new[]
+        {
+            Frame(0.0, 0x500, 0xF4, 0x00), Frame(1.0, 0x500, 0xF4, 0x01),
+        };
+        var rule = new NmRuleDef("NM_06", "NMSts 状态段", "wakeup",
+            new NmRuleWhen("nmsts_transition", Byte: 3, Bit: 0),
+            new NmRuleExpect("duration_within_ms"), "");
+
+        var result = Evaluate(frames, rule, roles: [new NmBitRole(3, 0, "NmSts")]);
+
+        Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Observations, o => o.Kind == "nmsts_transition");
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("expect.kind", u.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -266,6 +426,8 @@ public class NmRuleEvaluatorsTimingTests
         var result = Evaluate(
             frames, NmstsRule(), roles: [new NmBitRole(3, 0, "NmSts")], episodes: episodes);
 
+        Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Unmodeled, u => u.Clause == "NM_06");
         Assert.DoesNotContain(result.Observations, o => o.Kind == "nmsts_transition");
     }
 
@@ -280,6 +442,13 @@ public class NmRuleEvaluatorsTimingTests
         => new("NM_03", "快发形态", "wakeup",
             new NmRuleWhen("burst_shape", CycleMs: 500),
             new NmRuleExpect("count_equals", Count: 10, IntervalMs: intervalMs, Pct: 0.1),
+            "NM_WAKEUP_BURST_MISMATCH");
+
+    private static NmRuleDef BurstRuleNoParams()
+        // 只声明 kind：count / interval_ms / pct 全部依赖 profile 生效时序。
+        => new("NM_03", "快发形态", "wakeup",
+            new NmRuleWhen("burst_shape"),
+            new NmRuleExpect("count_equals"),
             "NM_WAKEUP_BURST_MISMATCH");
 
     private static NmRuleDef NmstsRule()
@@ -313,7 +482,8 @@ public class NmRuleEvaluatorsTimingTests
         NmTimings? timings = null,
         bool declareLayout = true,
         double windowEnd = 10,
-        IReadOnlyList<NmEpisode>? episodes = null)
+        IReadOnlyList<NmEpisode>? episodes = null,
+        NmStandardTimings? standardTimings = null)
     {
         var defs = frames.Select(f => f.Def).Distinct().ToArray();
         var profile = new NmProfile(
@@ -322,10 +492,66 @@ public class NmRuleEvaluatorsTimingTests
             Array.Empty<string>(), new NmProvenance(),
             Layout: declareLayout ? new NmLayout(NidByte: 0, CbvByte: 1) : null,
             StandardBitRoles: roles);
-        var timing = NmTimingDefaults.FromProfile(profile.Timings, null);
+        var timing = NmTimingDefaults.FromProfile(profile.Timings, standardTimings);
         var ctx = new NmRuleContext(frames, episodes ?? Array.Empty<NmEpisode>(), profile, timing,
             new NmWindow(0, windowEnd, "test")) { Rules = new[] { rule } };
         return NmRuleEngine.Evaluate(ctx.Rules, ctx);
+    }
+
+    /// <summary>
+    /// 用仓库真实的 profile 文件求值：先加载 base，再按需叠加 OEM 并通过
+    /// <see cref="NmStandardProfileBinding"/> 绑定到项目 profile（与生产路径一致）。
+    /// </summary>
+    private static NmRuleResult EvaluateWithProfile(
+        IReadOnlyList<NmFrame> frames, string profileRelativePath)
+    {
+        var baseProfile = NmStandardYaml.LoadFile(
+            RepoPath("profiles/base/autosar-cannm@4.1.3.nmstd.yaml"));
+        var registry = new Dictionary<string, NmStandardProfile>(StringComparer.Ordinal)
+        {
+            [$"{baseProfile.StandardId}@{baseProfile.Version}"] = baseProfile,
+        };
+
+        var yaml = File.ReadAllText(RepoPath(profileRelativePath));
+        var selected = NmStandardYaml.Load(yaml);
+        registry[$"{selected.StandardId}@{selected.Version}"] = selected;
+        var flat = NmStandardYaml.LoadAndFlatten(yaml, registry);
+
+        var defs = frames.Select(f => f.Def).Distinct().ToArray();
+        var project = new NmProfile(
+            NmProfileSource.Dbc, defs, new NmTimings(),
+            Array.Empty<NmNodeDef>(), Array.Empty<NmConfigConflict>(),
+            Array.Empty<string>(), new NmProvenance(),
+            Layout: new NmLayout(NidByte: 0, CbvByte: 1));
+        var bound = NmStandardProfileBinding.Bind(project, flat);
+        var timing = NmTimingDefaults.FromProfile(bound.Timings, bound.StandardTimings);
+        var rule = FindRule(flat.Rules!, "NM_CYCLE");
+
+        var ctx = new NmRuleContext(frames, Array.Empty<NmEpisode>(), bound, timing,
+            new NmWindow(0, 10, "test")) { Rules = new[] { rule } };
+        return NmRuleEngine.Evaluate(ctx.Rules, ctx);
+    }
+
+    private static NmRuleDef FindRule(IReadOnlyList<NmRuleDef> rules, string id)
+    {
+        for (var i = 0; i < rules.Count; i++)
+        {
+            if (string.Equals(rules[i].Id, id, StringComparison.Ordinal)) return rules[i];
+        }
+        throw new InvalidOperationException($"profile 缺少规则 {id}");
+    }
+
+    private static string RepoPath(string relative)
+    {
+        // 本测试项目有同名 namespace PeakCan.Host.Core.Tests.Path，显式指回 System.IO.Path。
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null
+               && !File.Exists(System.IO.Path.Combine(dir.FullName, "PeakCan.Host.slnx")))
+        {
+            dir = dir.Parent;
+        }
+        Assert.NotNull(dir);
+        return System.IO.Path.Combine(dir!.FullName, relative);
     }
 
     private static NmMessageDef Def(string id, bool isExtended = false)

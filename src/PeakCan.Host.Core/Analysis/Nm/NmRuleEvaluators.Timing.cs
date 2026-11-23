@@ -128,8 +128,11 @@ public static partial class NmRuleEvaluators
             };
 
             var frames = group.OrderBy(f => f.Frame.Timestamp).ToArray();
+            var sawSegment = false;
+            var sawCandidate = false;
             foreach (var (start, end, times) in Segments(frames, ctx))
             {
+                sawSegment = true;
                 var burst = NmBurstDetector.DetectInEpisode(times, start, end, timing);
 
                 if (!burst.IsCandidate)
@@ -142,6 +145,8 @@ public static partial class NmRuleEvaluators
                     }
                     continue;
                 }
+
+                sawCandidate = true;
 
                 // 段尾触到窗口 / episode 边界：段可能被切断，形态不可判（spec §7.4）。
                 if (burst.IsIndeterminate)
@@ -176,6 +181,17 @@ public static partial class NmRuleEvaluators
                     SuggestedNextCheck: "核对 N_ImmediateNM_TIMES 与 T_NM_ImmediateCycleTime 配置",
                     RuleId: rule.Id, RequirementId: rule.Id, SourceRef: rule.SourceRef));
             }
+
+            // 该报文的帧全部落在所有 episode 之外：没有可判定的段（生产不可达，但显式可见）。
+            if (!sawSegment)
+            {
+                reasons.Add($"{def.CanIdHex} 的帧全部落在所有 episode 之外，未判定快发形态");
+            }
+            // 规则意图是「验证快发段存在」时，整段没有候选不能算通过：报告必须显示未断言。
+            else if (!sawCandidate)
+            {
+                reasons.Add($"{def.CanIdHex} 未观察到快发段（无候选段），规则未实际断言快发形态");
+            }
         }
 
         if (reasons.Count > 0) unmodeledReason = string.Join("；", reasons.Distinct());
@@ -192,6 +208,14 @@ public static partial class NmRuleEvaluators
         out string? unmodeledReason)
     {
         unmodeledReason = null;
+
+        // 只实现了 observe：其它期望若静默跳过，用户会以为条款已被校验（与兄弟原语同口径）。
+        if (!string.Equals(rule.Expect.Kind, "observe", StringComparison.Ordinal))
+        {
+            unmodeledReason =
+                $"nmsts_transition 仅实现 expect.kind=observe，当前为 {rule.Expect.Kind}";
+            return true;
+        }
 
         if (rule.When.Byte is not { } byteIndex || rule.When.Bit is not { } bitIndex)
         {

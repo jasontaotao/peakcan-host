@@ -49,9 +49,9 @@ rules:
     phase: normal
     observability: observed
     when:
+      # 只声明语义，不钉数值：cycle_ms / pct 由生效时序提供，
+      # 否则 OEM 收紧的 tolerance_ratio（如吉利 0.1）会被基础层覆盖回 20%。
       kind: cycle_tolerance
-      cycle_ms: 500
-      pct: 0.2
     expect:
       kind: within_pct
     finding: NM_CYCLE_DEVIATION
