@@ -267,7 +267,7 @@ overrides:
         Assert.Equal(0.1, flat.Timings!.ToleranceRatio);
         // 规则按 id 合并。
         Assert.Contains(flat.Rules!, r => r.Id == "NM_CYCLE");
-        Assert.Contains(flat.Rules!, r => r.Id == "NM_06");
+        Assert.Contains(flat.Rules!, r => r.Id == "NM_RMS_DURATION_BURST");
     }
 
     // spec §7.2：stop_sending 的参数是 timeout_ms，当前 NmRuleWhen 没有这个字段。

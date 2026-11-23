@@ -46,8 +46,10 @@ overrides:
 rules:
   - id: NM_CYCLE
     requirement: NM 报文应以 T_NM_MessageCycle 周期发送，容差 ±20%
-    phase: normal
+    declared_phase: normal
     observability: observed
+    # base 规则不属于 OEM 条款空间（它是 AUTOSAR SWS §9），空列表 = 不参与条款覆盖统计。
+    clauses: []
     when:
       # 只声明语义，不钉数值：cycle_ms / pct 由生效时序提供，
       # 否则 OEM 收紧的 tolerance_ratio（如吉利 0.1）会被基础层覆盖回 20%。

@@ -48,13 +48,13 @@ public class NmRealTraceContractTests
         Assert.Equal(4, rms.Length);
         Assert.All(rms, f => Assert.True(f.IsInference, "P 级原语必须标推断"));
         // 吉利 §5.5 的 T_REPEAT_MESSAGE 是两个区间，规则也拆成两条：
-        // 第一段（2.1s，无快发）归 NM_06_NOBURST（1440–1560）；
-        // 第二段（8.775s，含快发）归 NM_06（1640–1760）。
+        // 第一段（2.1s，无快发）归 NM_RMS_DURATION_NOBURST（1440–1560）；
+        // 第二段（8.775s，含快发）归 NM_RMS_DURATION_BURST（1640–1760）。
         // 归错规则说明快发形态选择器失效——那正是「双区间退化成并集」的表现。
         Assert.All(rms.Where(f => Math.Abs(f.EvidenceTimes[1] - 2.1) < 1e-6),
-            f => Assert.Equal("NM_06_NOBURST", f.RuleId));
+            f => Assert.Equal("NM_RMS_DURATION_NOBURST", f.RuleId));
         Assert.All(rms.Where(f => Math.Abs(f.EvidenceTimes[1] - 8.775) < 1e-6),
-            f => Assert.Equal("NM_06", f.RuleId));
+            f => Assert.Equal("NM_RMS_DURATION_BURST", f.RuleId));
         // 两段分别结束于 2.1s 与 8.775s（EvidenceTimes = [start, end]）；
         // 每段都必须点名两个节点，不能合并后只归给「先到」的那个。
         foreach (var segmentEnd in new[] { 2.1, 8.775 })
@@ -67,10 +67,13 @@ public class NmRealTraceContractTests
                 f.Message.Contains("0x18FFFAF5", StringComparison.OrdinalIgnoreCase));
         }
         // 求值成功就不该同时进 Unmodeled；第二段 RMS 也不应让规则整体失效。
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_06");
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_06_NOBURST");
-        // Geely 的另一条未实现条款同样显式可见，证明加载的是完整规则集。
-        Assert.Contains(report.UnmodeledRules!, u => u.RuleId == "NM_09");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_RMS_DURATION_BURST");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_RMS_DURATION_NOBURST");
+        // Geely 的 stop_sending 规则必须真的在规则集里，并保持「只产观测、不产 finding」。
+        // 本窗口末帧（9.789s）距窗尾不足 2s 超时，规则正确落进 Unmodeled
+        // （没有可归因的停发段），所以不能拿「有 stop_sending 观测」当非空洞性守卫。
+        Assert.Contains(profile.StandardRules!, r => r.Id == "NM_STOP_SENDING");
+        Assert.DoesNotContain(report.Findings, f => f.RuleId == "NM_STOP_SENDING");
 
         // (2) 全网 NM 静默 > timeout：必须是 all_nm_silent 观测事实，
         //     不得降级成单报文 NM_SENDER_SILENT_BEYOND_TIMEOUT（spec §7.1.2）。
@@ -112,15 +115,15 @@ public class NmRealTraceContractTests
         Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_LAYOUT_ID_STD");
         Assert.DoesNotContain(report.Findings, f => f.Code == "NM_LAYOUT_VIOLATION");
 
-        // 快发形态（NM_03）必须真的在规则集里：否则「快发帧数错误」的节点
+        // 快发形态（NM_BURST_SHAPE）必须真的在规则集里：否则「快发帧数错误」的节点
         // 只要 RMS 时长落在窗内就能全绿，报告也不会披露这项没查。
-        Assert.Contains(profile.StandardRules!, r => r.Id == "NM_03");
+        Assert.Contains(profile.StandardRules!, r => r.Id == "NM_BURST_SHAPE");
 
-        // NM_06 拆成双区间后，两条规则都必须存在且都求过值。
-        Assert.Contains(profile.StandardRules!, r => r.Id == "NM_06");
-        Assert.Contains(profile.StandardRules!, r => r.Id == "NM_06_NOBURST");
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_06");
-        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_06_NOBURST");
+        // RMS 拆成双区间后，两条规则都必须存在且都求过值。
+        Assert.Contains(profile.StandardRules!, r => r.Id == "NM_RMS_DURATION_BURST");
+        Assert.Contains(profile.StandardRules!, r => r.Id == "NM_RMS_DURATION_NOBURST");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_RMS_DURATION_BURST");
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.RuleId == "NM_RMS_DURATION_NOBURST");
     }
 
     [Fact]
@@ -247,7 +250,7 @@ public class NmRealTraceContractTests
         // profile 真的绑定成功：否则后续所有规则断言都只是空转。
         Assert.NotNull(bound.StandardRules);
         Assert.Contains(bound.StandardRules!, r => r.Id == "NM_CYCLE");
-        Assert.Contains(bound.StandardRules!, r => r.Id == "NM_06");
+        Assert.Contains(bound.StandardRules!, r => r.Id == "NM_RMS_DURATION_BURST");
         return bound;
     }
 
