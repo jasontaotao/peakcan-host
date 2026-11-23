@@ -30,6 +30,21 @@ overrides:
         name: NmSts
         meaning: "0=Repeat Message State, 1=Normal Operation State"
         constraint: none
+      # 吉利 §5.4.3 / §5.4.4：CBV bit1–3、bit5–7 与 NMSts 所在字节的 bit1–7 均为预留，
+      # 必须填 0。base 只声明了 bit0/bit4/bit6，剩下的位若不显式声明，
+      # 对应规则在求值期找不到角色 → 进 Unmodeled，等于从未检查过。
+      - { byte: 1, bit: 1, name: Reserved_B1_1, constraint: must_be_zero }
+      - { byte: 1, bit: 2, name: Reserved_B1_2, constraint: must_be_zero }
+      - { byte: 1, bit: 3, name: Reserved_B1_3, constraint: must_be_zero }
+      - { byte: 1, bit: 5, name: Reserved_B1_5, constraint: must_be_zero }
+      - { byte: 1, bit: 7, name: Reserved_B1_7, constraint: must_be_zero }
+      - { byte: 3, bit: 1, name: Reserved_B3_1, constraint: must_be_zero }
+      - { byte: 3, bit: 2, name: Reserved_B3_2, constraint: must_be_zero }
+      - { byte: 3, bit: 3, name: Reserved_B3_3, constraint: must_be_zero }
+      - { byte: 3, bit: 4, name: Reserved_B3_4, constraint: must_be_zero }
+      - { byte: 3, bit: 5, name: Reserved_B3_5, constraint: must_be_zero }
+      - { byte: 3, bit: 6, name: Reserved_B3_6, constraint: must_be_zero }
+      - { byte: 3, bit: 7, name: Reserved_B3_7, constraint: must_be_zero }
   features:
     pn_enabled: false
   remove:
@@ -59,8 +74,32 @@ rules:
     finding: NM_RMR_SET_WHILE_DISABLED
     source_ref: §5.4.3
 
+  # 吉利 §5.5 的 T_REPEAT_MESSAGE 是**两个**执行区间，不是单一 1600±10%：
+  #   含快发 1700±60ms = 1640–1760；不含快发 1500±60ms = 1440–1560。
+  # 必须拆成两条规则。若合成一条用并集 1440–1760，「无快发的 1700ms」与
+  # 「有快发的 1500ms」都会被放过——那正是双区间存在的意义。
+  #
+  # with_burst 是**选窗器**不是形态断言：它决定这一段该用哪个区间判时长。
+  # 形态不符时本条规则跳过并产 repeat_message_duration_not_applicable 观测，
+  # 由另一条规则（或 burst_shape NM_03）负责。快发帧数/间隔的合规性见下方 NM_03。
   - id: NM_06
-    requirement: Repeat Message State 持续时长；含快发 1700±60ms，不含快发 1500±60ms
+    requirement: Repeat Message State（含快发）持续 1700±60ms
+    phase: wakeup
+    observability: partial
+    when:
+      kind: repeat_message_duration
+      cycle_ms: 500
+    expect:
+      kind: duration_within_ms
+      min_ms: 1640
+      max_ms: 1760
+      anchor: nmsts
+      with_burst: true
+    finding: NM_REPEAT_MESSAGE_DURATION_EXCEEDED
+    source_ref: §5.5
+
+  - id: NM_06_NOBURST
+    requirement: Repeat Message State（不含快发）持续 1500±60ms
     phase: wakeup
     observability: partial
     when:
@@ -69,9 +108,28 @@ rules:
     expect:
       kind: duration_within_ms
       min_ms: 1440
-      max_ms: 1760
+      max_ms: 1560
       anchor: nmsts
+      with_burst: false
     finding: NM_REPEAT_MESSAGE_DURATION_EXCEEDED
+    source_ref: §5.5
+
+  # 吉利 §5.5：快发 10 帧 × 20ms ±10%（N_ImmediateNM_TIMES / T_NM_ImmediateCycleTime）。
+  # 没有这条规则时，一个「快发帧数错误」的节点只要 RMS 总时长落在允许窗内就能全绿，
+  # 报告也不会披露快发形态根本没查——这是审核发现的静默覆盖缺口。
+  - id: NM_03
+    requirement: 主动/本地唤醒后快发 10 帧，间隔 20ms ±10%
+    phase: wakeup
+    observability: partial
+    when:
+      kind: burst_shape
+      cycle_ms: 500
+    expect:
+      kind: count_equals
+      count: 10
+      interval_ms: 20
+      pct: 0.1
+    finding: NM_WAKEUP_BURST_MISMATCH
     source_ref: §5.5
 
   - id: NM_09
@@ -84,3 +142,142 @@ rules:
       kind: observe
     finding: ""
     source_ref: §5.9
+
+  # 吉利 §5.4.3：CBV bit1–3、bit5–7 为预留位，必须填 0。
+  # 逐位声明而不是「整字节等于 0」：bit0 是 RMR、bit4 是 AWB，整字节判定会把
+  # 合法的 AWB=1 也报成预留位违规。
+  - id: NM_RESERVED_B1_1
+    requirement: CBV byte1.bit1 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 1, bit: 1 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.3
+
+  - id: NM_RESERVED_B1_2
+    requirement: CBV byte1.bit2 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 1, bit: 2 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.3
+
+  - id: NM_RESERVED_B1_3
+    requirement: CBV byte1.bit3 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 1, bit: 3 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.3
+
+  - id: NM_RESERVED_B1_5
+    requirement: CBV byte1.bit5 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 1, bit: 5 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.3
+
+  - id: NM_RESERVED_B1_7
+    requirement: CBV byte1.bit7 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 1, bit: 7 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.3
+
+  # 吉利 §5.4.4：NMSts 位于 byte3.bit0，其 bit1–7 为预留位，必须填 0。
+  - id: NM_RESERVED_B3_1
+    requirement: NMSts 所在 byte3.bit1 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 3, bit: 1 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.4
+
+  - id: NM_RESERVED_B3_2
+    requirement: NMSts 所在 byte3.bit2 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 3, bit: 2 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.4
+
+  - id: NM_RESERVED_B3_3
+    requirement: NMSts 所在 byte3.bit3 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 3, bit: 3 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.4
+
+  - id: NM_RESERVED_B3_4
+    requirement: NMSts 所在 byte3.bit4 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 3, bit: 4 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.4
+
+  - id: NM_RESERVED_B3_5
+    requirement: NMSts 所在 byte3.bit5 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 3, bit: 5 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.4
+
+  - id: NM_RESERVED_B3_6
+    requirement: NMSts 所在 byte3.bit6 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 3, bit: 6 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.4
+
+  - id: NM_RESERVED_B3_7
+    requirement: NMSts 所在 byte3.bit7 为预留位，必须填 0
+    phase: normal
+    observability: observed
+    when: { kind: bit_rule, byte: 3, bit: 7 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.4
+
+  # 吉利 §5.4.1：报文 ID 区间。扩展帧 0x18FFFA00–0x18FFFAFF，标准帧 0x400–0x47F。
+  - id: NM_LAYOUT_ID_EXT
+    requirement: 扩展帧 NM 报文 ID 必须落在 0x18FFFA00–0x18FFFAFF
+    phase: normal
+    observability: observed
+    when:
+      kind: layout_check
+      min_id: "0x18FFFA00"
+      max_id: "0x18FFFAFF"
+      extended: true
+    expect: { kind: equals }
+    finding: NM_LAYOUT_VIOLATION
+    source_ref: §5.4.1
+
+  - id: NM_LAYOUT_ID_STD
+    requirement: 标准帧 NM 报文 ID 必须落在 0x400–0x47F
+    phase: normal
+    observability: observed
+    when:
+      kind: layout_check
+      min_id: "0x400"
+      max_id: "0x47F"
+      extended: false
+    expect: { kind: equals }
+    finding: NM_LAYOUT_VIOLATION
+    source_ref: §5.4.1
