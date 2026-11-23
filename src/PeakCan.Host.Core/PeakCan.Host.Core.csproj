@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <!-- NM M2 S1: 企标 profile（*.nmstd.yaml）加载。仅 Core 引用，加载层隔离。 -->
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
   <!-- Restbus unification M1: prefer a sibling-repo project reference, else the NuGet package.

@@ -7,7 +7,10 @@ public sealed record NmGapInput(
     NmProfile Profile,
     IReadOnlyList<NmEpisode> Episodes,
     NmWindow Window,
-    NmSelectionDiagnostics Diagnostics);
+    NmSelectionDiagnostics Diagnostics,
+    // 统一时序（spec §5.2）：null 时回落到 Profile.Timings / M1 默认，
+    // 兼容只关心 gap 逻辑的调用方与测试。
+    NmGlobalTiming? Timing = null);
 
 public sealed record NmGapResult(
     IReadOnlyList<NmFinding> Findings,
@@ -26,8 +29,11 @@ public static class NmGapAnalyzer
         var events = new List<NmEvent>();
         var unknowns = new List<string>();
 
-        var timeoutMs = input.Profile.Timings.TimeoutMs ?? 2000;
-        var cycleMs = input.Profile.Timings.CycleMs ?? 500;
+        // 统一时序优先（spec §5.2）：避免 episode 切分用 2200、静默判定用 2000 的漂移。
+        var globalTiming = input.Timing
+            ?? NmTimingDefaults.FromProfile(input.Profile.Timings, input.Profile.StandardTimings);
+        var timeoutMs = globalTiming.TimeoutMs;
+        var cycleMs = globalTiming.CycleMs;
         var timeoutSec = timeoutMs / 1000.0;
         var busSilenceThreshold = Math.Max(2 * cycleMs, 500) / 1000.0;
 
@@ -98,8 +104,8 @@ public static class NmGapAnalyzer
                 var lastEpisode = input.Episodes.Count > 0 ? input.Episodes[^1] : null;
                 // 单报文阈值用该报文的生效超时（def > profile > 2000），与周期统计同源；
                 // 全网络静默仍用全局超时。
-                var effectiveTimeoutMs = group.First().Def.TimeoutMs
-                    ?? input.Profile.Timings.TimeoutMs ?? 2000;
+                var effectiveTimeoutMs = NmTiming
+                    .Resolve(group.First().Def, globalTiming).TimeoutMs;
                 var messageTimeoutSec = effectiveTimeoutMs / 1000.0;
 
                 if (lastEpisode is not null

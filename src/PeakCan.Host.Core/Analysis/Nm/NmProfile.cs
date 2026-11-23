@@ -92,7 +92,9 @@ public sealed record NmProfile(
     NmProvenance Provenance,
     NmIdMappingMode? IdMapping = null,
     NmLayout? Layout = null,
-    NmFeatures? Features = null);
+    NmFeatures? Features = null,
+    // 企标 profile 的 timing 段（展平后）；null 表示未选企标，走 M1 默认值。
+    NmStandardTimings? StandardTimings = null);
 
 /// <summary>用户在补全对话框里填的内容；序列化为 <c>*.nmprofile.json</c>。</summary>
 public sealed record NmUserSupplement(

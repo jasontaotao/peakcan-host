@@ -6,7 +6,9 @@ public sealed record NmContentInput(
     int CycleMs,
     // 可选 episode 列表：提供后事件按时间落到真实 episode 编号；
     // 不提供时保持 0，兼容只关心事件内容的调用方。
-    IReadOnlyList<NmEpisode>? Episodes = null);
+    IReadOnlyList<NmEpisode>? Episodes = null,
+    // 统一时序（spec §5.2）：null 时回落到 Profile.Timings / M1 默认。
+    NmGlobalTiming? Timing = null);
 
 public sealed record NmContentResult(
     IReadOnlyList<NmEvent> Events,
@@ -26,6 +28,9 @@ public static class NmContentAnalyzer
         var events = new List<NmEvent>();
         var findings = new List<NmFinding>();
         var truncations = new List<NmTruncation>();
+        // 统一时序（spec §5.2）：漏帧/突发阈值与 episode 切分同源。
+        var globalTiming = input.Timing
+            ?? NmTimingDefaults.FromProfile(input.Profile.Timings, input.Profile.StandardTimings);
 
         // 分组键必须含扩展位：标准 0x500 与扩展 0x500 是两条不同报文，
         // 合并后会打散间隔并串用错误的周期/超时阈值。
@@ -59,7 +64,7 @@ public static class NmContentAnalyzer
             var burstCycleMs = ordered[0].Def.CycleMs ?? input.CycleMs;
             DetectBurst(ordered, burstCycleMs, Emit);
             DetectByteAndBitChanges(ordered, canId, Emit);
-            DetectMissedFrames(ordered, input.CycleMs, input.Profile, Emit);
+            DetectMissedFrames(ordered, input.CycleMs, globalTiming, Emit);
 
             // 只有真正丢弃过事件才记截断；Returned/Total 都是事件数，不是帧数。
             if (dropped > 0)
@@ -158,14 +163,14 @@ public static class NmContentAnalyzer
     /// 事件计入该报文的 200 条预算；共享 ID 不能否定漏帧，不参与抑制。
     /// </summary>
     private static void DetectMissedFrames(
-        NmFrame[] ordered, int globalCycleMs, NmProfile profile, Action<NmEvent> emit)
+        NmFrame[] ordered, int globalCycleMs, NmGlobalTiming timing, Action<NmEvent> emit)
     {
         if (ordered.Length < 2) return;
 
         var def = ordered[0].Def;
         var cycleMs = def.CycleMs ?? globalCycleMs;
         if (cycleMs <= 0) return;
-        var timeoutMs = def.TimeoutMs ?? profile.Timings.TimeoutMs ?? 2000;
+        var timeoutMs = NmTiming.Resolve(def, timing).TimeoutMs;
         var cycleSec = cycleMs / 1000.0;
         var timeoutSec = timeoutMs / 1000.0;
 

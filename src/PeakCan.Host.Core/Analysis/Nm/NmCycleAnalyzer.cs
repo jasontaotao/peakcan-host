@@ -9,10 +9,15 @@ public static class NmCycleAnalyzer
 {
     private const int MinimumSamples = 5;
 
+    /// <summary>
+    /// 周期统计。<paramref name="toleranceMs"/> 为 null 时用 M1 默认
+    /// <c>max(0.2×cycle, 30ms)</c>——保持无 profile 时行为不变。
+    /// </summary>
     public static NmCycleStats Analyze(
         IReadOnlyList<double> timestamps,
         NmMessageDef def,
-        IReadOnlyList<NmEpisode> episodes)
+        IReadOnlyList<NmEpisode> episodes,
+        int? toleranceMs = null)
     {
         var ordered = timestamps.OrderBy(t => t).ToArray();
         var timeoutSec = (def.TimeoutMs ?? int.MaxValue) / 1000.0;
@@ -46,7 +51,7 @@ public static class NmCycleAnalyzer
             return new NmCycleStats(null, null, null, null, null, 0,
                 IntervalCount: intervals.Count,
                 ExpectedMs: def.CycleMs,
-                ToleranceMs: Tolerance(def.CycleMs),
+                ToleranceMs: toleranceMs ?? Tolerance(def.CycleMs),
                 InsufficientSamples: true);
         }
 
@@ -58,9 +63,9 @@ public static class NmCycleAnalyzer
         int longestConsecutive = 0;
         if (def.CycleMs is { } expected)
         {
-            var toleranceMs = Tolerance(expected)!.Value;
+            var effectiveToleranceMs = toleranceMs ?? Tolerance(expected)!.Value;
             var expectedSec = expected / 1000.0;
-            var toleranceSec = toleranceMs / 1000.0;
+            var toleranceSec = effectiveToleranceMs / 1000.0;
             // 一次遍历同时统计总偏差间隔数与最长连续偏差间隔数。
             var run = 0;
             foreach (var interval in intervals)
@@ -104,7 +109,7 @@ public static class NmCycleAnalyzer
             DeviationCount: deviations,
             IntervalCount: intervals.Count,
             ExpectedMs: def.CycleMs,
-            ToleranceMs: Tolerance(def.CycleMs),
+            ToleranceMs: toleranceMs ?? Tolerance(def.CycleMs),
             ConsecutiveDeviationCount: longestConsecutive);
     }
 

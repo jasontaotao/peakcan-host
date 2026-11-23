@@ -69,3 +69,4 @@ coverage-rel/
 coverage-rel2/
 coverage-results/
 full-trx/
+.tmp/

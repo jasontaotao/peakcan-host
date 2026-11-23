@@ -167,8 +167,13 @@ public static class NmAnalyzer
                 nmFrames.Add(new NmFrame(def, frame));
         }
 
-        var timeoutMs = request.Profile.Timings.TimeoutMs ?? 2000;
-        var cycleMs = request.Profile.Timings.CycleMs ?? 500;
+        // 统一时序（spec §5.2）：所有阶段共用同一个 NmGlobalTiming，
+        // 逐报文再经 NmTiming.Resolve 得到 NmEffectiveTiming。
+        // 无 profile 时 NmTimingDefaults 给出与 M1 完全相同的默认值。
+        var globalTiming = NmTimingDefaults.FromProfile(
+            request.Profile.Timings, request.Profile.StandardTimings);
+        var timeoutMs = globalTiming.TimeoutMs;
+        var cycleMs = globalTiming.CycleMs;
 
         episodes = NmEpisodeBuilder.Build(nmFrames, timeoutMs, request.Start, request.End);
         if (IsCanceled(NmAnalyzerCheckpoint.AfterEpisodes))
@@ -205,10 +210,16 @@ public static class NmAnalyzer
                 }
 
                 var timestamps = frames.Select(f => f.Frame.Timestamp).ToArray();
-                // 周期剔除与 SilentBeyondTimeout 必须同源：报文自身超时优先，其次 profile 级。
-                var effectiveTimeoutMs = def.TimeoutMs ?? request.Profile.Timings.TimeoutMs ?? 2000;
+                // 周期剔除与 SilentBeyondTimeout 必须同源：报文级优先，其次全局（spec §5.2）。
+                var effTiming = NmTiming.Resolve(def, globalTiming);
+                var effectiveTimeoutMs = effTiming.TimeoutMs;
+                // 报文自身没有周期时传 null：M1 的 ToleranceMs 也是 null，
+                // 传一个非 null 值会让 GetNmOverviewTool 的 tolerance_ms 输出漂移。
                 var cycle = NmCycleAnalyzer.Analyze(
-                    timestamps, def with { TimeoutMs = effectiveTimeoutMs }, episodes);
+                    timestamps, def with { TimeoutMs = effectiveTimeoutMs }, episodes,
+                    toleranceMs: def.CycleMs is null
+                        ? null
+                        : effTiming.ToleranceMsFor(effTiming.CycleMs));
 
                 if (cycle.InsufficientSamples)
                 {
@@ -252,7 +263,7 @@ public static class NmAnalyzer
                 // 阶段推断：wakeup → active → released/silent（spec §7.3）。
                 var activity = NmActivityBuilder.Build(
                     frames, def, episodes,
-                    effectiveCycleMs: def.CycleMs ?? cycleMs,
+                    effectiveCycleMs: effTiming.CycleMs,
                     repeatMessageMs: request.Profile.Timings.RepeatMessageMs,
                     allNmFrames: nmFrames,
                     windowEnd: request.End,
@@ -274,7 +285,8 @@ public static class NmAnalyzer
         }
 
         var gap = NmGapAnalyzer.Analyze(new NmGapInput(
-            request.SourceId, nmFrames, selected, request.Profile, episodes, window, diagnostics));
+            request.SourceId, nmFrames, selected, request.Profile, episodes, window, diagnostics,
+            Timing: globalTiming));
         findings.AddRange(gap.Findings);
         events.AddRange(gap.Events);
         gapUnknowns = gap.Unknowns;
@@ -283,7 +295,7 @@ public static class NmAnalyzer
             return Finish(partial: true);
 
         var content = NmContentAnalyzer.Analyze(
-            new NmContentInput(nmFrames, request.Profile, cycleMs, episodes));
+            new NmContentInput(nmFrames, request.Profile, cycleMs, episodes, Timing: globalTiming));
         findings.AddRange(content.Findings);
         events.AddRange(content.Events);
         truncations.AddRange(content.Truncations);
