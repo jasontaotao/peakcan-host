@@ -806,8 +806,11 @@ public static class NmBurstDetector
         double Start, double End,
         bool IsCandidate,        // 宽松检测：≥2 个间隔 ≤ 2.0×Immediate
         bool IsCompliant,        // 严格判定：count==ImmediateCount 且间隔 ∈ 1±ratio
-        string Detector,         // "immediate" | "cycle_ratio_fallback"
-        bool IsIndeterminate);   // 窗口截断/帧数不足
+        string Detector,         // "immediate" | "cycle_ratio_fallback" | "none"
+        // 段尾触到 episode/窗口边界：实测时长只是下限，既不得判合规也不得判不合规。
+        // 注意：**不含「帧数不足」**——那是 IsCandidate=false 的语义，不是不可判明。
+        // 「两个阈值都缺失」也置 true（此时 IsCandidate=false），表示检测器无法判定。
+        bool IsIndeterminate);
 }
 ```
 

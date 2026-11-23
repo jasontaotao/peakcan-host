@@ -31,7 +31,10 @@ public static class NmBurstDetector
     /// <summary>检测阶段的宽松倍数：只为抓到候选，不作合规结论（spec §7.3 阶段 1）。</summary>
     private const double CandidateFactor = 2.0;
 
-    /// <summary>回退路径（无 ImmediateCycleMs）沿用的 M1 阈值：0.5×cycle。</summary>
+    /// <summary>
+    /// 回退路径（无 ImmediateCycleMs）沿用的 M1 阈值：0.5×cycle。
+    /// 比较方向也是 M1 口径——严格 <，即恰为 0.5×cycle 时算作断点。
+    /// </summary>
     private const double CycleRatioFactor = 0.5;
 
     /// <summary>浮点边界比较余量（秒）。</summary>
@@ -58,8 +61,11 @@ public static class NmBurstDetector
             return none with { IsIndeterminate = true };
 
         // 只分析落在本 episode 内的帧；边界为闭区间。
+        // 去重后再做索引运算：循环里跳过重复帧会让 runStart/runCount 与数组下标错位，
+        // 导致 end / FrameCount 取到错误帧。重复帧本就是同一时刻，先合并最简单。
         var ordered = timestamps
             .Where(t => t >= episodeStart && t <= episodeEnd)
+            .Distinct()
             .OrderBy(t => t)
             .ToArray();
         if (ordered.Length < 2) return none;
@@ -90,7 +96,16 @@ public static class NmBurstDetector
         for (var i = 1; i < ordered.Length; i++)
         {
             var delta = ordered[i] - ordered[i - 1];
-            if (delta <= detectThreshold)
+
+            // 去重后 delta 恒 > 0，不再需要跳过重复帧。
+
+            // 阈值比较方向按路径区分：immediate 走 spec §7.4 的 ≤；
+            // 回退路径沿用 M1 的严格 <（NmActivityBuilder 在 delta >= 0.5×cycle 时断开）。
+            var isShortInterval = canJudgeCompliance
+                ? delta <= detectThreshold
+                : delta < detectThreshold;
+
+            if (isShortInterval)
             {
                 if (runStart < 0) runStart = i - 1;
                 runCount++;
