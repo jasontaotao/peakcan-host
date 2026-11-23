@@ -435,17 +435,24 @@
                     <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.22" />
                 </Border.Effect>
                 <StackPanel>
-                    <StackPanel Orientation="Horizontal">
+                    <!-- 图标与标题用 Grid（Auto + *）：横向 StackPanel 会给标题无限
+                         测量宽度，TextWrapping 失效，长标题被 MaxWidth 直接裁掉。 -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
                         <Rectangle Width="8" Height="8" RadiusX="2" RadiusY="2"
-                                   VerticalAlignment="Center"
+                                   VerticalAlignment="Top" Margin="0,4,0,0"
                                    Fill="{Binding NmHoverKind, Converter={StaticResource NmSegmentBrush}}" />
-                        <TextBlock Text="{Binding NmHoverTitle}" FontWeight="SemiBold" FontSize="12"
+                        <TextBlock Grid.Column="1" Text="{Binding NmHoverTitle}"
+                                   FontWeight="SemiBold" FontSize="12"
                                    Margin="6,0,0,0" TextWrapping="Wrap" />
-                    </StackPanel>
+                    </Grid>
                     <TextBlock Text="{Binding NmHoverRange}" FontSize="11" Margin="14,4,0,0"
-                               Foreground="#23364D" />
+                               TextWrapping="Wrap" Foreground="#23364D" />
                     <TextBlock Text="{Binding NmHoverHint}" FontSize="10" Margin="14,2,0,0"
-                               Foreground="#6B7785" />
+                               TextWrapping="Wrap" Foreground="#6B7785" />
                 </StackPanel>
             </Border>
         </Popup>

@@ -109,6 +109,89 @@ public class NmHoverCardTests
         cardTexts.Should().Contain("3 帧短间隔", "详情字段也必须渲染；实际：{0}", cardTexts);
     }
 
+    [Fact]
+    public void MarkerMouseEnter_LongTitle_WrapsInsideCardInsteadOfClipping()
+    {
+        // 用户报告：卡片标题在 "(" 处被硬裁掉。根因是横向 StackPanel 给标题
+        // 无限测量宽度，TextWrapping 不生效，最后被 Border.MaxWidth 裁切。
+        Exception? caught = null;
+        double titleWidth = 0;
+        double innerWidth = 0;
+        double titleHeight = 0;
+        var wrapped = false;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                LeakedApplicationReset.CleanupLeakedApplication();
+                _ = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+
+                var vm = NewVm();
+                vm.ApplyNmReport(MakeSnapshot(
+                    name: "BMS_NWM_LONG_NAME", sender: "ECU_SENDER_LONG_NAME"));
+                var panel = new TraceViewerViewNmPanel { DataContext = vm };
+                var window = new Window
+                {
+                    Content = panel,
+                    Width = 380,
+                    Height = 700,
+                    WindowStyle = WindowStyle.None,
+                    ShowInTaskbar = false,
+                    Left = -2000,
+                    Top = -2000,
+                };
+                window.Show();
+                panel.UpdateLayout();
+
+                var marker = FindMarkerGrid(panel);
+                marker.Should().NotBeNull();
+                marker!.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount)
+                {
+                    RoutedEvent = UIElement.MouseEnterEvent,
+                });
+
+                DoEvents();
+                var popup = (Popup)panel.FindName("NmSegmentPopup");
+                popup.IsOpen.Should().BeTrue("MouseEnter 必须打开信息卡；否则下面的尺寸断言会误报成文字问题");
+                popup.Child.UpdateLayout();
+
+                var card = (Border)popup.Child;
+                innerWidth = card.ActualWidth - card.Padding.Left - card.Padding.Right;
+                var titleBlock = FindTextBlock(card, vm.NmHoverTitle);
+                titleBlock.Should().NotBeNull("标题必须渲染在卡片里");
+                titleWidth = titleBlock!.ActualWidth;
+                titleHeight = titleBlock.ActualHeight;
+                wrapped = titleBlock.TextWrapping == TextWrapping.Wrap;
+
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+            finally
+            {
+                try { Application.Current?.Shutdown(); }
+                catch { /* dispatcher may already be shutting down */ }
+                LeakedApplicationReset.CleanupLeakedApplication();
+            }
+        })
+        {
+            IsBackground = true,
+        };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30)).Should().BeTrue();
+
+        if (caught is not null) throw caught;
+        wrapped.Should().BeTrue();
+        titleWidth.Should().BeLessThanOrEqualTo(innerWidth + 0.5,
+            "标题必须在卡片内容宽度内换行，不能被 MaxWidth 裁切");
+        titleHeight.Should().BeGreaterThan(20,
+            "长标题应换行成多行，而不是单行溢出");
+    }
+
     /// <summary>泵一轮 Dispatcher：Popup 的独立窗口/视觉树在 IsOpen 后才异步生成。</summary>
     private static void DoEvents()
     {
@@ -131,6 +214,18 @@ public class NmHoverCardTests
         }
     }
 
+    private static TextBlock? FindTextBlock(DependencyObject root, string text)
+    {
+        if (root is TextBlock tb && tb.Text == text) return tb;
+        var children = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < children; i++)
+        {
+            if (FindTextBlock(VisualTreeHelper.GetChild(root, i), text) is { } found)
+                return found;
+        }
+        return null;
+    }
+
     /// <summary>
     /// 必须精确到挂 MouseEnter 的 Grid：ContentPresenter 的 DataContext 相同，
     /// 但对它 RaiseEvent 不会命中子元素的直接事件 handler。
@@ -149,7 +244,7 @@ public class NmHoverCardTests
         return null;
     }
 
-    private static NmToolSnapshot MakeSnapshot()
+    private static NmToolSnapshot MakeSnapshot(string name = "NM_A", string sender = "ECU_A")
     {
         var reasons = new[] { "MsgType=CANNM" };
         var participants = new[] { "0x500" };
@@ -158,14 +253,14 @@ public class NmHoverCardTests
             new[] { new NmEpisode(0, 0, 10, "active", null, participants, true, true) },
             new[]
             {
-                new NmMessageReport("0x500", false, "NM_A", "ECU_A", 4, 0, 10,
+                new NmMessageReport("0x500", false, name, sender, 4, 0, 10,
                     new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
                     new[] { new NmSegment(0, 10, "active") }, false),
             },
             Array.Empty<NmNodeReport>(),
             new[]
             {
-                new NmEvent(0.5, "burst_observed", "ECU_A", "0x500", "3 帧短间隔", 0, "measured"),
+                new NmEvent(0.5, "burst_observed", sender, "0x500", "3 帧短间隔", 0, "measured"),
             },
             Array.Empty<NmFinding>(),
             Array.Empty<string>(),

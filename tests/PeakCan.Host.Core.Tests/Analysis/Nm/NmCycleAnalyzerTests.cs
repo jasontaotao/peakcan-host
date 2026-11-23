@@ -196,6 +196,83 @@ public class NmCycleAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_ExcludesWakeupBurstIntervalsFromCycleStats()
+    {
+        // 500ms 周期；3.0s 静默后出现 3 帧 20ms 短间隔（唤醒突发），之后回到 500ms。
+        // 突发是 immediate 发送序列，不是周期：不得计入 min/median/偏差。
+        var times = new[] { 0.0, 0.5, 1.0, 3.0, 3.02, 3.04, 3.54, 4.04, 4.54, 5.04 };
+        var episodes = new[]
+        {
+            new NmEpisode(0, 0, 1.0, "active", null, SenderIds, false, false),
+            new NmEpisode(1, 3.0, 5.04, "active", null, SenderIds, false, false),
+        };
+
+        var stats = NmCycleAnalyzer.Analyze(times, Def(), episodes);
+
+        // 9 个原始间隔：跨 episode 1 个 + 突发 2 个被剔除，剩 6 个。
+        Assert.Equal(6, stats.IntervalCount);
+        Assert.Equal(500, stats.MedianMs);
+        Assert.Equal(500, stats.MinMs);
+        Assert.Equal(0, stats.DeviationCount);
+    }
+
+    [Fact]
+    public void Analyze_BurstAtEpisodeFirstFrame_IsStillExcluded()
+    {
+        // 窗口/记录恰好从唤醒突发第一帧开始：没有"突发前那一帧"可依赖，
+        // 仍必须把 episode 前缀的短间隔识别为突发。
+        var times = new[] { 0.0, 0.02, 0.04, 0.54, 1.04, 1.54, 2.04, 2.54 };
+
+        var stats = NmCycleAnalyzer.Analyze(times, Def(), OneEpisode(0, 2.54));
+
+        Assert.Equal(5, stats.IntervalCount);
+        Assert.Equal(500, stats.MinMs);
+        Assert.Equal(0, stats.DeviationCount);
+    }
+
+    [Fact]
+    public void Analyze_BurstInsideEpisodeAfterSilence_IsExcluded()
+    {
+        // 全局 timeout 配得较大或其它 NM 报文维持 episode 时，突发会落在 episode
+        // 中间（本报文自己停发 ≥cycle 后重发 immediate 序列）。
+        var times = new[] { 0.0, 0.5, 1.0, 2.0, 2.02, 2.04, 2.54, 3.04, 3.54 };
+
+        var stats = NmCycleAnalyzer.Analyze(times, Def(), OneEpisode(0, 3.54));
+
+        // 8 个原始间隔：1.0s 的漏发间隔 + 2 个突发间隔剔除，剩 5 个。
+        Assert.Equal(5, stats.IntervalCount);
+        Assert.Equal(500, stats.MinMs);
+        Assert.Equal(0, stats.DeviationCount);
+    }
+
+    [Fact]
+    public void Analyze_ShortRunConsumingWholeEpisode_IsNotTreatedAsBurst()
+    {
+        // 配置周期 500ms，实际全程 200ms（<0.5×cycle）：短序列一直持续到末尾，
+        // 不能当成突发整段剔除，否则真实周期偏差会被降级成样本不足。
+        var times = new[] { 0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2 };
+
+        var stats = NmCycleAnalyzer.Analyze(times, Def(), OneEpisode(0, 1.2));
+
+        Assert.Equal(6, stats.IntervalCount);
+        Assert.NotNull(stats.MedianMs);
+        Assert.Equal(200, stats.MedianMs!.Value, 3);
+        Assert.Equal(6, stats.DeviationCount);
+    }
+
+    [Fact]
+    public void Analyze_SingleShortInterval_IsNotATBurst()
+    {
+        // spec §7.6 要求连续 ≥2 个短间隔；单个短间隔仍按普通样本统计。
+        var times = new[] { 0.0, 0.02, 0.54, 1.04, 1.54, 2.04 };
+
+        var stats = NmCycleAnalyzer.Analyze(times, Def(), OneEpisode(0, 2.04));
+
+        Assert.Equal(5, stats.IntervalCount);
+        Assert.Equal(20, stats.MinMs);
+    }
+
+    [Fact]
     public void Analyze_FewerThanFiveIntervals_SetsInsufficientSamplesFlag()
     {
         var times = new[] { 0.0, 0.5, 1.0, 1.5 };

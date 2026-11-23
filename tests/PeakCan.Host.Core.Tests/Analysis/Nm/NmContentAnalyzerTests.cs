@@ -12,7 +12,10 @@ public class NmContentAnalyzerTests
     private static readonly string[] EpisodeParticipants = ["0x500"];
 
     private static NmFrame Nm(double t, params byte[] data)
-        => new(new NmMessageDef("0x500", false, "NM", "A", 8, true, TestReasons, 500, 2000),
+        => NmWithCycle(t, 500, data);
+
+    private static NmFrame NmWithCycle(double t, int cycleMs, params byte[] data)
+        => new(new NmMessageDef("0x500", false, "NM", "A", 8, true, TestReasons, cycleMs, 2000),
                new ReplayFrame(t, 0x500, (byte)data.Length, data, FrameFlags.None));
 
     private static NmProfile Profile(
@@ -47,6 +50,26 @@ public class NmContentAnalyzerTests
         Assert.Contains("3", burst.Detail);
         // 只是事件，不是 finding：不判是否符合 5×50ms。
         Assert.DoesNotContain(result.Findings, f => f.Code.StartsWith("NM_WAKEUP_BURST", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Analyze_BurstUsesMessageCycleInsteadOfGlobalCycle()
+    {
+        // 报文级周期 200ms（短间隔阈值 100ms），profile 全局 500ms。
+        // 用全局周期会漏掉这串 50ms 间隔的真实突发。
+        var frames = new[]
+        {
+            NmWithCycle(0.0, 200, 0xF4, 0),
+            NmWithCycle(0.2, 200, 0xF4, 0),
+            NmWithCycle(0.25, 200, 0xF4, 0),
+            NmWithCycle(0.3, 200, 0xF4, 0),
+            NmWithCycle(0.8, 200, 0xF4, 0),
+            NmWithCycle(1.3, 200, 0xF4, 0),
+        };
+
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(frames, Profile(), 500));
+
+        Assert.Contains(result.Events, e => e.Type == "burst_observed");
     }
 
     [Fact]

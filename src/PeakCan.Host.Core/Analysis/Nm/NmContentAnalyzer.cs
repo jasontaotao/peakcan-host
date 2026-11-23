@@ -55,7 +55,9 @@ public static class NmContentAnalyzer
                 emitted++;
             }
 
-            DetectBurst(ordered, input.CycleMs, Emit);
+            // 突发阈值与周期统计同源：报文级周期优先，其次 profile 全局周期。
+            var burstCycleMs = ordered[0].Def.CycleMs ?? input.CycleMs;
+            DetectBurst(ordered, burstCycleMs, Emit);
             DetectByteAndBitChanges(ordered, canId, Emit);
             DetectMissedFrames(ordered, input.CycleMs, input.Profile, Emit);
 

@@ -1,8 +1,8 @@
 namespace PeakCan.Host.Core.Analysis.Nm;
 
 /// <summary>
-/// 逐报文周期统计。规则见 spec §7.4：剔除跨 episode 边界、超过超时阈值以及
-/// missed_frame（1.5×cycle &lt; 间隔 ≤ timeout，见 §7.5.6）的间隔；
+/// 逐报文周期统计。规则见 spec §7.4：剔除跨 episode 边界、超过超时阈值、
+/// missed_frame（1.5×cycle &lt; 间隔 ≤ timeout，见 §7.5.6）以及唤醒突发（§7.6）的间隔；
 /// 有效样本 &lt; 5 时只报样本不足，不下偏差结论。
 /// </summary>
 public static class NmCycleAnalyzer
@@ -18,6 +18,11 @@ public static class NmCycleAnalyzer
         var timeoutSec = (def.TimeoutMs ?? int.MaxValue) / 1000.0;
         var cycleSec = def.CycleMs is { } cycle ? cycle / 1000.0 : (double?)null;
 
+        // 唤醒突发（spec §7.6）属于 immediate 发送序列，不是报文周期；纳入统计
+        // 会把突发整体误报成周期偏差。按 episode 取首帧起的短间隔前缀：即使窗口
+        // 恰好从突发第一帧开始（视口裁窗）也能识别，不依赖"突发前那一帧"存在。
+        var burstIntervals = MarkBurstIntervals(ordered, episodes, cycleSec);
+
         var intervals = new List<double>();
         for (int i = 1; i < ordered.Length; i++)
         {
@@ -30,6 +35,8 @@ public static class NmCycleAnalyzer
             // 不是周期本身的变化；纳入统计会把一次漏发误报成周期偏差。
             if (cycleSec is { } expectedCycle && delta > 1.5 * expectedCycle) continue;
             if (CrossesEpisodeBoundary(ordered[i - 1], ordered[i], episodes)) continue;
+            // 突发序列内的短间隔不参与周期统计。
+            if (burstIntervals[i]) continue;
             intervals.Add(delta);
         }
 
@@ -99,6 +106,70 @@ public static class NmCycleAnalyzer
             ExpectedMs: def.CycleMs,
             ToleranceMs: Tolerance(def.CycleMs),
             ConsecutiveDeviationCount: longestConsecutive);
+    }
+
+    /// <summary>
+    /// 标记属于唤醒突发的间隔（spec §7.6）：≥2 个连续 &lt;0.5×cycle 的间隔。
+    /// 返回数组下标 k 对应间隔 <c>(ordered[k-1], ordered[k]]</c>。
+    /// <para>
+    /// 两个锚点并用，覆盖两种切分结果：
+    /// ① episode 首帧起的前缀——窗口/记录恰好从突发开始时没有“突发前那一帧”；
+    /// ② episode 内部某个 ≥cycle 的静默之后的短序列——全局超时配得较大、或其它
+    ///    NM 报文维持 episode 时，突发会落在 episode 中间。
+    /// </para>
+    /// <para>
+    /// 若短序列一直持续到该报文在本 episode 的最后一帧，视为“实际周期远小于配置”
+    /// 而不是突发：剔除整段会把真实的周期偏差降级成样本不足，因此保留统计事实。
+    /// </para>
+    /// <para>前提：<paramref name="episodes"/> 覆盖该报文的全部帧（<see cref="NmAnalyzer"/> 的调用满足）。</para>
+    /// </summary>
+    private static bool[] MarkBurstIntervals(
+        double[] ordered, IReadOnlyList<NmEpisode> episodes, double? cycleSec)
+    {
+        var burst = new bool[ordered.Length];
+        if (cycleSec is not { } cycle || cycle <= 0 || episodes.Count == 0) return burst;
+
+        int cursor = 0;
+        foreach (var episode in episodes.OrderBy(e => e.Start))
+        {
+            while (cursor < ordered.Length && ordered[cursor] < episode.Start) cursor++;
+            var begin = cursor;
+            while (cursor < ordered.Length && ordered[cursor] <= episode.End) cursor++;
+            var end = cursor - 1;
+
+            if (end - begin < 2) continue;
+
+            // 锚点 ①：episode 首帧（可能正好是突发第一帧）。
+            MarkShortRun(ordered, burst, begin + 1, end, cycle);
+
+            // 锚点 ②：episode 内部静默 ≥ cycle 后重新出现的短序列。
+            for (int i = begin + 1; i < end; i++)
+            {
+                if (ordered[i] - ordered[i - 1] >= cycle)
+                    MarkShortRun(ordered, burst, i + 1, end, cycle);
+            }
+        }
+
+        return burst;
+    }
+
+    /// <summary>
+    /// 从 <paramref name="first"/> 开始数连续 &lt;0.5×cycle 的间隔；
+    /// 仅在 ≥2 个且后面还有正常间隔时标记（避免把整段短周期当突发吞掉）。
+    /// </summary>
+    private static void MarkShortRun(
+        double[] ordered, bool[] burst, int first, int end, double cycle)
+    {
+        int count = 0;
+        for (int k = first; k <= end; k++)
+        {
+            if (ordered[k] - ordered[k - 1] >= 0.5 * cycle) break;
+            count++;
+        }
+
+        var last = first + count - 1;
+        if (count < 2 || last >= end) return;
+        for (int k = first; k <= last; k++) burst[k] = true;
     }
 
     /// <summary>spec §7.4: deviation ratio > 5% or 3 consecutive deviating intervals.</summary>
