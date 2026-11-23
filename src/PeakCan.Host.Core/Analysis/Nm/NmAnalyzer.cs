@@ -66,8 +66,8 @@ public static class NmAnalyzer
             assumptions.Add("未配置 NM 超时，按 2000ms 处理。");
 
         // PNI 位角色是硬编码的 AUTOSAR 约定（CBV bit6），不是从矩阵读出的，按推断解释。
-        if (request.Profile.Layout?.CbvByte is not null
-            && request.Profile.Features?.PnEnabled == false)
+        if (NmProfilePrecedence.EffectiveCbvByte(request.Profile) is not null
+            && NmProfilePrecedence.EffectivePnEnabled(request.Profile) == false)
         {
             assumptions.Add("PNI 按 AUTOSAR CanNm CBV bit6 解读（M1 已知限制）");
         }
@@ -244,7 +244,7 @@ public static class NmAnalyzer
                 // 共享 ID（同一报文组内 NID 不唯一）无法按节点拆周期，偏差结论会被多节点
                 // 交错发送放大成假阳性，因此抑制 NM_CYCLE_DEVIATION。
                 var sharedId = false;
-                if (request.Profile.Layout?.NidByte is { } nidByte)
+                if (NmProfilePrecedence.EffectiveNidByte(request.Profile) is { } nidByte)
                 {
                     sharedId = frames
                         .Where(f => f.Frame.Data.Length > nidByte)
@@ -302,7 +302,7 @@ public static class NmAnalyzer
                     episodeEnd: lastEpisode?.End ?? timestamps[^1],
                     windowEnd: request.End,
                     timeoutSec: effectiveTimeoutMs / 1000.0,
-                    nidByte: request.Profile.Layout?.NidByte,
+                    nidByte: NmProfilePrecedence.EffectiveNidByte(request.Profile),
                     episodeTruncated: messageCutByWindow,
                     // 与 NmGapAnalyzer 抑制 NM_NODE_DROPOUT 的判据同源：末帧处于 RSS 时，
                     // 「其它节点还在发、本节点不再发」是合规释放而非可疑静默。

@@ -31,7 +31,7 @@ public static partial class NmRuleEvaluators
         }
 
         var reasons = new List<string>();
-        var nidByte = ctx.Profile.Layout?.NidByte;
+        var nidByte = NmProfilePrecedence.EffectiveNidByte(ctx.Profile);
 
         foreach (var group in ctx.NmFrames.GroupBy(f => (f.Def.CanIdHex, f.Def.IsExtended)))
         {
@@ -243,7 +243,7 @@ public static partial class NmRuleEvaluators
         }
 
         // 共享判定必须读 NID 字节；未声明时无法判断，不能假设「不共享」。
-        if (ctx.Profile.Layout?.NidByte is not { } nidByte)
+        if (NmProfilePrecedence.EffectiveNidByte(ctx.Profile) is not { } nidByte)
         {
             unmodeledReason = "profile 未声明 layout.nid_byte，无法判断是否共享 CAN ID";
             return true;

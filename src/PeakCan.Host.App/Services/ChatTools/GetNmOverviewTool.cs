@@ -96,6 +96,10 @@ public sealed class GetNmOverviewTool : ChatToolBase
             ["suggested_next_check"] = f.SuggestedNextCheck is null
                 ? null
                 : NmEventPrivacy.RedactText(f.SuggestedNextCheck, allowedCanIds),
+            // 条款追溯：规则/需求/出处标识，不是字节取值，按原样输出。
+            ["rule_id"] = f.RuleId,
+            ["requirement_id"] = f.RequirementId,
+            ["source_ref"] = f.SourceRef,
         });
 
         var root = NmToolOutput.Root(snapshot);
@@ -107,6 +111,8 @@ public sealed class GetNmOverviewTool : ChatToolBase
             ["end"] = report.Window.End,
             ["ref"] = report.Window.WindowRef,
         };
+        // spec §6.1 rule 6：报告必须能自述判定依据的企标（standard_id@version）。
+        root["standard_id"] = report.StandardId;
         root["direction"] = report.Direction is null ? null : new JsonObject
         {
             ["transmit"] = report.Direction.Transmit,
@@ -137,7 +143,8 @@ public sealed class GetNmOverviewTool : ChatToolBase
             : new JsonArray(report.UnmodeledRules.Select(u => (JsonNode)new JsonObject
             {
                 ["clause"] = u.Clause,
-                ["reason"] = u.Reason,
+                // 原因里可能混入 CAN ID/NID 等取值（如「byte0 无法读取」旁的实测值），按字节脱敏。
+                ["reason"] = NmEventPrivacy.RedactText(u.Reason, allowedCanIds),
                 ["requirement_id"] = u.RequirementId,
             }).ToArray());
         root["capabilities"] = new JsonArray(report.Capabilities.Select(c => (JsonNode)new JsonObject

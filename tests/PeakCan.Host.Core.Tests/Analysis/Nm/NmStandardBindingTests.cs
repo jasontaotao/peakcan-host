@@ -66,6 +66,69 @@ public class NmStandardBindingTests
     }
 
     [Fact]
+    public void Bind_CopiesStandardLayoutAndFeatures_AndUpdatesProvenanceChain()
+    {
+        // I2：企标的布局/开关原样挂到 Standard*；I4：resolved_from 必须写出实际继承链。
+        var flat = new NmStandardFlattener.Flattened(
+            new NmStandardTimings { CycleMs = 500 },
+            new NmStandardLayout
+            {
+                NidByte = 0, CbvByte = 1, UserDataOffset = 4, UserDataLength = 4,
+            },
+            new NmStandardFeatures { PnEnabled = false },
+            null, null, null, "autosar-cannm@4.1.3 < geely-cv@2.0");
+        var project = Project() with
+        {
+            Provenance = new NmProvenance("/net/bus.dbc", "abc123", "dbc"),
+        };
+
+        var bound = NmStandardProfileBinding.Bind(project, flat);
+
+        Assert.Equal((byte?)0, bound.StandardLayout!.NidByte);
+        Assert.Equal((byte?)1, bound.StandardLayout.CbvByte);
+        Assert.Equal((byte?)4, bound.StandardLayout.UserDataOffset);
+        Assert.Equal(4, bound.StandardLayout.UserDataLength);
+        Assert.False(bound.StandardFeatures!.PnEnabled);
+        Assert.Equal("autosar-cannm@4.1.3 < geely-cv@2.0", bound.Provenance.ResolvedFrom);
+        // 项目层的路径/哈希属于项目事实，不得被企标改写。
+        Assert.Equal("/net/bus.dbc", bound.Provenance.ProfilePath);
+        Assert.Equal("abc123", bound.Provenance.ProfileHash);
+    }
+
+    [Fact]
+    public void Precedence_ProjectLayoutWinsOverStandard()
+    {
+        var profile = Project() with
+        {
+            Layout = new NmLayout(NidByte: 7),
+            StandardLayout = new NmStandardLayout { NidByte = 0 },
+        };
+
+        Assert.Equal((byte?)7, NmProfilePrecedence.EffectiveNidByte(profile));
+    }
+
+    [Fact]
+    public void Precedence_StandardFillsOnlyFieldsProjectLeftNull()
+    {
+        // 项目只声明 CBV；NID 与用户数据范围由企标补齐（spec §6.1：项目 > OEM > base）。
+        var profile = Project() with
+        {
+            Layout = new NmLayout(CbvByte: 1),
+            StandardLayout = new NmStandardLayout
+            {
+                NidByte = 0, UserDataOffset = 4, UserDataLength = 4,
+            },
+            StandardFeatures = new NmStandardFeatures { PnEnabled = false },
+        };
+
+        Assert.Equal((byte?)0, NmProfilePrecedence.EffectiveNidByte(profile));
+        Assert.Equal((byte?)1, NmProfilePrecedence.EffectiveCbvByte(profile));
+        Assert.Equal((byte?)4, NmProfilePrecedence.EffectiveUserDataOffset(profile));
+        Assert.Equal((int?)4, NmProfilePrecedence.EffectiveUserDataLength(profile));
+        Assert.False(NmProfilePrecedence.EffectivePnEnabled(profile));
+    }
+
+    [Fact]
     public void Bind_NullFlat_LeavesStandardFieldsNull()
     {
         var project = Project();

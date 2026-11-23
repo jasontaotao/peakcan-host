@@ -92,7 +92,7 @@ public static class NmCapabilityGate
         // 不是用户可补的输入。
         Add(NmCapability.SignalDecode, signalDecode);
 
-        if (profile.Layout?.NidByte is { } nidByte)
+        if (NmProfilePrecedence.EffectiveNidByte(profile) is { } nidByte)
         {
             if (nidByte >= nmMessages.Select(m => (int)m.Dlc).DefaultIfEmpty(0).Max())
             {
@@ -142,7 +142,7 @@ public static class NmCapabilityGate
                 nidCandidates.Count > 0 ? "measured" : null));
         }
 
-        if (profile.Layout?.CbvByte is not null)
+        if (NmProfilePrecedence.EffectiveCbvByte(profile) is not null)
         {
             Add(NmCapability.CbvDecode, true);
         }
@@ -162,14 +162,16 @@ public static class NmCapabilityGate
                 cbv.Byte is null ? null : "measured"));
         }
 
-        var pnKnown = profile.Features?.PnEnabled is not null && profile.Layout?.CbvByte is not null;
+        var pnKnown = NmProfilePrecedence.EffectivePnEnabled(profile) is not null
+            && NmProfilePrecedence.EffectiveCbvByte(profile) is not null;
         Add(NmCapability.PnCheck, pnKnown,
             pnKnown
                 ? Array.Empty<NmInputMissing>()
                 : new[] { new NmInputMissing(NmCapability.PnCheck, "pn_enabled",
                     "PN 开关或 CBV 字节缺失，无法判定 PNI", "不会自动建议 PN 开关", null) });
 
-        var userDataKnown = profile.Layout is { UserDataOffset: not null, UserDataLength: not null };
+        var userDataKnown = NmProfilePrecedence.EffectiveUserDataOffset(profile) is not null
+            && NmProfilePrecedence.EffectiveUserDataLength(profile) is not null;
         (byte? Offset, int? Length, string Evidence) userData = nmMessages.Length > 0
             ? NmSuggestionEngine.SuggestUserData(
                 frames, ParseId(nmMessages[0].CanIdHex), nmMessages[0].IsExtended)

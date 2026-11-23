@@ -98,7 +98,11 @@ public sealed record NmProfile(
     // 展平后的企标位角色；null 表示未选企标（M1 行为）。
     IReadOnlyList<NmBitRole>? StandardBitRoles = null,
     // 展平后的企标规则；null 表示未选企标（不跑规则引擎）。
-    IReadOnlyList<NmRuleDef>? StandardRules = null);
+    IReadOnlyList<NmRuleDef>? StandardRules = null,
+    // 企标声明的布局/开关；只在项目层缺该字段时经 NmProfilePrecedence 补位。
+    // 绑定阶段不合并进 Layout/Features（spec §6.1：项目 > OEM > base，只实现一次）。
+    NmStandardLayout? StandardLayout = null,
+    NmStandardFeatures? StandardFeatures = null);
 
 /// <summary>用户在补全对话框里填的内容；序列化为 <c>*.nmprofile.json</c>。</summary>
 public sealed record NmUserSupplement(

@@ -45,6 +45,80 @@ public class NmReportWriterTests
             report, Array.Empty<PeakCan.Host.Core.Replay.ReplayFrame>());
 
     [Fact]
+    public void WriteMarkdown_FindingsCarryRuleIdAndSourceRef()
+    {
+        // I4：规则/出处标识必须出现在 Markdown 的 findings 行。
+        var report = Report() with
+        {
+            Findings = new[]
+            {
+                new NmFinding("NM_NID_MISMATCH", "warn", "mismatch", FindingEvidenceTimes, false,
+                    "check", RuleId: "NM_01", RequirementId: "NM_01", SourceRef: "§5.4.2"),
+                new NmFinding("NM_CYCLE_DEVIATION", "warn", "dev", FindingEvidenceTimes, true, "check"),
+            },
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        md.Should().Contain("[rule=NM_01, source=§5.4.2]");
+        // 无追溯信息的行保持原样，不追加空后缀。
+        md.Should().Contain("NM_CYCLE_DEVIATION** (warn, inference=True): dev");
+        md.Should().NotContain("inference=True): dev [");
+    }
+
+    [Fact]
+    public void WriteMarkdown_ProfileShowsStandardId()
+    {
+        var withStandard = NmReportWriter.WriteMarkdown(
+            Snapshot(Report() with { StandardId = "geely-cv@2.0" }));
+        withStandard.Should().Contain("- standard_id: geely-cv@2.0");
+
+        // 无企标时显式留空，而不是省略整行。
+        NmReportWriter.WriteMarkdown(Snapshot(Report()))
+            .Should().Contain("- standard_id: —");
+    }
+
+    // ==== §7.1.1 观测事实 / 未建模条款必须出现在导出中 ====
+
+    [Fact]
+    public void WriteMarkdown_EmitsObservationsAndUnmodeledSectionsWithContent()
+    {
+        var report = Report() with
+        {
+            Observations = new[]
+            {
+                new NmObservation("all_nm_silent", null, null, 1.0, 2.0,
+                    "全部 NM 报文静默", "inferred", IsInference: true),
+            },
+            UnmodeledRules = new[]
+            {
+                new NmUnmodeledRule("NM_03", "快发段被分析边界截断", RequirementId: "NM_03"),
+            },
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        md.Should().Contain("## Observations");
+        md.Should().Contain("all_nm_silent");
+        md.Should().Contain("全部 NM 报文静默");
+        md.Should().Contain("## Unmodeled Rules");
+        md.Should().Contain("**NM_03**：快发段被分析边界截断");
+        md.Should().NotContain("（无观测事实）");
+        md.Should().NotContain("（无未建模条款）");
+    }
+
+    [Fact]
+    public void WriteMarkdown_EmitsEmptyStateForObservationsAndUnmodeled()
+    {
+        var md = NmReportWriter.WriteMarkdown(Snapshot(Report()));
+
+        md.Should().Contain("## Observations");
+        md.Should().Contain("（无观测事实）");
+        md.Should().Contain("## Unmodeled Rules");
+        md.Should().Contain("（无未建模条款）");
+    }
+
+    [Fact]
     public void WriteMarkdown_ContainsProfileEpisodesFindingsUnknowns()
     {
         var md = NmReportWriter.WriteMarkdown(Snapshot(Report()));

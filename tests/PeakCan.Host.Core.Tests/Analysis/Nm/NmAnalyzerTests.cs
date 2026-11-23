@@ -511,4 +511,64 @@ BO_ 1280 NM_Message: 8 ECU_A
         Assert.Equal(0, Assert.Single(report.Events,
             e => e.Type == "signal_change" && e.T == 0.5).EpisodeIndex);
     }
+
+    [Fact]
+    public void Analyze_GeelyProfileWithoutProjectLayout_SuppressesSharedIdCycleDeviation()
+    {
+        // I2：项目层没有 Layout 时，规则引擎与 M1 的共享 ID 抑制都必须看到企标声明的
+        // nid_byte。否则共享 ID 的交错发送会被放大成 NM_CYCLE_DEVIATION（warn 级误报）。
+        var flat = LoadGeelyFlattened();
+        var project = Profile();
+        var bound = NmStandardProfileBinding.Bind(project, flat);
+
+        // 前提：项目层确实没有布局，nid_byte 只能来自企标。
+        Assert.Null(bound.Layout);
+        Assert.Equal((byte?)0, bound.StandardLayout?.NidByte);
+
+        var frames = new List<ReplayFrame>(12);
+        for (int i = 0; i < 6; i++)
+        {
+            frames.Add(F(i * 0.56, 0x500, false, 0x11, 0x00, 0, 0, 0, 0, 0, 0));
+            frames.Add(F(i * 0.56 + 0.1, 0x500, false, 0x22, 0x00, 0, 0, 0, 0, 0, 0));
+        }
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, bound, 0, 3.5));
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NM_CYCLE_DEVIATION");
+        // 非空洞性守卫：规则确实求值并因「共享 ID」被抑制，而不是根本没跑。
+        Assert.Contains(report.UnmodeledRules!, u =>
+            u.Reason.Contains("共享 ID", StringComparison.Ordinal));
+    }
+
+    /// <summary>加载仓库真实的 base + 吉利 profile，展平并校验（与生产路径同源）。</summary>
+    private static NmStandardFlattener.Flattened LoadGeelyFlattened()
+    {
+        var geely = NmStandardYaml.LoadFile(
+            RepoPath("profiles/oem/geely-cv@2.0.nmstd.yaml"));
+        var baseProfile = NmStandardYaml.LoadFile(
+            RepoPath("profiles/base/autosar-cannm@4.1.3.nmstd.yaml"));
+        var registry = new Dictionary<string, NmStandardProfile>(StringComparer.Ordinal)
+        {
+            ["autosar-cannm@4.1.3"] = baseProfile,
+            ["geely-cv@2.0"] = geely,
+        };
+
+        var flat = NmStandardFlattener.Flatten(geely, registry);
+        NmStandardValidator.ValidateFlattened(flat);
+        return flat;
+    }
+
+    private static string RepoPath(string relative)
+    {
+        // 本测试项目有同名 namespace PeakCan.Host.Core.Tests.Path，显式指回 System.IO.Path。
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null
+               && !File.Exists(System.IO.Path.Combine(dir.FullName, "PeakCan.Host.slnx")))
+        {
+            dir = dir.Parent;
+        }
+        Assert.NotNull(dir);
+        return System.IO.Path.Combine(dir!.FullName, relative);
+    }
 }

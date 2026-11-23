@@ -93,6 +93,82 @@ BO_ 1536 CAN_MSG_A: 8 ECU_A
     }
 
     [Fact]
+    public async Task GetNmOverview_EmitsClauseTraceabilityAndStandardId()
+    {
+        // I4：findings 的条款追溯与报告的 standard_id 必须离开 Core。
+        var findings = new[]
+        {
+            new NmFinding("NM_NID_MISMATCH", "warn", "m", FindingEvidenceTimes, false, "check",
+                RuleId: "NM_01", RequirementId: "NM_01", SourceRef: "§5.4.2"),
+            new NmFinding("NM_CYCLE_DEVIATION", "warn", "d", FindingEvidenceTimes, true, "check"),
+        };
+        var ctx = new FakeChatToolContext
+        {
+            NmSnapshotValue = Snapshot() with
+            {
+                Report = Report() with { Findings = findings, StandardId = "geely-cv@2.0" },
+            },
+        };
+        var tool = new GetNmOverviewTool(ctx, NullLogger<GetNmOverviewTool>.Instance);
+
+        var json = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
+
+        json["standard_id"]!.GetValue<string>().Should().Be("geely-cv@2.0");
+        var traced = json["findings"]![0]!;
+        traced["rule_id"]!.GetValue<string>().Should().Be("NM_01");
+        traced["requirement_id"]!.GetValue<string>().Should().Be("NM_01");
+        traced["source_ref"]!.GetValue<string>().Should().Be("§5.4.2");
+        // 无追溯时必须是 null，而不是空串或被省略。
+        var plain = json["findings"]![1]!;
+        plain["rule_id"].Should().BeNull();
+        plain["requirement_id"].Should().BeNull();
+        plain["source_ref"].Should().BeNull();
+    }
+
+    // ==== §7.1.1 Unmodeled 条款必须对 AI 可见 ====
+
+    [Fact]
+    public async Task GetNmOverview_EmitsUnmodeledRulesWithClauseAndReason()
+    {
+        var unmodeled = new[]
+        {
+            new NmUnmodeledRule("NM_ACT_BURST", "缺少 ImmediateCycleMs，无法判定快发形态",
+                RequirementId: "NM_03", SourceRef: "§7.2"),
+            new NmUnmodeledRule("NM_08", "条款不可观测"),
+        };
+        var ctx = new FakeChatToolContext
+        {
+            NmSnapshotValue = Snapshot() with
+            {
+                Report = Report() with { UnmodeledRules = unmodeled },
+            },
+        };
+        var tool = new GetNmOverviewTool(ctx, NullLogger<GetNmOverviewTool>.Instance);
+
+        var json = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
+
+        var rules = json["unmodeled_rules"]!.AsArray();
+        rules.Should().HaveCount(2);
+        rules[0]!["clause"]!.GetValue<string>().Should().Be("NM_ACT_BURST");
+        rules[0]!["reason"]!.GetValue<string>()
+            .Should().Be("缺少 ImmediateCycleMs，无法判定快发形态");
+        rules[0]!["requirement_id"]!.GetValue<string>().Should().Be("NM_03");
+        rules[1]!["requirement_id"].Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetNmOverview_EmitsEmptyUnmodeledRulesArray_WhenNone()
+    {
+        // 无未建模条款时必须输出空数组：null 或缺失会让消费方无法区分「没有」与「没输出」。
+        var tool = new GetNmOverviewTool(Context(), NullLogger<GetNmOverviewTool>.Instance);
+
+        var json = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
+
+        json["unmodeled_rules"].Should().BeOfType<JsonArray>();
+        json["unmodeled_rules"]!.AsArray().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Profile_ReturnsCapabilitiesAndMissingInputs()
     {
         var tool = new GetNmProfileTool(Context(), NullLogger<GetNmProfileTool>.Instance);

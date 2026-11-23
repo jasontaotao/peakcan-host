@@ -112,7 +112,7 @@ public static partial class NmRuleEvaluators
         out string? unmodeledReason)
     {
         unmodeledReason = null;
-        var nidByte = ctx.Profile.Layout?.NidByte;
+        var nidByte = NmProfilePrecedence.EffectiveNidByte(ctx.Profile);
         if (nidByte is null)
         {
             unmodeledReason = "profile 未声明 layout.nid_byte";

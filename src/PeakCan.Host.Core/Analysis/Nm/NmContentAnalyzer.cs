@@ -206,7 +206,7 @@ public static class NmContentAnalyzer
 
     private static void CheckNid(NmFrame[] ordered, NmContentInput input, List<NmFinding> findings)
     {
-        if (input.Profile.Layout?.NidByte is not { } nidByte) return;
+        if (NmProfilePrecedence.EffectiveNidByte(input.Profile) is not { } nidByte) return;
 
         var frames = ordered.Where(f => f.Frame.Data.Length > nidByte).ToArray();
         if (frames.Length == 0) return;
@@ -260,8 +260,8 @@ public static class NmContentAnalyzer
 
     private static void CheckCbv(NmFrame[] ordered, NmContentInput input, List<NmFinding> findings)
     {
-        if (input.Profile.Layout?.CbvByte is not { } cbvByte) return;
-        if (input.Profile.Features?.PnEnabled != false) return;
+        if (NmProfilePrecedence.EffectiveCbvByte(input.Profile) is not { } cbvByte) return;
+        if (NmProfilePrecedence.EffectivePnEnabled(input.Profile) != false) return;
 
         // AUTOSAR CanNm 的 PNI 位于 CBV bit6（0x40），bit4（0x10）是 Active Wakeup，不得混淆。
         // 只在用户明确配置 CBV 字节时解释；位角色是硬编码的（M1 的 NmLayout 没有位定义），
@@ -278,14 +278,15 @@ public static class NmContentAnalyzer
 
     private static void CheckUserData(NmFrame[] ordered, NmContentInput input, List<NmFinding> findings)
     {
-        var layout = input.Profile.Layout;
-        if (layout?.UserDataOffset is not { } offset || layout.UserDataLength != 0) return;
+        var offset = NmProfilePrecedence.EffectiveUserDataOffset(input.Profile);
+        var length = NmProfilePrecedence.EffectiveUserDataLength(input.Profile);
+        if (offset is not { } userDataOffset || length != 0) return;
 
-        var hit = ordered.FirstOrDefault(f => f.Frame.Data.Skip(offset).Any(b => b != 0));
+        var hit = ordered.FirstOrDefault(f => f.Frame.Data.Skip(userDataOffset).Any(b => b != 0));
         if (hit is not null)
         {
             findings.Add(new NmFinding("NM_USER_DATA_UNUSED_NONZERO", "warn",
-                $"用户数据长度为 0，但 byte{offset} 之后存在非零字节",
+                $"用户数据长度为 0，但 byte{userDataOffset} 之后存在非零字节",
                 new[] { hit.Frame.Timestamp }, false,
                 "核对用户数据长度配置"));
         }
