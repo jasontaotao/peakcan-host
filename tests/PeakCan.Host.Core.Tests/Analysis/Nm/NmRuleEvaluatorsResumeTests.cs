@@ -107,9 +107,9 @@ public class NmRuleEvaluatorsResumeTests
                 new NmMessageDef("0x18FFFAF4", true, "NM", "A", 8, true,
                     TestReasons, CycleMs: 500, TimeoutMs: 2000), f))
             .ToArray();
-        var episodes = NmEpisodeBuilder.Build(nmFrames, 2000, 0, 8.0);
+        var episodes = NmEpisodeBuilder.Build(nmFrames, 2000, 0, 12.0);
         var ctx = new NmRuleContext(nmFrames, episodes, profile,
-            NmTimingDefaults.FromProfile(profile.Timings), new NmWindow(0, 8.0, "full"));
+            NmTimingDefaults.FromProfile(profile.Timings), new NmWindow(0, 12.0, "full"));
 
         var findings = new List<NmFinding>();
         var observations = new List<NmObservation>();
