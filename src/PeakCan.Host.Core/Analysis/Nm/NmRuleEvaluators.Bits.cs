@@ -41,6 +41,8 @@ public static partial class NmRuleEvaluators
             case "normal_resume_shape":
                 return NormalResumeShape(
                     rule, ctx, findings, observations, out unmodeledReason);
+            case "stop_sending":
+                return StopSending(rule, ctx, observations, out unmodeledReason);
             default:
                 return false;
         }

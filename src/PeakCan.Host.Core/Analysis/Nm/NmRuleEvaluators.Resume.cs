@@ -1,10 +1,11 @@
 namespace PeakCan.Host.Core.Analysis.Nm;
 
 /// <summary>
-/// 静默恢复类 P 级原语（spec §7.2）：<c>normal_resume_shape</c>。
+/// 静默恢复类原语（spec §7.2）：<c>normal_resume_shape</c> 与 <c>stop_sending</c>。
 /// 唤醒源与「是否满足睡眠条件」都不可观测，finding 必须标 <c>IsInference</c>。
 /// <para>
-/// 同属静默恢复类的 <c>stop_sending</c> 由后续任务补充到本文件。
+/// <c>stop_sending</c> 只产 observation、绝不产 finding（spec §4.1：准备睡眠状态下
+/// 停发是规范要求的），归因复用 <see cref="NmSilenceClassifier"/>。
 /// </para>
 /// </summary>
 public static partial class NmRuleEvaluators
@@ -168,5 +169,104 @@ public static partial class NmRuleEvaluators
         {
             if (times[i] - times[i - 1] >= minSilenceSec) yield return i;
         }
+    }
+
+    /// <summary>
+    /// spec §4.1 / §7.2：停发观察，**不判违规**。规范要求准备睡眠状态下停止发送，
+    /// 所以「停发」本身是合规行为，报违规会大量误报。
+    /// <para>
+    /// 归因复用 <see cref="NmSilenceClassifier"/>——那是「其它 NM 是否仍在发」的唯一实现，
+    /// 两处各写一份会得出相反结论。本原语只产 observation，绝不产 finding。
+    /// </para>
+    /// </summary>
+    private static bool StopSending(
+        NmRuleDef rule, NmRuleContext ctx,
+        List<NmObservation> observations,
+        out string? unmodeledReason)
+    {
+        unmodeledReason = null;
+
+        // 期望语义未实现时不能静默按 observe 求值，否则用户会以为规则已被校验。
+        if (!string.Equals(rule.Expect.Kind, "observe", StringComparison.Ordinal))
+        {
+            unmodeledReason = $"stop_sending 仅实现 expect.kind=observe，当前为 {rule.Expect.Kind}";
+            return true;
+        }
+
+        var nidByte = NmProfilePrecedence.EffectiveNidByte(ctx.Profile);
+        var emitted = 0;
+
+        // 按 (CAN ID, 帧类型) 拆报文：停发是单节点的行为，合并会让节点互相掩盖。
+        foreach (var messageFrames in GroupByMessage(ctx.NmFrames.ToArray()))
+        {
+            var ordered = messageFrames.OrderBy(f => f.Frame.Timestamp).ToArray();
+            var def = ordered[0].Def;
+            var effective = ctx.Resolve(def);
+            // 规则显式配置优先（spec §5.2）；未配置时用该报文的生效超时。
+            var timeoutSec = (rule.When.TimeoutMs ?? effective.TimeoutMs) / 1000.0;
+            var lastSeen = ordered[^1].Frame.Timestamp;
+
+            // 窗口内仍在发送：没有停发可观察。
+            if (ctx.Window.End - lastSeen < timeoutSec) continue;
+
+            // 找到该报文末帧所属 episode：停发的语义依赖「其它节点是否还在发」。
+            var episode = ctx.Episodes
+                .FirstOrDefault(e => lastSeen >= e.Start && lastSeen <= e.End);
+            if (episode is null) continue;
+
+            // episodeTruncated 不能直接用 episode.BoundaryEnd：后者由「全网最后一帧」
+            // 算出（NmEpisodeBuilder.cs:47），单节点静默时恰好为 true，会把
+            // SilentWithOtherNmActive 误降成 IndeterminateAtBoundary。
+            // 必须再夹一个「该报文自己的末帧就是被切掉的那一帧」。
+            var messageCutByWindow = episode is { BoundaryEnd: true }
+                && lastSeen >= episode.End - LatencyBoundaryEpsilon;
+
+            var verdict = NmSilenceClassifier.Classify(
+                ctx.NmFrames, def.CanIdHex, def.IsExtended,
+                lastSeen, episode.End, ctx.Window.End, timeoutSec,
+                nidByte, messageCutByWindow,
+                // 末帧 NMSts 读不出时为 null：分类器必须保守判为可疑，不能臆造成合规。
+                ReadLastFrameInReadySleep(ordered[^1], ctx.Profile.StandardBitRoles));
+
+            // AllNmSilent 是全网静默，归因在 gap 分析器里做，这里不重复产观测。
+            if (verdict == NmSilenceVerdict.NotSilent
+                || verdict == NmSilenceVerdict.AllNmSilent) continue;
+
+            observations.Add(new NmObservation(
+                "stop_sending", def.Sender, def.CanIdHex,
+                lastSeen, episode.End,
+                $"{def.CanIdHex} 在 {lastSeen:F3}s 后停止发送（归因 {verdict}）",
+                // 停发是实测的；归因（合规释放 vs 可疑静默）是推断。
+                verdict == NmSilenceVerdict.IndeterminateAtBoundary ? "boundary" : "measured",
+                IsInference: verdict != NmSilenceVerdict.ReleasedInReadySleep,
+                RuleId: rule.Id));
+            emitted++;
+        }
+
+        if (emitted == 0)
+        {
+            unmodeledReason = "窗口内没有可归因的停发段（各报文都在持续发送，或已归为全网静默）";
+            return true;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 读取一帧的 NMSts 并折叠为「是否处于 Ready Sleep State」：
+    /// true = NMSts=1，false = NMSts=0，null = 无法判定（位角色未声明或 DLC 不足）。
+    /// 与 NmAnalyzer / NmGapAnalyzer 同口径：未知不得被静默解释成合规。
+    /// </summary>
+    private static bool? ReadLastFrameInReadySleep(
+        NmFrame frame, IReadOnlyList<NmBitRole>? roles)
+    {
+        var role = FindNmstsRole(roles);
+        if (role is null) return null;
+
+        var data = frame.Frame.Data;
+        // DLC 不足即该帧不可读，不臆造状态位（spec §7.5.1.2）。
+        if (data.Length <= role.Byte) return null;
+
+        return ((data[role.Byte] >> role.Bit) & 1) != 0;
     }
 }

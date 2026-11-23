@@ -81,8 +81,36 @@ public class NmRuleEvaluatorsResumeTests
         Assert.NotNull(result.UnmodeledReason);
     }
 
+    // spec §4.1：停发本身不是违规（准备睡眠状态下停发是规范要求的）。
+    // stop_sending 只产 observation，绝不产 finding。
+    [Fact]
+    public void StopSending_NodeStopsWhileOthersActive_ProducesObservationNotFinding()
+    {
+        // A 在 2s 后停发，B 持续到 8s。
+        var frames = new List<ReplayFrame>();
+        foreach (var t in new[] { 0.0, 0.5, 1.0, 1.5 })
+            frames.Add(FrameAt(t, 0x18FFFAF4, 0xF4));
+        foreach (var t in new[]
+                 {
+                     0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0,
+                     4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0,
+                 })
+            frames.Add(FrameAt(t, 0x18FFFAF5, 0xF5));
+
+        var result = EvaluateStopSending(frames.ToArray());
+
+        Assert.Empty(result.Findings);
+        Assert.NotEmpty(result.Observations);
+        Assert.Contains(result.Observations, o => o.Kind == "stop_sending");
+    }
+
     private readonly record struct Outcome(
         IReadOnlyList<NmFinding> Findings, string? UnmodeledReason);
+
+    private readonly record struct StopOutcome(
+        IReadOnlyList<NmFinding> Findings,
+        IReadOnlyList<NmObservation> Observations,
+        string? UnmodeledReason);
 
     private static Outcome Evaluate(
         ReplayFrame[] frames, int minSilenceMs, int cycleMs, double pct, int minFrames)
@@ -126,6 +154,45 @@ public class NmRuleEvaluatorsResumeTests
         return all.Select(t => new ReplayFrame(t, 0x18FFFAF4, 8,
             Payload, PeakCan.HIL.Core.FrameFlags.None, IsExtended: true)).ToArray();
     }
+
+    private static StopOutcome EvaluateStopSending(ReplayFrame[] frames)
+    {
+        var profile = Profile();
+        var rule = new NmRuleDef(
+            "NM_STOP_SENDING",
+            "进入 Ready Sleep State 后停止发送 NM 报文",
+            "sleep",
+            new NmRuleWhen("stop_sending"),
+            new NmRuleExpect("observe"),
+            "")
+        {
+            SourceRef = "§5.3.3",
+            Clauses = ["NM_09", "NM_12"],
+            Observability = NmObservability.Partial,
+        };
+
+        var nmFrames = frames
+            .Select(f => new NmFrame(
+                new NmMessageDef(f.IsExtended ? $"0x{f.Id:X8}" : $"0x{f.Id:X3}",
+                    f.IsExtended, "NM", "N", 8, true,
+                    TestReasons, CycleMs: 500, TimeoutMs: 2000), f))
+            .ToArray();
+        var episodes = NmEpisodeBuilder.Build(nmFrames, 2000, 0, 9.0);
+        var ctx = new NmRuleContext(nmFrames, episodes, profile,
+            NmTimingDefaults.FromProfile(profile.Timings), new NmWindow(0, 9.0, "full"));
+
+        var findings = new List<NmFinding>();
+        var observations = new List<NmObservation>();
+        var implemented = NmRuleEvaluators.TryEvaluate(
+            rule, ctx, findings, observations, out var reason);
+
+        Assert.True(implemented, "stop_sending 必须在 v1 闭集内有实现");
+        return new StopOutcome(findings, observations, reason);
+    }
+
+    private static ReplayFrame FrameAt(double t, uint id, byte nid)
+        => new(t, id, 8, new byte[] { nid, 0x00, 0x00, 0x01, 0, 0, 0, 0 },
+            PeakCan.HIL.Core.FrameFlags.None, IsExtended: true);
 
     private static NmProfile Profile()
         => new(NmProfileSource.Dbc,
