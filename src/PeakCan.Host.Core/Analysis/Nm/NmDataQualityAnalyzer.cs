@@ -1,4 +1,5 @@
 using System.Globalization;
+using PeakCan.Host.Core.Replay;
 
 namespace PeakCan.Host.Core.Analysis.Nm;
 
@@ -15,41 +16,58 @@ namespace PeakCan.Host.Core.Analysis.Nm;
 /// </summary>
 public static class NmDataQualityAnalyzer
 {
-    public static IReadOnlyList<NmDataQualityCheck> Analyze(NmAnalysisRequest request)
+    /// <summary>
+    /// <paramref name="frames"/> 必须是选择器过滤后的帧集（通道/窗口/RTR/错误帧），
+    /// 不能传 <see cref="NmAnalysisRequest.Frames"/>：否则会把其它通道或窗口外的
+    /// 帧 ID 报成未知，且时间区间会越出报告自身的窗口。
+    /// </summary>
+    public static IReadOnlyList<NmDataQualityCheck> Analyze(
+        NmAnalysisRequest request, IReadOnlyList<ReplayFrame> frames)
     {
         var checks = new List<NmDataQualityCheck>(4);
-        checks.Add(CheckUnknownId(request));
+        checks.Add(CheckUnknownId(request, frames));
         return checks;
     }
 
     /// <summary>
     /// spec §9.1：报文 ID 是否在 DBC / profile 声明中。
     /// <para>
-    /// 没有 DBC 时用 profile 声明的报文集合判定——profile 是用户显式给的约束，
-    /// 不依赖 DBC 也能查。两者都没有才报 NotChecked。
+    /// 已知 ID 有两个来源：DBC 的报文集合（应用报文也算已知），
+    /// 与 profile 显式声明的 NM 报文。只查后者会把 DBC 里的全部应用报文
+    /// 误判成「未知 ID」——正常 trace 每次都会报。两者都没有才报 NotChecked。
     /// </para>
     /// </summary>
-    private static NmDataQualityCheck CheckUnknownId(NmAnalysisRequest request)
+    private static NmDataQualityCheck CheckUnknownId(
+        NmAnalysisRequest request, IReadOnlyList<ReplayFrame> frames)
     {
-        var declared = request.Profile.Messages
+        var declaredNm = request.Profile.Messages
             .Where(m => m.IsNm)
             .Select(m => (m.CanIdHex, m.IsExtended))
             .ToHashSet();
+        var dbcIds = request.Dbc?.MessagesById.Keys.ToHashSet();
 
-        if (declared.Count == 0 && request.Dbc is null)
+        // spec §9.2：没有帧就没有可检查的对象——不能因为「循环没跑」而报通过。
+        if (frames.Count == 0)
         {
-            return new NmDataQualityCheck(
-                "unknown_id", NmDataQualityStatus.NotChecked,
-                "既无 DBC 也无 profile 报文声明，无法判定帧 ID 是否合法",
-                Array.Empty<NmTimeRange>(), Array.Empty<string>());
+            return NotChecked("窗口内没有可检查的帧，无法判定帧 ID 是否合法");
+        }
+
+        if (declaredNm.Count == 0 && dbcIds is null)
+        {
+            return NotChecked("既无 DBC 也无 profile 报文声明，无法判定帧 ID 是否合法");
         }
 
         var unknown = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         var times = new List<double>();
-        foreach (var frame in request.Frames)
+        foreach (var frame in frames)
         {
             var hex = "0x" + frame.Id.ToString("X", CultureInfo.InvariantCulture);
-            if (declared.Count > 0 && !declared.Contains((hex, frame.IsExtended)))
+            // DBC 的 Message 不带扩展帧标志（DBC 格式把扩展位编码在 ID 高 bit），
+            // 因此 DBC 侧只能按 ID 数值比对：标准帧与扩展帧同数值会互相掩护。
+            // 这是 DBC 格式的固有限制，不是本检查的取舍。
+            var knownInDbc = dbcIds is not null && dbcIds.Contains(frame.Id);
+            var knownInProfile = declaredNm.Contains((hex, frame.IsExtended));
+            if (!knownInDbc && !knownInProfile)
             {
                 unknown.Add(hex);
                 times.Add(frame.Timestamp);
@@ -60,14 +78,18 @@ public static class NmDataQualityAnalyzer
         {
             return new NmDataQualityCheck(
                 "unknown_id", NmDataQualityStatus.Passed,
-                $"全部 {request.Frames.Count} 帧的 ID 均在声明范围内",
+                $"全部 {frames.Count} 帧的 ID 均在已知范围内",
                 Array.Empty<NmTimeRange>(), Array.Empty<string>());
         }
 
         return new NmDataQualityCheck(
             "unknown_id", NmDataQualityStatus.Failed,
-            $"{times.Count} 帧的 CAN ID 不在 profile 声明中：{string.Join(", ", unknown)}",
+            $"{times.Count} 帧的 CAN ID 不在 DBC 或 profile 声明中：{string.Join(", ", unknown)}",
             [new NmTimeRange(times.Min(), times.Max())],
             unknown.ToArray());
     }
+
+    private static NmDataQualityCheck NotChecked(string detail)
+        => new("unknown_id", NmDataQualityStatus.NotChecked, detail,
+            Array.Empty<NmTimeRange>(), Array.Empty<string>());
 }

@@ -1,3 +1,4 @@
+using PeakCan.HIL.Core.Dbc;
 using PeakCan.Host.Core.Analysis.Nm;
 using PeakCan.Host.Core.Replay;
 using Xunit;
@@ -23,7 +24,7 @@ public class NmDataQualityAnalyzerTests
             FrameAt(0.5, 0x18FFFB27, 0x27),
         };
 
-        var checks = NmDataQualityAnalyzer.Analyze(Request(frames, profile));
+        var checks = Run(frames, profile);
 
         var check = Assert.Single(checks, c => c.Code == "unknown_id");
         Assert.Equal(NmDataQualityStatus.Failed, check.Status);
@@ -36,7 +37,7 @@ public class NmDataQualityAnalyzerTests
         var profile = Profile("0x18FFFAF4");
         var frames = new[] { FrameAt(0.0, 0x18FFFAF4, 0xF4), FrameAt(0.5, 0x18FFFAF4, 0xF4) };
 
-        var checks = NmDataQualityAnalyzer.Analyze(Request(frames, profile));
+        var checks = Run(frames, profile);
 
         Assert.Equal(NmDataQualityStatus.Passed,
             Assert.Single(checks, c => c.Code == "unknown_id").Status);
@@ -50,14 +51,76 @@ public class NmDataQualityAnalyzerTests
         var profile = Profile(canIdHex: null);
         var frames = new[] { FrameAt(0.0, 0x18FFFAF4, 0xF4) };
 
-        var checks = NmDataQualityAnalyzer.Analyze(Request(frames, profile, dbc: null));
+        var checks = Run(frames, profile, dbc: null);
 
         Assert.Equal(NmDataQualityStatus.NotChecked,
             Assert.Single(checks, c => c.Code == "unknown_id").Status);
     }
 
+    // R38：DBC 里的报文（含应用报文）都算已知。只查 profile 的 NM 声明会把
+    // 正常 trace 里的应用帧全部误报为「未知 ID」。
+    [Fact]
+    public void UnknownId_DbcContainsId_NoNmDeclarations_IsPassed()
+    {
+        var profile = Profile(canIdHex: null);
+        var frames = new[] { FrameAt(0.0, 0x18FFFAF4, 0xF4) };
+
+        var checks = Run(frames, profile, DbcWith(0x18FFFAF4));
+
+        Assert.Equal(NmDataQualityStatus.Passed,
+            Assert.Single(checks, c => c.Code == "unknown_id").Status);
+    }
+
+    // R38：DBC 存在但 ID 不在其中、profile 也没声明 → 真未知。
+    [Fact]
+    public void UnknownId_DbcLacksId_NoNmDeclarations_IsFailed()
+    {
+        var profile = Profile(canIdHex: null);
+        var frames = new[] { FrameAt(0.0, 0x18FFFAF4, 0xF4) };
+
+        var checks = Run(frames, profile, DbcWith(0x123));
+
+        var check = Assert.Single(checks, c => c.Code == "unknown_id");
+        Assert.Equal(NmDataQualityStatus.Failed, check.Status);
+        Assert.Contains("0x18FFFAF4", check.AffectedCanIds);
+    }
+
+    // R40：没有帧就没有检查对象。Passed 会声称「查过且没问题」。
+    [Fact]
+    public void UnknownId_NoFrames_IsNotChecked()
+    {
+        var profile = Profile("0x18FFFAF4");
+
+        var checks = Run(Array.Empty<ReplayFrame>(), profile);
+
+        Assert.Equal(NmDataQualityStatus.NotChecked,
+            Assert.Single(checks, c => c.Code == "unknown_id").Status);
+    }
+
+    // R39：体检只能看选择器过滤后的帧集。窗口外的未知 ID 不属于本报告，
+    // 扫描 request.Frames 会把它误报成 unknown_id。
+    [Fact]
+    public void UnknownId_ScansOnlyProvidedFrames()
+    {
+        var profile = Profile("0x18FFFAF4");
+        var all = new[]
+        {
+            FrameAt(0.0, 0x18FFFAF4, 0xF4),
+            FrameAt(5.0, 0x18FFFB27, 0x27),
+        };
+
+        var checks = NmDataQualityAnalyzer.Analyze(Request(all, profile), [all[0]]);
+
+        Assert.Equal(NmDataQualityStatus.Passed,
+            Assert.Single(checks, c => c.Code == "unknown_id").Status);
+    }
+
+    private static IReadOnlyList<NmDataQualityCheck> Run(
+        ReplayFrame[] frames, NmProfile profile, DbcDocument? dbc = null)
+        => NmDataQualityAnalyzer.Analyze(Request(frames, profile, dbc), frames);
+
     private static NmAnalysisRequest Request(
-        ReplayFrame[] frames, NmProfile profile, PeakCan.HIL.Core.Dbc.DbcDocument? dbc = default)
+        ReplayFrame[] frames, NmProfile profile, DbcDocument? dbc = default)
         => new("test", null, frames, dbc, profile, 0, 1.0);
 
     private static NmProfile Profile(string? canIdHex)
@@ -71,6 +134,20 @@ public class NmDataQualityAnalyzerTests
             Array.Empty<NmConfigConflict>(), Array.Empty<string>(), new NmProvenance(),
             Layout: new NmLayout(NidByte: 0, CbvByte: 1),
             Features: new NmFeatures(PnEnabled: false));
+
+    private static DbcDocument DbcWith(uint id)
+    {
+        var message = new Message(
+            Id: id, Name: "M", Dlc: 8, Sender: "n",
+            Signals: Array.Empty<Signal>(),
+            IsMultiplexed: false, MultiplexorSignalIndex: null);
+        return new DbcDocument(
+            Version: "",
+            Nodes: Array.Empty<Node>(),
+            Messages: [message],
+            MessagesById: new Dictionary<uint, Message> { [id] = message },
+            ValueTables: new Dictionary<string, ValueTable>());
+    }
 
     private static ReplayFrame FrameAt(double t, uint id, byte nid)
         => new(t, id, 8, new byte[] { nid, 0x00, 0x00, 0x01, 0, 0, 0, 0 },
