@@ -4,8 +4,7 @@ namespace PeakCan.Host.Core.Analysis.Nm;
 /// 静默恢复类 P 级原语（spec §7.2）：<c>normal_resume_shape</c>。
 /// 唤醒源与「是否满足睡眠条件」都不可观测，finding 必须标 <c>IsInference</c>。
 /// <para>
-/// 同属静默恢复类的 <c>stop_sending</c> 由后续任务在 sibling partial 中实现，
-/// 本文件只登记已落地的原语。
+/// 同属静默恢复类的 <c>stop_sending</c> 由后续任务补充到本文件。
 /// </para>
 /// </summary>
 public static partial class NmRuleEvaluators
@@ -52,15 +51,17 @@ public static partial class NmRuleEvaluators
             return true;
         }
 
+        // 2 是结构下限：两帧才构成一个间隔。与 min_silence_ms 不同，
+        // 取小值不会凭空造出错误结论，只是降低证明力。
         var minFrames = rule.When.MinFrames ?? 2;
 
-        var violations = new List<double>();
+        var violations = new List<ResumeViolation>();
         var observed = new List<double>();
         var messagesAnalysed = 0;
 
         // 逐报文扫**完整时间序列**：episode 恰好按「全网络静默 ≥ timeout」切分，
         // 单报文的静默通常与 episode 边界重合，按 episode 切片反而看不到静默本身。
-        // FindResumeIndex 的口径也是「只认报文自身的时间序列」。
+        // FindResumeIndices 的口径也是「只认报文自身的时间序列」。
         foreach (var messageFrames in GroupByMessage(ctx.NmFrames.ToArray()))
         {
             if (messageFrames.Length < 2) continue;
@@ -73,33 +74,36 @@ public static partial class NmRuleEvaluators
             var toleranceMs = Math.Max(cycleMs * pct, effective.ToleranceAbsMs);
 
             var times = messageFrames.Select(f => f.Frame.Timestamp).ToArray();
-            var resumeIndex = FindResumeIndex(times, minSilenceMs / 1000.0);
-            if (resumeIndex < 0) continue;
 
-            var resumeAt = times[resumeIndex];
-            observed.Add(resumeAt);
-
-            var after = times[resumeIndex..];
-            // 恢复后帧数不足：无法证明「以正常周期持续发送」，不得判通过。
-            if (after.Length < minFrames)
+            // 每个静默点独立求值：一条报文可能有多次睡眠/唤醒，
+            // 只判第一段会漏掉后续恢复形态异常的唤醒。
+            foreach (var resumeIndex in FindResumeIndices(times, minSilenceMs / 1000.0))
             {
-                violations.Add(resumeAt);
-                continue;
-            }
+                var resumeAt = times[resumeIndex];
+                observed.Add(resumeAt);
 
-            // 恢复后前 minFrames 帧的间隔必须落在 cycle ± tolerance。
-            var bad = false;
-            for (var i = 1; i < minFrames; i++)
-            {
-                var gapMs = (after[i] - after[i - 1]) * 1000.0;
-                if (Math.Abs(gapMs - cycleMs) > toleranceMs + DurationMsEpsilon)
+                var after = times[resumeIndex..];
+                // 恢复后帧数不足：无法证明「以正常周期持续发送」，不得判通过。
+                if (after.Length < minFrames)
                 {
-                    bad = true;
-                    break;
+                    violations.Add(new ResumeViolation(def.CanIdHex, resumeAt));
+                    continue;
                 }
-            }
 
-            if (bad) violations.Add(resumeAt);
+                // 恢复后前 minFrames 帧的间隔必须落在 cycle ± tolerance。
+                var bad = false;
+                for (var i = 1; i < minFrames; i++)
+                {
+                    var gapMs = (after[i] - after[i - 1]) * 1000.0;
+                    if (Math.Abs(gapMs - cycleMs) > toleranceMs + DurationMsEpsilon)
+                    {
+                        bad = true;
+                        break;
+                    }
+                }
+
+                if (bad) violations.Add(new ResumeViolation(def.CanIdHex, resumeAt));
+            }
         }
 
         // 空 trace / 每条报文都只有一帧：没有任何可判序列，必须显式进 Unmodeled。
@@ -118,15 +122,26 @@ public static partial class NmRuleEvaluators
             return true;
         }
 
-        if (violations.Count > 0 && !string.IsNullOrEmpty(rule.FindingCode))
+        if (violations.Count > 0)
         {
+            // 超差却无 finding code：不静默当作通过。
+            if (string.IsNullOrEmpty(rule.FindingCode))
+            {
+                unmodeledReason =
+                    $"{violations.Count} 处静默恢复形态异常，但规则未声明 finding code";
+                return true;
+            }
+
+            // 多报文时点名本 finding 覆盖了哪些节点，否则用户无法定位。
+            var ids = string.Join(", ",
+                violations.Select(v => v.CanIdHex).Distinct(StringComparer.Ordinal));
             findings.Add(new NmFinding(
                 rule.FindingCode, "warn",
                 // 不报 pct：P0 是文化相关的格式（部分区域会带不换行空格），
                 // 且规则未配 pct 时「±0%」与实际采用的报文级容差不一致。
-                $"{violations.Count} 处静默恢复后未以 {cycleMs}ms 正常周期持续发送" +
+                $"{ids}：{violations.Count} 处静默恢复后未以 {cycleMs}ms 正常周期持续发送" +
                 $"（最少 {minFrames} 帧）",
-                violations.Take(10).ToArray(),
+                violations.Select(v => v.At).Take(10).ToArray(),
                 // P 级：唤醒源不可观测，只能从行为反推。
                 IsInference: true,
                 SuggestedNextCheck: "核对唤醒后的 Repeat Message State 与发送周期配置",
@@ -139,16 +154,19 @@ public static partial class NmRuleEvaluators
         return true;
     }
 
+    /// <summary>一处恢复形态违规：归属报文 + 恢复时刻。</summary>
+    private readonly record struct ResumeViolation(string CanIdHex, double At);
+
     /// <summary>
-    /// 返回「静默结束后的第一个帧下标」；没有 ≥minSilenceSec 的静默时返回 -1。
+    /// 逐个产出「静默结束后的第一个帧」的下标：所有相邻间隔 ≥minSilenceSec 的位置。
     /// 只认报文自身的时间序列——跨报文静默由 episode 划分，不在这里判。
     /// </summary>
-    private static int FindResumeIndex(IReadOnlyList<double> times, double minSilenceSec)
+    private static IEnumerable<int> FindResumeIndices(
+        IReadOnlyList<double> times, double minSilenceSec)
     {
         for (var i = 1; i < times.Count; i++)
         {
-            if (times[i] - times[i - 1] >= minSilenceSec) return i;
+            if (times[i] - times[i - 1] >= minSilenceSec) yield return i;
         }
-        return -1;
     }
 }

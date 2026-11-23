@@ -52,6 +52,23 @@ public class NmRuleEvaluatorsResumeTests
     }
 
     [Fact]
+    public void Resume_SecondSilenceMalformed_ProducesFindingAtSecondResume()
+    {
+        // 两次睡眠/唤醒：第一次恢复合规（500ms × 4 帧），
+        // 第二次恢复为 100ms 快发。只判第一段静默会漏掉这次违规。
+        var frames = Frames(
+            [0.0, 0.5, 1.0, 5.0, 5.5, 6.0, 6.5],
+            [10.0, 10.1, 10.2, 10.3]);
+
+        var result = Evaluate(frames, minSilenceMs: 2000, cycleMs: 500, pct: 0.1, minFrames: 4);
+
+        var f = Assert.Single(result.Findings);
+        Assert.Equal("NM_NORMAL_RESUME_SHAPE_MISMATCH", f.Code);
+        // 证据必须落在第二次恢复（10.0s），证明第二个静默点确实被评为违规。
+        Assert.Equal(10.0, Assert.Single(f.EvidenceTimes), precision: 6);
+    }
+
+    [Fact]
     public void Resume_NoLongSilence_IsUnmodeled()
     {
         // 全程连续发送，没有 ≥2s 的静默：这条规则在本 trace 上不适用。
