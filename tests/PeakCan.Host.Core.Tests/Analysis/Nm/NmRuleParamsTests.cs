@@ -270,6 +270,35 @@ overrides:
         Assert.Contains(flat.Rules!, r => r.Id == "NM_06");
     }
 
+    // spec §7.2：stop_sending 的参数是 timeout_ms，当前 NmRuleWhen 没有这个字段。
+    // 没有它，规则只能退回读报文级超时，无法表达「按规则声明的超时判停发」。
+    [Fact]
+    public void Load_StopSendingWithTimeoutMs_ParsesField()
+    {
+        var yaml = """
+            standard:
+              id: t
+              version: "1.0"
+            rules:
+              - id: NM_STOP_SENDING
+                requirement: 进入 Ready Sleep State 后停止发送
+                phase: sleep
+                observability: partial
+                when:
+                  kind: stop_sending
+                  timeout_ms: 2500
+                expect:
+                  kind: observe
+                finding: ""
+                source_ref: §5.3.3
+            """;
+
+        var profile = NmStandardYaml.Load(yaml);
+
+        var rule = Assert.Single(profile.Rules!);
+        Assert.Equal(2500, rule.When.TimeoutMs);
+    }
+
     private static string RepoPath(string relative)
     {
         // 本测试项目有同名 namespace PeakCan.Host.Core.Tests.Path，显式指回 System.IO.Path。

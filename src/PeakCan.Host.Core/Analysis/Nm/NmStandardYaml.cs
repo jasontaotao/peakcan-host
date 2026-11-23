@@ -292,6 +292,7 @@ public static class NmStandardYaml
         public int? CycleMs { get; set; }
         public double? Pct { get; set; }
         public int? MinFrames { get; set; }
+        public int? TimeoutMs { get; set; }
         public string? MinId { get; set; }
         public string? MaxId { get; set; }
         public bool? Extended { get; set; }
@@ -349,7 +350,7 @@ public static class NmStandardYaml
         return new NmRuleDef(
             r.Id!, r.Requirement!, r.Phase ?? "normal",
             new NmRuleWhen(w.Kind!, w.Byte, w.Bit, w.Length, w.Role, w.LatencyKind,
-                w.MinSilenceMs, w.CycleMs, w.Pct, w.MinFrames,
+                w.MinSilenceMs, w.CycleMs, w.Pct, w.MinFrames, w.TimeoutMs,
                 w.MinId, w.MaxId, w.Extended),
             new NmRuleExpect(e.Kind!, e.Value, e.Byte, e.Bit, e.Count, e.IntervalMs,
                 e.Pct, e.MinMs, e.MaxMs, e.Anchor, e.WithBurst),

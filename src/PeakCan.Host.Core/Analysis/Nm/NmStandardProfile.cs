@@ -144,6 +144,8 @@ public sealed record NmRuleWhen(
     int? CycleMs = null,
     double? Pct = null,
     int? MinFrames = null,
+    /// <summary>stop_sending 的超时窗口；null = 用报文级生效超时。</summary>
+    int? TimeoutMs = null,
     /// <summary>layout_check 的 ID 区间下界（十六进制串，如 <c>0x18FFFA00</c>）。</summary>
     string? MinId = null,
     /// <summary>layout_check 的 ID 区间上界（十六进制串）。</summary>
