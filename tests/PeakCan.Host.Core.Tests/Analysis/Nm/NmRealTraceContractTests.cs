@@ -12,6 +12,11 @@ namespace PeakCan.Host.Core.Tests.Analysis.Nm;
 /// 必须同时断言「必须出现」与「不得出现」：只断言缺席的测试在规则引擎根本没跑时
 /// 会假通过（spec §12）。
 /// </para>
+/// <para>
+/// 范围说明：本文件只覆盖 Task 7 可达的 §14.6 子集（真实 trace 形态 + 已实现/未实现
+/// 规则的可见性 + 静默分类 + 周期规则真的求值）。完整 §14.6 契约（含 Task 8 的 RMS
+/// 时长 finding）由 S5 的终态测试承担。
+/// </para>
 /// </summary>
 public class NmRealTraceContractTests
 {
@@ -27,9 +32,12 @@ public class NmRealTraceContractTests
             new NmAnalysisRequest("geely-contract", null, frames, null, profile, 0, 9.0));
 
         // (1) 第一段 RMS ~2.1s（无快发）必须被规则覆盖。
-        //     当前 repeat_message_duration 尚未实现（Task 8），NM_06 只能进 Unmodeled；
-        //     该断言证明引擎确实对这一段求了值，而不是「规则未运行」的假通过。
+        //     当前 repeat_message_duration 尚未实现（Task 8），rules[].when.kind 走
+        //     TryEvaluate 的 default 分支，无论帧内容如何 NM_06 都进 Unmodeled——
+        //     因此这条断言只证明「完整规则集被加载且未实现条款显式可见」，
+        //     不证明引擎对这一段求过值。真正的求值证据见 (3) 的 NM_CYCLE。
         //     TODO(Task 8): 原语落地后，这里必须改断言 NM_REPEAT_MESSAGE_DURATION_EXCEEDED。
+        Assert.NotNull(report.UnmodeledRules);
         var nm06 = Assert.Single(report.UnmodeledRules!, u => u.Clause == "NM_06");
         Assert.Contains("repeat_message_duration", nm06.Reason, StringComparison.Ordinal);
         // Geely 的另一条未实现条款同样显式可见，证明加载的是完整规则集。
@@ -37,7 +45,9 @@ public class NmRealTraceContractTests
 
         // (2) 全网 NM 静默 > timeout：必须是 all_nm_silent 观测事实，
         //     不得降级成单报文 NM_SENDER_SILENT_BEYOND_TIMEOUT（spec §7.1.2）。
-        Assert.Contains(report.Observations!, o => o.Kind == "all_nm_silent");
+        //     静默原因不可证（release/下电/记录停止/bus sleep），故必须标 inferred（§12）。
+        var allSilent = Assert.Single(report.Observations!, o => o.Kind == "all_nm_silent");
+        Assert.True(allSilent.IsInference);
         Assert.DoesNotContain(report.Findings, f => f.Code == "NM_SENDER_SILENT_BEYOND_TIMEOUT");
 
         // (3) 稳态 514–537ms 在 500ms ±50ms（吉利 tolerance_ratio 0.1）内：

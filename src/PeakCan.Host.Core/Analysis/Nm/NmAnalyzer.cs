@@ -135,7 +135,12 @@ public static class NmAnalyzer
                 capabilities,
                 missing,
                 truncations,
-                StandardId: null,
+                // spec §6.1 rule 6：报告必须能自述来源 profile（standard_id@version）。
+                StandardId: request.Standard is { } standard
+                    ? $"{standard.StandardId}@{standard.Version}"
+                    : null,
+                // spec §10.1.1 要求 ProfileHash 是「展平后 canonical profile 的 SHA256」；
+                // 本任务没有 canonical 序列化器，留空而不是给一个会被误当权威的哈希。
                 ProfileHash: null,
                 EngineVersion: EngineVersion,
                 Selection: diagnostics,
@@ -180,26 +185,9 @@ public static class NmAnalyzer
         var timeoutMs = globalTiming.TimeoutMs;
         var cycleMs = globalTiming.CycleMs;
 
-        // 周期偏差只能有一个产出方（spec §7.4）：企标规则里已有一条会产出同码 finding 的
-        // cycle_tolerance 规则时，M1 的副本必须让位——规则副本带 RuleId/SourceRef，
-        // 可追溯到条款；两条同时保留会让同一事实报两次。
-        // 只有 M1 路径（StandardRules 为 null）不变，保证无 profile 行为逐字节一致。
-        var standardCycleRuleActive = false;
-        if (request.Profile.StandardRules is { Count: > 0 } standardRules)
-        {
-            for (var i = 0; i < standardRules.Count; i++)
-            {
-                var rule = standardRules[i];
-                // Unobservable 规则只进 Unmodeled、永不产 finding：此时抑制 M1 会丢结论。
-                if (rule.Observability != NmObservability.Unobservable
-                    && string.Equals(rule.When.Kind, "cycle_tolerance", StringComparison.Ordinal)
-                    && string.Equals(rule.FindingCode, "NM_CYCLE_DEVIATION", StringComparison.Ordinal))
-                {
-                    standardCycleRuleActive = true;
-                    break;
-                }
-            }
-        }
+        // 周期偏差的去重不能在这里预判：取消会让规则引擎根本不运行（spec §9.4），
+        // 若提前抑制 M1 副本，报告会既没有规则副本也没有 M1 副本。改为引擎求值后
+        // 按「实际产出的同码 finding」去重（见下方 ruleResult 处理）。
 
         episodes = NmEpisodeBuilder.Build(nmFrames, timeoutMs, request.Start, request.End);
         if (IsCanceled(NmAnalyzerCheckpoint.AfterEpisodes))
@@ -272,8 +260,9 @@ public static class NmAnalyzer
 
                 // spec §7.4: 偏差占比 > 5% 或连续 3 帧超容差才算 finding；
                 // 共享 ID 不拆节点时本报告只给按报文的周期结论，不做按节点的偏差归因。
-                // 企标规则接管时不再重复产出（见 standardCycleRuleActive 的说明）。
-                if (!sharedId && !standardCycleRuleActive && NmCycleAnalyzer.IsDeviationSignificant(cycle))
+                // 有企标规则时先按 M1 口径产出，规则引擎跑完后按同码去重（见下方）。
+                // 引擎在取消路径上不运行，M1 的副本因此得以保留（spec §9.4）。
+                if (!sharedId && NmCycleAnalyzer.IsDeviationSignificant(cycle))
                 {
                     findings.Add(new NmFinding("NM_CYCLE_DEVIATION", "warn",
                         $"{def.CanIdHex} 周期偏差 {cycle.DeviationCount}/{cycle.IntervalCount} 次（期望 {def.CycleMs}ms）",
@@ -360,6 +349,17 @@ public static class NmAnalyzer
                 {
                     Rules = activeRules,
                 });
+
+            // 引擎跑完后去重：只有规则真的产出了同码 finding 才移除 M1 副本。
+            // 规则副本带 RuleId（可追溯到条款），M1 副本的 RuleId 为 null。
+            // 这样自动覆盖：取消（引擎未运行 → 不移除）、规则换码、Unobservable、
+            // evaluator 无法求值进 Unmodeled（均无同码副本 → M1 副本保留）。
+            var ruleCodes = ruleResult.Findings
+                .Where(f => f.RuleId is not null)
+                .Select(f => f.Code)
+                .ToHashSet(StringComparer.Ordinal);
+            if (ruleCodes.Count > 0)
+                findings.RemoveAll(f => f.RuleId is null && ruleCodes.Contains(f.Code));
 
             findings.AddRange(ruleResult.Findings);
             observations.AddRange(ruleResult.Observations);

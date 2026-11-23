@@ -180,6 +180,25 @@ public static class NmStandardValidator
                 throw new NmProfileValidationException(
                     $"规则 {rule.Id} 的 nmsts_transition 必须声明 when.byte 与 when.bit");
             }
+
+            // cycle_tolerance 的配置必须在加载期就能判：周期显式为 0/负数时算不出容差，
+            // expect 也必须是唯一实现的 within_pct（spec §7.2）。否则规则会在运行期
+            // 静默进 Unmodeled，用户会把「没检查」误读成「通过」。
+            if (string.Equals(rule.When.Kind, "cycle_tolerance", StringComparison.Ordinal))
+            {
+                if (rule.When.CycleMs is { } cycleMs && cycleMs <= 0)
+                {
+                    throw new NmProfileValidationException(
+                        $"规则 {rule.Id} 的 cycle_tolerance 的 when.cycle_ms 必须为正数，实际 {cycleMs}");
+                }
+
+                if (!string.Equals(rule.Expect.Kind, "within_pct", StringComparison.Ordinal))
+                {
+                    throw new NmProfileValidationException(
+                        $"规则 {rule.Id} 的 cycle_tolerance 仅支持 expect.kind=within_pct，" +
+                        $"实际为「{rule.Expect.Kind}」");
+                }
+            }
         }
     }
 }

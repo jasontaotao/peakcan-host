@@ -60,6 +60,68 @@ public class NmRuleIntegrationTests
 
         Assert.NotNull(report.UnmodeledRules);
         Assert.Contains(report.UnmodeledRules!, u => u.Clause == "NM_U1");
+        // 「Only」必须有反向断言：不可观测条款只能进 Unmodeled，绝不能产 finding。
+        Assert.DoesNotContain(report.Findings, f => f.RuleId == "NM_U1");
+    }
+
+    /// <summary>
+    /// 取消时规则引擎不运行，M1 的周期偏差结论不能被无声丢弃（spec §9.4）。
+    /// 去重必须发生在引擎求值之后：本次没有规则副本，M1 副本必须保留在 partial 报告里。
+    /// </summary>
+    [Fact]
+    public void Analyze_CancelDuringMessageLoop_KeepsM1CycleDeviationInPartialReport()
+    {
+        using var cts = new CancellationTokenSource();
+        // 0x500 有 6 帧、间隔 700ms（期望 500ms），M1 会判周期偏差；
+        // 0x501 只是让逐报文循环出现第二次检查点，用于在首条报文完成后取消。
+        var frames = new[]
+        {
+            FrameAt(0.0), FrameAt(0.7), FrameAt(1.4),
+            FrameAt(2.1), FrameAt(2.8), FrameAt(3.5),
+            FrameAt(0.0, 0x501), FrameAt(0.7, 0x501),
+        };
+
+        var loopChecks = 0;
+        var report = NmAnalyzer.Analyze(
+            new NmAnalysisRequest("src", null, frames, null, CycleProfile(twoMessages: true), 0, 4.0),
+            checkpoint =>
+            {
+                if (checkpoint == NmAnalyzerCheckpoint.MessageLoop && ++loopChecks == 2)
+                    cts.Cancel();
+            },
+            cts.Token);
+
+        Assert.True(report.IsPartial);
+        var f = Assert.Single(report.Findings, x => x.Code == "NM_CYCLE_DEVIATION");
+        // 幸存者是 M1 副本（RuleId 为 null）：规则副本根本没机会产出。
+        Assert.Null(f.RuleId);
+    }
+
+    /// <summary>spec §6.1 rule 6：报告自述来源 profile（standard_id@version）。</summary>
+    [Fact]
+    public void Analyze_WithStandardProfile_ReportsStandardIdAndNullHash()
+    {
+        var frames = new[] { FrameAt(0.0) };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, Profile(rules: false), 0, 1.0,
+            Standard: new NmStandardProfile { StandardId = "geely-cv", Version = "2.0" }));
+
+        Assert.Equal("geely-cv@2.0", report.StandardId);
+        // canonical 序列化器缺失（spec §10.1.1），哈希必须显式留空而不是伪造。
+        Assert.Null(report.ProfileHash);
+    }
+
+    [Fact]
+    public void Analyze_WithoutStandardProfile_ReportsNullStandardId()
+    {
+        var frames = new[] { FrameAt(0.0) };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, Profile(rules: false), 0, 1.0));
+
+        Assert.Null(report.StandardId);
+        Assert.Null(report.ProfileHash);
     }
 
     /// <summary>
@@ -120,12 +182,21 @@ public class NmRuleIntegrationTests
                 : null);
     }
 
-    private static NmProfile CycleProfile()
+    private static NmProfile CycleProfile(bool twoMessages = false)
     {
-        var def = new NmMessageDef("0x500", false, "NM", "A", 8, true,
-            TestReasons, CycleMs: 500, TimeoutMs: 2000);
+        var messages = new List<NmMessageDef>
+        {
+            new("0x500", false, "NM", "A", 8, true,
+                TestReasons, CycleMs: 500, TimeoutMs: 2000),
+        };
+        if (twoMessages)
+        {
+            messages.Add(new NmMessageDef("0x501", false, "NM2", "A", 8, true,
+                TestReasons, CycleMs: 500, TimeoutMs: 2000));
+        }
+
         return new NmProfile(
-            NmProfileSource.Dbc, new[] { def }, new NmTimings(CycleMs: 500, TimeoutMs: 2000),
+            NmProfileSource.Dbc, messages, new NmTimings(CycleMs: 500, TimeoutMs: 2000),
             Array.Empty<NmNodeDef>(), Array.Empty<NmConfigConflict>(),
             Array.Empty<string>(), new NmProvenance(),
             Layout: new NmLayout(NidByte: 0, CbvByte: 1),
@@ -144,8 +215,8 @@ public class NmRuleIntegrationTests
             ]);
     }
 
-    // byte0 = 0x00：标准帧 0x500 的期望 NID（(0x500-0x400)&0xFF）。
-    private static ReplayFrame FrameAt(double t)
-        => new(t, 0x500, 8, new byte[] { 0x00, 0, 0, 0, 0, 0, 0, 0 },
+    // byte0 = 0x00：标准帧 0x500/0x501 的期望 NID（(ID-0x400)&0xFF）。
+    private static ReplayFrame FrameAt(double t, uint id = 0x500)
+        => new(t, id, 8, new byte[] { 0x00, 0, 0, 0, 0, 0, 0, 0 },
             PeakCan.HIL.Core.FrameFlags.None);
 }
