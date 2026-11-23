@@ -200,6 +200,14 @@ public static class NmDataQualityAnalyzer
             return NotChecked("non_monotonic", "窗口内没有可检查的帧，无法判定时间戳单调性");
         }
 
+        // 两个信号必须一致：selector 同时设置它们。若只设了 bool 而没有时间戳，
+        // 说明有人改了 selector 却漏了这里——宁可说「没查成」，也不能谎报通过。
+        if (diagnostics.TimestampRegression && diagnostics.TimestampRegressionAt is null)
+        {
+            return NotChecked("non_monotonic",
+                "检测到时间戳回退，但无法定位回退位置，单调性结论不可用");
+        }
+
         if (diagnostics.TimestampRegressionAt is not { } regressionAt)
         {
             return new NmDataQualityCheck(

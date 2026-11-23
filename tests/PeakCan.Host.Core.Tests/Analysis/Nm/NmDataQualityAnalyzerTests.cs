@@ -161,6 +161,20 @@ public class NmDataQualityAnalyzerTests
             Assert.Single(checks, c => c.Code == "non_monotonic").Status);
     }
 
+    // R48：两个信号不一致时不能谎报通过——只设 bool 而没有位置，属于「没查成」。
+    [Fact]
+    public void NonMonotonic_RegressionFlagWithoutTimestamp_IsNotChecked()
+    {
+        var profile = Profile("0x18FFFAF4");
+        var frames = new[] { FrameAt(0.0, 0x18FFFAF4, 0xF4) };
+        var diagnostics = NoSelectionIssues with { TimestampRegression = true };
+
+        var checks = NmDataQualityAnalyzer.Analyze(Request(frames, profile), frames, diagnostics);
+
+        Assert.Equal(NmDataQualityStatus.NotChecked,
+            Assert.Single(checks, c => c.Code == "non_monotonic").Status);
+    }
+
     // spec §9.1：NID 映射只在 profile 能解析出生效 nid_byte 时才可判。
     // R46：判据是 nid_byte 本身，不是 StandardRules——声明了 layout 但没声明规则也要判。
     [Fact]
