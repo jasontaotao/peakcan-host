@@ -66,6 +66,72 @@ public class NmReportWriterTests
         md.Should().NotContain("inference=True): dev [");
     }
 
+    // ==== spec §4.0 / §9.2：Markdown 必须输出条款号与数据体检 ====
+
+    private static readonly string[] BurstClauses = { "NM_03", "NM_04", "NM_16" };
+
+    [Fact]
+    public void WriteMarkdown_FindingsCarryClauses()
+    {
+        // 此前 Markdown 只输出 rule/source，多条款规则被压成一个 —— 追溯出口不成立。
+        var report = Report() with
+        {
+            Findings = new[]
+            {
+                new NmFinding("NM_WAKEUP_BURST_MISMATCH", "warn", "快发形态不符",
+                    FindingEvidenceTimes, true, null,
+                    RuleId: "NM_BURST_SHAPE", RequirementId: "NM_03", SourceRef: "§5.5")
+                {
+                    Clauses = BurstClauses,
+                },
+            },
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        md.Should().Contain("[rule=NM_BURST_SHAPE, source=§5.5, clauses=NM_03,NM_04,NM_16]");
+    }
+
+    [Fact]
+    public void WriteMarkdown_FindingWithoutClauses_HasNoClauseSuffix()
+    {
+        // 无条款的行保持旧输出，不追加空的 clauses=。
+        var md = NmReportWriter.WriteMarkdown(Snapshot(Report()));
+
+        md.Should().NotContain("clauses=");
+    }
+
+    [Fact]
+    public void WriteMarkdown_DataQuality_DistinguishesNotCheckedFromFailed()
+    {
+        // spec §9.2：「未检查」不是「不通过」，更不是「通过」。
+        var checks = new[]
+        {
+            new NmDataQualityCheck("nid_mapping", NmDataQualityStatus.NotChecked,
+                "未选中企标 profile", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+            new NmDataQualityCheck("unknown_id", NmDataQualityStatus.Failed,
+                "1 帧的 CAN ID 不在 DBC 或 profile 声明中",
+                Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+            new NmDataQualityCheck("dlc_mismatch", NmDataQualityStatus.Passed,
+                "实测 DLC 与声明一致", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(Report() with { DataQualityChecks = checks }));
+
+        md.Should().Contain("## Data Quality");
+        md.Should().Contain("- `nid_mapping` 未检查：未选中企标 profile");
+        md.Should().Contain("- `unknown_id` 不通过：1 帧的 CAN ID 不在 DBC 或 profile 声明中");
+        md.Should().Contain("- `dlc_mismatch` 通过：实测 DLC 与声明一致");
+    }
+
+    [Fact]
+    public void WriteMarkdown_WithoutDataQualityChecks_OmitsSection()
+    {
+        // 未执行体检时整段省略，与既有报告逐字节一致。
+        NmReportWriter.WriteMarkdown(Snapshot(Report()))
+            .Should().NotContain("## Data Quality");
+    }
+
     [Fact]
     public void WriteMarkdown_ProfileShowsStandardId()
     {

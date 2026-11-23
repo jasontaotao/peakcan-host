@@ -100,6 +100,11 @@ public sealed class GetNmOverviewTool : ChatToolBase
             ["rule_id"] = f.RuleId,
             ["requirement_id"] = f.RequirementId,
             ["source_ref"] = f.SourceRef,
+            // spec §4.0：条款是列表（burst_shape 覆盖 NM_03/NM_04/NM_16），
+            // 单值 requirement_id 会造假归因，仅为兼容旧消费方保留。
+            // 条款号是标识而非字节取值，按 rule_id/source_ref 的口径不脱敏。
+            ["clauses"] = new JsonArray(
+                f.Clauses.Select(c => (JsonNode?)JsonValue.Create(c)).ToArray()),
         });
 
         var root = NmToolOutput.Root(snapshot);
@@ -122,6 +127,23 @@ public sealed class GetNmOverviewTool : ChatToolBase
         root["episodes"] = new JsonArray(episodes.ToArray());
         root["messages"] = new JsonArray(messages.ToArray());
         root["findings"] = new JsonArray(findings.ToArray());
+        // spec §9.2：规则求值前的数据体检必须对 AI 可见；「没查」不能显示成「通过」。
+        // 状态用显式字符串映射，枚举改名时线上格式不变。
+        root["data_quality"] = new JsonArray(
+            (report.DataQualityChecks ?? Array.Empty<NmDataQualityCheck>())
+            .Select(c => (JsonNode?)new JsonObject
+            {
+                ["code"] = c.Code,
+                ["status"] = c.Status switch
+                {
+                    NmDataQualityStatus.Passed => "passed",
+                    NmDataQualityStatus.Failed => "failed",
+                    _ => "not_checked",
+                },
+                ["detail"] = c.Detail,
+                ["affected_can_ids"] = new JsonArray(
+                    c.AffectedCanIds.Select(i => (JsonNode?)JsonValue.Create(i)).ToArray()),
+            }).ToArray());
         // spec §7.1.1：观测事实独立于违规结论输出，AI 不得据此直接断言故障。
         root["observations"] = report.Observations is null
             ? new JsonArray()
@@ -146,6 +168,9 @@ public sealed class GetNmOverviewTool : ChatToolBase
                 // 原因里可能混入 CAN ID/NID 等取值（如「byte0 无法读取」旁的实测值），按字节脱敏。
                 ["reason"] = NmEventPrivacy.RedactText(u.Reason, allowedCanIds),
                 ["requirement_id"] = u.RequirementId,
+                // 条款号（clause）与规则身份（rule_id）是两回事，AI 归因必须用 rule_id。
+                ["rule_id"] = u.RuleId,
+                ["reason_code"] = u.ReasonCode,
             }).ToArray());
         root["capabilities"] = new JsonArray(report.Capabilities.Select(c => (JsonNode)new JsonObject
         {

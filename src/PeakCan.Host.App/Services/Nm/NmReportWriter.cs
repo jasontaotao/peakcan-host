@@ -104,6 +104,23 @@ public static class NmReportWriter
                 $"- **{f.Code}** ({f.Severity}, inference={f.IsInference}): {Esc(red.Apply(f.Message))}{trace}"));
         }
         sb.AppendLine();
+        // spec §9.2：数据体检三态必须进入导出；「未检查」不是「不通过」，更不是「通过」。
+        if (r.DataQualityChecks is { Count: > 0 } checks)
+        {
+            sb.AppendLine("## Data Quality");
+            foreach (var c in checks)
+            {
+                var status = c.Status switch
+                {
+                    NmDataQualityStatus.Passed => "通过",
+                    NmDataQualityStatus.Failed => "不通过",
+                    _ => "未检查",
+                };
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"- `{c.Code}` {status}：{c.Detail}"));
+            }
+            sb.AppendLine();
+        }
         sb.AppendLine("## Observations");
         if (r.Observations is null || r.Observations.Count == 0)
         {
@@ -196,21 +213,21 @@ public static class NmReportWriter
 
     /// <summary>
     /// findings 行的条款追溯后缀。rule_id / source_ref 是条款标识（不是字节取值），
-    /// 仍走脱敏与转义以防未来文本混入节点名；两者皆空时返回空串，保持旧输出不变。
+    /// 仍走脱敏与转义以防未来文本混入节点名；clauses 是纯条款号，按 spec §15 原样输出。
+    /// 三者皆空时返回空串，保持旧输出不变。
     /// </summary>
     private static string TraceSuffix(NmFinding finding, NmRedactor red)
     {
-        var rule = !string.IsNullOrEmpty(finding.RuleId)
-            ? "rule=" + Esc(red.Apply(finding.RuleId))
-            : null;
-        var source = !string.IsNullOrEmpty(finding.SourceRef)
-            ? "source=" + Esc(red.Apply(finding.SourceRef))
-            : null;
+        var parts = new List<string>(3);
+        if (!string.IsNullOrEmpty(finding.RuleId))
+            parts.Add("rule=" + Esc(red.Apply(finding.RuleId)));
+        if (!string.IsNullOrEmpty(finding.SourceRef))
+            parts.Add("source=" + Esc(red.Apply(finding.SourceRef)));
+        // spec §4.0 / R59：条款是标识列表（burst_shape 覆盖 NM_03/04/16），不是字节取值，不脱敏。
+        if (finding.Clauses.Count > 0)
+            parts.Add("clauses=" + string.Join(",", finding.Clauses));
 
-        if (rule is null && source is null) return "";
-        return " [" + (rule is null ? source
-            : source is null ? rule
-            : rule + ", " + source) + "]";
+        return parts.Count == 0 ? "" : " [" + string.Join(", ", parts) + "]";
     }
 
     /// <summary>

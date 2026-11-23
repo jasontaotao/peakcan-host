@@ -966,6 +966,120 @@ BA_ "NmStationAddress" BU_ ECU_A 244;
             .Should().Be("报文 0x50/0x500，NID 0x??，未配置 ID 0x??");
     }
 
+    // ==== spec §15 / §9.2：条款列表与数据体检必须进入 AI 输出 ====
+
+    private static readonly string[] BurstClauses = { "NM_03", "NM_04", "NM_16" };
+    private static readonly NmTimeRange[] UnknownIdRanges = { new(1.0, 2.0) };
+    private static readonly string[] UnknownIdCanIds = { "0x7FF" };
+
+    private static async Task<JsonObject> OverviewJsonAsync(NmReport report)
+    {
+        var ctx = new FakeChatToolContext
+        {
+            NmSnapshotValue = Snapshot() with { Report = report },
+        };
+        var tool = new GetNmOverviewTool(ctx, NullLogger<GetNmOverviewTool>.Instance);
+        return JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
+    }
+
+    [Fact]
+    public async Task NmOverview_FindingWithMultipleClauses_EmitsClauseList()
+    {
+        // spec §4.0：一条规则可覆盖多个条款（burst_shape → NM_03/04/16）。
+        // 只发单值会把多条款规则压成一个，AI 据此归因必然出错。
+        var findings = new[]
+        {
+            new NmFinding("NM_WAKEUP_BURST_MISMATCH", "warn", "快发形态不符",
+                FindingEvidenceTimes, true, null,
+                RuleId: "NM_BURST_SHAPE", RequirementId: "NM_03", SourceRef: "§5.5")
+            {
+                Clauses = BurstClauses,
+            },
+        };
+
+        var json = await OverviewJsonAsync(Report() with { Findings = findings });
+
+        var clauses = json["findings"]![0]!["clauses"]!.AsArray()
+            .Select(n => n!.GetValue<string>()).ToArray();
+        clauses.Should().Equal("NM_03", "NM_04", "NM_16");
+        // 兼容字段保留：旧消费方仍读 requirement_id，但新消费方应读 clauses。
+        json["findings"]![0]!["requirement_id"]!.GetValue<string>().Should().Be("NM_03");
+    }
+
+    [Fact]
+    public async Task NmOverview_FindingWithoutClauses_EmitsEmptyClauseArray()
+    {
+        // 无条款时必须是空数组：null 或缺失会让消费方无法区分「没有」与「没输出」。
+        var json = await OverviewJsonAsync(Report());
+
+        json["findings"]![0]!["clauses"].Should().BeOfType<JsonArray>();
+        json["findings"]![0]!["clauses"]!.AsArray().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task NmOverview_DataQualityChecks_EmitStableStatuses()
+    {
+        // spec §9.2：三态必须稳定映射为 passed/failed/not_checked。
+        // 「没查」不能显示成「通过」——两者结论强度不同。
+        var checks = new[]
+        {
+            new NmDataQualityCheck("nid_mapping", NmDataQualityStatus.NotChecked,
+                "未选中企标 profile", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+            new NmDataQualityCheck("unknown_id", NmDataQualityStatus.Failed,
+                "1 帧的 CAN ID 不在 DBC 或 profile 声明中：0x7FF",
+                UnknownIdRanges, UnknownIdCanIds),
+            new NmDataQualityCheck("dlc_mismatch", NmDataQualityStatus.Passed,
+                "实测 DLC 与声明一致", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+        };
+
+        var json = await OverviewJsonAsync(Report() with { DataQualityChecks = checks });
+
+        var items = json["data_quality"]!.AsArray();
+        items.Should().HaveCount(3);
+        items.Select(i => i!["code"]!.GetValue<string>())
+            .Should().Equal("nid_mapping", "unknown_id", "dlc_mismatch");
+        items.Select(i => i!["status"]!.GetValue<string>())
+            .Should().Equal("not_checked", "failed", "passed");
+        items[0]!["detail"]!.GetValue<string>().Should().Be("未选中企标 profile");
+        items[1]!["affected_can_ids"]!.AsArray()
+            .Select(i => i!.GetValue<string>()).Should().Equal("0x7FF");
+    }
+
+    [Fact]
+    public async Task NmOverview_WithoutDataQualityChecks_EmitsEmptyArray()
+    {
+        // 未执行体检（null）也必须输出空数组，语义是「没有体检结果」而非「全部通过」。
+        var json = await OverviewJsonAsync(Report());
+
+        json["data_quality"].Should().BeOfType<JsonArray>();
+        json["data_quality"]!.AsArray().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task NmOverview_UnmodeledRules_EmitRuleIdAndReasonCode()
+    {
+        // 未建模条款：Clause 是条款号、RuleId 才是规则身份，两者不能混用。
+        var unmodeled = new[]
+        {
+            new NmUnmodeledRule("§7.2", "缺少 ImmediateCycleMs，无法判定快发形态",
+                RequirementId: "NM_03", SourceRef: "§7.2")
+            {
+                RuleId = "NM_ACT_BURST",
+                ReasonCode = "missing_profile_data",
+            },
+            new NmUnmodeledRule("NM_08", "条款不可观测"),
+        };
+
+        var json = await OverviewJsonAsync(Report() with { UnmodeledRules = unmodeled });
+
+        var rules = json["unmodeled_rules"]!.AsArray();
+        rules[0]!["rule_id"]!.GetValue<string>().Should().Be("NM_ACT_BURST");
+        rules[0]!["reason_code"]!.GetValue<string>().Should().Be("missing_profile_data");
+        // 无规则身份时输出 null，而不是空串。
+        rules[1]!["rule_id"].Should().BeNull();
+        rules[1]!["reason_code"].Should().BeNull();
+    }
+
     // ==== §7.1.1 多态静默判定 + 观测事实 ====
 
     [Fact]
