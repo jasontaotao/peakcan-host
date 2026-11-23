@@ -204,12 +204,264 @@ public class NmRuleEngineTests
         Assert.Contains(result.Unmodeled, u => u.Clause == "NM_U");
     }
 
+    // ==== Fix round 1：无法求值的规则必须进 Unmodeled，不得静默通过 ====
+
+    [Fact]
+    public void BitRule_UnknownRoleName_GoesToUnmodeled()
+    {
+        // role 名拼错：位角色定位不到，规则不能静默通过。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
+            rules: new[]
+            {
+                Rule("NM_05", When("bit_rule", role: "RepeatMessageRequst"),
+                    Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            },
+            roles: new[]
+            {
+                new NmBitRole(1, 0, "RepeatMessageRequest")
+                    { Constraint = NmBitConstraint.MustBeZeroWhileDisabled },
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Equal("NM_05", u.Clause);
+        Assert.Contains("RepeatMessageRequst", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BitRule_NoRolesDeclared_GoesToUnmodeled()
+    {
+        // profile 没有任何 bit_roles（可能被子 profile 删掉），规则必须显式不可求值。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
+            rules: new[]
+            {
+                Rule("NM_05", When("bit_rule", role: "RepeatMessageRequest"),
+                    Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("bit_roles", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BitRule_ByteBitNotFound_GoesToUnmodeled()
+    {
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
+            rules: new[]
+            {
+                Rule("NM_05", When("bit_rule", byteIndex: 2, bitIndex: 3),
+                    Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            },
+            roles: new[]
+            {
+                new NmBitRole(1, 0, "RepeatMessageRequest")
+                    { Constraint = NmBitConstraint.MustBeZeroWhileDisabled },
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("byte2.bit3", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BitRule_OnlyByteGiven_GoesToUnmodeled()
+    {
+        // 只给 when.byte 不给 when.bit：参数不完整，不能猜位位置。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
+            rules: new[]
+            {
+                Rule("NM_05", When("bit_rule", byteIndex: 1),
+                    Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            },
+            roles: new[]
+            {
+                new NmBitRole(1, 0, "RepeatMessageRequest")
+                    { Constraint = NmBitConstraint.MustBeZeroWhileDisabled },
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("when.role", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BitRule_ExpectNotIsZero_GoesToUnmodeled()
+    {
+        // v1 只实现 is_zero；equals/present 不能假装检查过。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
+            rules: new[]
+            {
+                Rule("NM_05", When("bit_rule", role: "RepeatMessageRequest"),
+                    Expect("equals"), "NM_RMR_SET_WHILE_DISABLED"),
+            },
+            roles: new[]
+            {
+                new NmBitRole(1, 0, "RepeatMessageRequest")
+                    { Constraint = NmBitConstraint.MustBeZeroWhileDisabled },
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("equals", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BitRule_IsZeroWithNoneConstraint_StillProducesFinding()
+    {
+        // expect.is_zero 才是「该位必须为 0」的权威驱动；role.Constraint=none 不该让规则失效。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
+            rules: new[]
+            {
+                Rule("NM_05", When("bit_rule", role: "RepeatMessageRequest"),
+                    Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            },
+            roles: new[] { new NmBitRole(1, 0, "RepeatMessageRequest") });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Single(result.Findings);
+    }
+
+    [Fact]
+    public void BitRule_PartialObservability_FindingIsInference()
+    {
+        var rule = new NmRuleDef("NM_P", "部分观测条款", "normal",
+            When("bit_rule", role: "RepeatMessageRequest"),
+            Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED")
+        {
+            Observability = NmObservability.Partial,
+        };
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
+            rules: new[] { rule },
+            roles: new[]
+            {
+                new NmBitRole(1, 0, "RepeatMessageRequest")
+                    { Constraint = NmBitConstraint.MustBeZeroWhileDisabled },
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.True(Assert.Single(result.Findings).IsInference);
+    }
+
+    [Fact]
+    public void BitRule_ObservedObservability_FindingIsNotInference()
+    {
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
+            rules: new[]
+            {
+                Rule("NM_05", When("bit_rule", role: "RepeatMessageRequest"),
+                    Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            },
+            roles: new[]
+            {
+                new NmBitRole(1, 0, "RepeatMessageRequest")
+                    { Constraint = NmBitConstraint.MustBeZeroWhileDisabled },
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.False(Assert.Single(result.Findings).IsInference);
+    }
+
+    [Fact]
+    public void NidIdMapping_MissingNidByte_GoesToUnmodeled()
+    {
+        var ctx = Context(
+            frames: new[]
+            {
+                new NmFrame(Def("0x18FFFA27", isExtended: true),
+                    new ReplayFrame(0.0, 0x18FFFA27, 8,
+                        new byte[] { 0x27, 0x00, 0, 0, 0, 0, 0, 0 },
+                        PeakCan.HIL.Core.FrameFlags.None, IsExtended: true)),
+            },
+            rules: new[]
+            {
+                Rule("NM_01", When("nid_id_mapping"), Expect("matches_id_low_byte"),
+                    "NM_NID_MISMATCH"),
+            },
+            declareLayout: false);
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("nid_byte", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NidIdMapping_ShortFrame_EmitsUnreadableObservation()
+    {
+        // DLC 不足的帧无法读取 NID：必须像 bit_rule 一样留下观测，不能静默 continue。
+        var ctx = Context(
+            frames: new[]
+            {
+                new NmFrame(Def("0x18FFFA27", isExtended: true),
+                    new ReplayFrame(0.0, 0x18FFFA27, 0, Array.Empty<byte>(),
+                        PeakCan.HIL.Core.FrameFlags.None, IsExtended: true)),
+            },
+            rules: new[]
+            {
+                Rule("NM_01", When("nid_id_mapping"), Expect("matches_id_low_byte"),
+                    "NM_NID_MISMATCH"),
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        Assert.Contains(result.Observations, o => o.Kind == "nid_id_mapping_unreadable");
+    }
+
+    [Fact]
+    public void NidIdMapping_StandardIdBelowBase_TreatedUnreadableNotBogusExpectation()
+    {
+        // 0x100 < 0x400：(0x100-0x400)&0xFF 会算出 0x00，把 byte0=0x2A 误判成不匹配。
+        var ctx = Context(
+            frames: new[]
+            {
+                new NmFrame(Def("0x100"),
+                    new ReplayFrame(0.0, 0x100, 8,
+                        new byte[] { 0x2A, 0, 0, 0, 0, 0, 0, 0 },
+                        PeakCan.HIL.Core.FrameFlags.None)),
+            },
+            rules: new[]
+            {
+                Rule("NM_01", When("nid_id_mapping"), Expect("matches_id_low_byte"),
+                    "NM_NID_MISMATCH"),
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        Assert.Contains(result.Observations, o => o.Kind == "nid_id_mapping_unreadable");
+    }
+
     // ==== 构造辅助 ====
 
     private static NmRuleContext Context(
         IReadOnlyList<NmFrame> frames,
         IReadOnlyList<NmRuleDef> rules,
-        IReadOnlyList<NmBitRole>? roles = null)
+        IReadOnlyList<NmBitRole>? roles = null,
+        bool declareLayout = true)
     {
         var defs = frames.Select(f => f.Def).Distinct().ToArray();
         // 注：NID 用例不传 roles，但 nid_id_mapping 需要 profile 声明 NID 字节。
@@ -220,15 +472,16 @@ public class NmRuleEngineTests
             new NmTimings(CycleMs: 500, TimeoutMs: 2000),
             Array.Empty<NmNodeDef>(), Array.Empty<NmConfigConflict>(),
             Array.Empty<string>(), new NmProvenance(),
-            Layout: new NmLayout(NidByte: 0, CbvByte: 1),
+            Layout: declareLayout ? new NmLayout(NidByte: 0, CbvByte: 1) : null,
             StandardBitRoles: roles);
         var timing = NmTimingDefaults.FromProfile(profile.Timings, null);
         return new NmRuleContext(frames, Array.Empty<NmEpisode>(), profile, timing,
             new NmWindow(0, 10, "test")) { Rules = rules };
     }
 
-    private static NmRuleWhen When(string kind, string? role = null)
-        => new(kind, Role: role);
+    private static NmRuleWhen When(
+        string kind, string? role = null, byte? byteIndex = null, int? bitIndex = null)
+        => new(kind, Byte: byteIndex, Bit: bitIndex, Role: role);
 
     private static NmRuleExpect Expect(string kind)
         => new(kind);

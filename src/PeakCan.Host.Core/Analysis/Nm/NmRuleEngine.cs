@@ -47,10 +47,21 @@ public static class NmRuleEngine
                 continue;
             }
 
-            if (!NmRuleEvaluators.TryEvaluate(rule, context, findings, observations))
+            var implemented = NmRuleEvaluators.TryEvaluate(
+                rule, context, findings, observations, out var unmodeledReason);
+
+            if (!implemented)
             {
                 unmodeled.Add(new NmUnmodeledRule(
                     rule.Id, $"原语「{rule.When.Kind}」在 v1 闭集中无实现",
+                    RequirementId: rule.Id, SourceRef: rule.SourceRef));
+            }
+            else if (unmodeledReason is not null)
+            {
+                // 原语已实现，但本条规则缺参数 / 缺 profile 数据 / 期望未实现：
+                // 必须显式进 Unmodeled，否则用户会把「没检查」误读成「通过了」。
+                unmodeled.Add(new NmUnmodeledRule(
+                    rule.Id, unmodeledReason,
                     RequirementId: rule.Id, SourceRef: rule.SourceRef));
             }
         }

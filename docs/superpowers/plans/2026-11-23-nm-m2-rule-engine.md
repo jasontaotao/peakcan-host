@@ -2522,6 +2522,291 @@ EOF
 
 ---
 
+## Task 7.5: 企标 profile → NmProfile 接线（计划缺陷补救）
+
+**这是评审发现的计划级缺陷，不是原计划的切片。**
+
+`src/` 中**没有任何代码**把加载好的 `.nmstd.yaml` 接到 `NmProfile` 上。grep 证据：
+
+| 字段 | 写入方 | 读取方 |
+|---|---|---|
+| `NmProfile.StandardTimings` | **无** | `NmAnalyzer.cs:177`、`NmGapAnalyzer.cs:36`、`NmContentAnalyzer.cs:33` |
+| `NmProfile.StandardBitRoles` | **无** | `NmRuleEvaluators.Bits.cs:129` |
+| `NmProfile.StandardRules` | **无** | Task 7 将要添加 |
+
+后果：即使 Task 7 完成，`request.Profile.StandardRules is { Count: > 0 }` 这个守卫**永远不成立**，规则引擎是死代码。Task 7 的测试手工构造这些字段，所以测试会绿而生产永不执行。
+
+**Files:**
+- Create: `src/PeakCan.Host.Core/Analysis/Nm/NmStandardProfileBinding.cs`
+- Modify: `src/PeakCan.Host.Core/Analysis/Nm/NmProfileBuilder.cs`
+- Modify: `src/PeakCan.Host.Core/Analysis/Nm/NmAnalysisRequest.cs`（加 `NmStandardProfile? Standard`）
+- Modify: `src/PeakCan.Host.App/ViewModels/TraceViewerViewModel/NmFlow.cs`（加载并传入）
+- Test: `tests/PeakCan.Host.Core.Tests/Analysis/Nm/NmStandardBindingTests.cs`
+
+**Interfaces:**
+- Consumes: `NmStandardYaml.LoadFile(string) -> NmStandardProfile`、`NmStandardYaml.LoadAndFlatten(string, IReadOnlyDictionary<string, NmStandardProfile>) -> NmStandardFlattener.Flattened`
+- Produces:
+  - `NmStandardProfileBinding.Bind(NmProfile projectProfile, NmStandardFlattener.Flattened flat) -> NmProfile`
+  - `NmAnalysisRequest(..., NmStandardProfile? Standard = null)` 与内部 `NmStandardProfile? StandardProfile` 字段
+
+- [ ] **Step 1: 写失败的测试**
+
+创建 `tests/PeakCan.Host.Core.Tests/Analysis/Nm/NmStandardBindingTests.cs`：
+
+```csharp
+using PeakCan.Host.Core.Analysis.Nm;
+using Xunit;
+
+namespace PeakCan.Host.Core.Tests.Analysis.Nm;
+
+/// <summary>
+/// 企标 profile 必须真正进入 NmProfile，否则规则引擎永远不跑（评审 R20）。
+/// </summary>
+public class NmStandardBindingTests
+{
+    private static readonly string[] TestReasons = ["test"];
+
+    [Fact]
+    public void Bind_FlattenedProfile_PopulatesAllThreeStandardFields()
+    {
+        var flat = new NmStandardFlattener.Flattened(
+            Timings: new NmStandardTimings { CycleMs = 500, TimeoutMs = 2000, ToleranceRatio = 0.1 },
+            Layout: new NmStandardLayout
+            {
+                NidByte = 0, CbvByte = 1,
+                BitRoles = new[] { new NmBitRole(3, 0, "NmSts") },
+            },
+            Features: new NmStandardFeatures { PnEnabled = false },
+            Rules: new[]
+            {
+                new NmRuleDef("NM_05", "预留位必须为 0", "normal",
+                    new NmRuleWhen("bit_rule", Role: "RepeatMessageRequest"),
+                    new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            },
+            Messages: null, Nodes: null, Provenance: "autosar-cannm@4.1.3 < geely-cv@2.0");
+
+        var bound = NmStandardProfileBinding.Bind(Project(), flat);
+
+        Assert.Equal(2000, bound.StandardTimings!.TimeoutMs);
+        Assert.Single(bound.StandardBitRoles!);
+        Assert.Equal("NmSts", bound.StandardBitRoles![0].Name);
+        Assert.Single(bound.StandardRules!);
+        Assert.Equal("NM_05", bound.StandardRules![0].Id);
+    }
+
+    [Fact]
+    public void Bind_ProjectMessageLevelCycle_WinsOverStandardTiming()
+    {
+        // spec §6.1 第 2 条：项目 > OEM > base。报文级 CycleMs 不得被企标覆盖。
+        var project = Project() with
+        {
+            Messages = new[]
+            {
+                new NmMessageDef("0x500", false, "NM", "A", 8, true,
+                    TestReasons, CycleMs: 640, TimeoutMs: 3000),
+            },
+        };
+        var flat = new NmStandardFlattener.Flattened(
+            new NmStandardTimings { CycleMs = 500, TimeoutMs = 2000 },
+            null, null, null, null, null, "x@1");
+
+        var bound = NmStandardProfileBinding.Bind(project, flat);
+
+        // 报文级字段原样保留；企标只填 NmProfile 级别的 StandardTimings。
+        Assert.Equal(640, bound.Messages[0].CycleMs);
+        Assert.Equal(500, bound.StandardTimings!.CycleMs);
+    }
+
+    [Fact]
+    public void Bind_NullFlat_LeavesStandardFieldsNull()
+    {
+        var bound = NmStandardProfileBinding.Bind(Project(), flat: null);
+
+        Assert.Null(bound.StandardTimings);
+        Assert.Null(bound.StandardBitRoles);
+        Assert.Null(bound.StandardRules);
+    }
+
+    [Fact]
+    public void Analyze_WithStandardProfile_RunsRuleEngine()
+    {
+        // 端到端：bound profile 必须让规则引擎真的执行。
+        var frames = new[]
+        {
+            new PeakCan.Host.Core.Replay.ReplayFrame(0.0, 0x500, 8,
+                new byte[] { 0x00, 0x01, 0, 0, 0, 0, 0, 0 },
+                PeakCan.HIL.Core.FrameFlags.None),
+        };
+        var bound = NmStandardProfileBinding.Bind(Project(), FlatWithRmrRule());
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, bound, 0, 1.0));
+
+        // 规则引擎真的跑了：byte1.bit0 = 1 且要求为 0。
+        Assert.Contains(report.Findings, f => f.Code == "NM_RMR_SET_WHILE_DISABLED");
+    }
+
+    private static NmStandardFlattener.Flattened FlatWithRmrRule()
+        => new(
+            new NmStandardTimings { CycleMs = 500, TimeoutMs = 2000 },
+            new NmStandardLayout
+            {
+                NidByte = 0, CbvByte = 1,
+                BitRoles = new[]
+                {
+                    new NmBitRole(1, 0, "RepeatMessageRequest")
+                        { Constraint = NmBitConstraint.MustBeZeroWhileDisabled },
+                },
+            },
+            null,
+            new[]
+            {
+                new NmRuleDef("NM_05", "预留位必须为 0", "normal",
+                    new NmRuleWhen("bit_rule", Role: "RepeatMessageRequest"),
+                    new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            },
+            null, null, "x@1");
+
+    private static NmProfile Project()
+        => new(NmProfileSource.Dbc,
+            new[]
+            {
+                new NmMessageDef("0x500", false, "NM", "A", 8, true,
+                    TestReasons, CycleMs: 500, TimeoutMs: 2000),
+            },
+            new NmTimings(CycleMs: 500, TimeoutMs: 2000),
+            Array.Empty<NmNodeDef>(), Array.Empty<NmConfigConflict>(),
+            Array.Empty<string>(), new NmProvenance());
+}
+```
+
+- [ ] **Step 2: 跑测试确认失败**
+
+```bash
+cd /d/claude_proj2/peakcan-host && dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --filter "FullyQualifiedName~NmStandardBindingTests" -v minimal
+```
+
+预期：编译失败（`NmStandardProfileBinding` 不存在）。
+
+- [ ] **Step 3: 实现绑定器**
+
+创建 `src/PeakCan.Host.Core/Analysis/Nm/NmStandardProfileBinding.cs`：
+
+```csharp
+namespace PeakCan.Host.Core.Analysis.Nm;
+
+/// <summary>
+/// 把展平后的企标 profile 绑到项目 <see cref="NmProfile"/> 上（spec §6.1 第 5 条）。
+/// <para>
+/// 只填三个 <c>Standard*</c> 字段；**不改动项目层已有字段**——项目 &gt; OEM &gt; base
+/// 的优先级由 <see cref="NmTimingDefaults.FromProfile"/> 与 <see cref="NmTiming.Resolve"/>
+/// 在读取时实现，绑定阶段不做合并，避免两处各写一份优先级规则。
+/// </para>
+/// </summary>
+public static class NmStandardProfileBinding
+{
+    /// <param name="projectProfile">DBC/sidecar 构建的项目 profile。</param>
+    /// <param name="flat">展平后的企标；null 表示未选企标。</param>
+    public static NmProfile Bind(
+        NmProfile projectProfile, NmStandardFlattener.Flattened? flat)
+    {
+        if (flat is null) return projectProfile;
+
+        return projectProfile with
+        {
+            StandardTimings = flat.Timings,
+            StandardBitRoles = flat.Layout?.BitRoles,
+            StandardRules = flat.Rules,
+        };
+    }
+}
+```
+
+- [ ] **Step 4: 给 `NmProfile` 加 `StandardRules`**
+
+在 `NmProfile.cs` 的 record 末尾追加：
+
+```csharp
+    // 展平后的企标规则；null 表示未选企标（不跑规则引擎）。
+    IReadOnlyList<NmRuleDef>? StandardRules = null);
+```
+
+**注意**：`NmStandardProfileBinding.Bind` 用 `with` 表达式，所以 `StandardRules` 必须是 `init` 可写的位置参数（record 位置参数天然支持 `with`）。
+
+- [ ] **Step 5: 给 `NmAnalysisRequest` 加可选企标**
+
+`NmAnalysisRequest.cs` 末尾追加：
+
+```csharp
+    // 已加载的企标 profile；null 表示未选。NmFlow 负责加载与展平。
+    NmStandardProfile? Standard = null);
+```
+
+**为什么放在 request 而不是 profile**：加载/展平需要 registry（`extends` 解析）与文件 IO，属于调用方职责；`NmAnalyzer` 保持纯函数、无 IO。
+
+- [ ] **Step 6: 在 `NmFlow` 里加载并绑定**
+
+在 `NmFlow.cs` 的 `Task.Run` 块内，`var profile = NmSupplementMerger.Merge(...)` 之后插入：
+
+```csharp
+            // 企标 profile：显式选择 > DBC 同目录 > APPDATA > 安装目录（spec §10.1）。
+            // 未找到时 Standard 为 null，走 M1 行为。
+            var standardProfile = NmStandardProfileLocator.TryLoad(dbcPath);
+            if (standardProfile is not null)
+            {
+                var registry = NmStandardProfileLocator.BuildRegistry(standardProfile);
+                var flat = NmStandardFlattener.Flatten(standardProfile, registry);
+                NmStandardValidator.ValidateFlattened(flat);
+                profile = NmStandardProfileBinding.Bind(profile, flat);
+            }
+```
+
+并创建 `src/PeakCan.Host.Core/Analysis/Nm/NmStandardProfileLocator.cs` 实现搜索顺序（本 Task 只实现「DBC 同目录」一级，其余留 TODO 注释 + `Unmodeled` 提示，S7 补齐）。
+
+- [ ] **Step 7: 跑测试确认通过**
+
+```bash
+cd /d/claude_proj2/peakcan-host && dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --filter "FullyQualifiedName~NmStandardBindingTests" -v minimal
+```
+
+预期：4 项通过。
+
+- [ ] **Step 8: 跑 NM 全量定向测试**
+
+```bash
+cd /d/claude_proj2/peakcan-host && dotnet test tests/PeakCan.Host.Core.Tests/PeakCan.Host.Core.Tests.csproj --filter "FullyQualifiedName~Analysis.Nm" -v minimal
+```
+
+预期：全绿。**无 profile 时行为必须不变**——`Standard` 为 null 时 `Bind` 原样返回。
+
+- [ ] **Step 9: 向用户确认后提交**
+
+```bash
+git add src/PeakCan.Host.Core/Analysis/Nm/NmStandardProfileBinding.cs \
+  src/PeakCan.Host.Core/Analysis/Nm/NmStandardProfileLocator.cs \
+  src/PeakCan.Host.Core/Analysis/Nm/NmProfile.cs \
+  src/PeakCan.Host.Core/Analysis/Nm/NmAnalysisRequest.cs \
+  src/PeakCan.Host.App/ViewModels/TraceViewerViewModel/NmFlow.cs \
+  tests/PeakCan.Host.Core.Tests/Analysis/Nm/NmStandardBindingTests.cs
+git commit -m "$(cat <<'EOF'
+feat(nm): bind flattened standard profile onto NmProfile
+
+Nothing in src/ populated NmProfile.StandardTimings / StandardBitRoles /
+StandardRules, so the rule engine guard `StandardRules is { Count: > 0 }`
+could never be true and every rule would have shipped as dead code.
+
+NmStandardProfileBinding fills the three Standard* fields from the flattened
+profile without merging project values — the project > OEM > base precedence
+is applied at read time by NmTimingDefaults.FromProfile and NmTiming.Resolve,
+so it lives in exactly one place.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ## Task 7: 规则引擎接入分析器
 
 **背景**：Task 5/6 的原语还没接到 `NmAnalyzer`。没有这一步，规则永远是死代码。
