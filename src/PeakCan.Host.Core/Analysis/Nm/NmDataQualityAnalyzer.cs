@@ -24,8 +24,13 @@ public static class NmDataQualityAnalyzer
     public static IReadOnlyList<NmDataQualityCheck> Analyze(
         NmAnalysisRequest request, IReadOnlyList<ReplayFrame> frames)
     {
-        var checks = new List<NmDataQualityCheck>(4);
-        checks.Add(CheckUnknownId(request, frames));
+        var checks = new List<NmDataQualityCheck>(4)
+        {
+            CheckUnknownId(request, frames),
+            CheckDlcMismatch(request, frames),
+            CheckNonMonotonic(frames),
+            CheckNidMapping(request, frames),
+        };
         return checks;
     }
 
@@ -49,12 +54,12 @@ public static class NmDataQualityAnalyzer
         // spec §9.2：没有帧就没有可检查的对象——不能因为「循环没跑」而报通过。
         if (frames.Count == 0)
         {
-            return NotChecked("窗口内没有可检查的帧，无法判定帧 ID 是否合法");
+            return NotChecked("unknown_id", "窗口内没有可检查的帧，无法判定帧 ID 是否合法");
         }
 
         if (declaredNm.Count == 0 && dbcIds is null)
         {
-            return NotChecked("既无 DBC 也无 profile 报文声明，无法判定帧 ID 是否合法");
+            return NotChecked("unknown_id", "既无 DBC 也无 profile 报文声明，无法判定帧 ID 是否合法");
         }
 
         var unknown = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -90,7 +95,166 @@ public static class NmDataQualityAnalyzer
             unknown.ToArray());
     }
 
-    private static NmDataQualityCheck NotChecked(string detail)
-        => new("unknown_id", NmDataQualityStatus.NotChecked, detail,
+    /// <summary>
+    /// spec §9.1：实测 DLC 与声明是否一致。检测口径复用 M1 的 <c>NM_DLC_MISMATCH</c>，
+    /// 但声明来源升级为 DBC 优先（R45）。
+    /// <para>
+    /// 不能只看 profile 的 NM 声明：<see cref="NmProfile.Messages"/> 只含 NM 报文，
+    /// 应用报文会被整体跳过，检查会在几乎没验证任何帧的情况下报 Passed。
+    /// </para>
+    /// </summary>
+    private static NmDataQualityCheck CheckDlcMismatch(
+        NmAnalysisRequest request, IReadOnlyList<ReplayFrame> frames)
+    {
+        // spec §9.2：没有帧就没有可检查的对象——不能因为「循环没跑」而报通过。
+        if (frames.Count == 0)
+        {
+            return NotChecked("dlc_mismatch", "窗口内没有可检查的帧，无法比对 DLC");
+        }
+
+        var dbcMessages = request.Dbc?.MessagesById;
+        var declaredNm = new Dictionary<(string CanIdHex, bool IsExtended), byte>();
+        foreach (var message in request.Profile.Messages)
+        {
+            // 重复定义时按 NmAnalyzer 的口径保留第一条，不静默让后者覆盖前者。
+            if (message.IsNm)
+            {
+                declaredNm.TryAdd((message.CanIdHex, message.IsExtended), message.Dlc);
+            }
+        }
+
+        if ((dbcMessages is null || dbcMessages.Count == 0) && declaredNm.Count == 0)
+        {
+            return NotChecked("dlc_mismatch", "既无 DBC 也无 profile 报文声明，无法比对 DLC");
+        }
+
+        var wrongTimes = new List<double>();
+        var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var frame in frames)
+        {
+            var hex = "0x" + frame.Id.ToString("X", CultureInfo.InvariantCulture);
+
+            // 声明优先级：DBC（任意报文）> profile 的 NM 声明 > 无声明。
+            byte? declared = null;
+            if (dbcMessages is not null && dbcMessages.TryGetValue(frame.Id, out var dbcMessage))
+            {
+                declared = dbcMessage.Dlc;
+            }
+            else if (declaredNm.TryGetValue((hex, frame.IsExtended), out var profileDlc))
+            {
+                declared = profileDlc;
+            }
+
+            // 没有声明 DLC 的 ID 属于 unknown_id 的判定范围，这里不臆造期望值。
+            if (declared is { } dlc && frame.Dlc != dlc)
+            {
+                wrongTimes.Add(frame.Timestamp);
+                ids.Add(hex);
+            }
+        }
+
+        return wrongTimes.Count == 0
+            ? new NmDataQualityCheck(
+                "dlc_mismatch", NmDataQualityStatus.Passed,
+                "实测 DLC 与声明一致",
+                Array.Empty<NmTimeRange>(), Array.Empty<string>())
+            : new NmDataQualityCheck(
+                "dlc_mismatch", NmDataQualityStatus.Failed,
+                $"{wrongTimes.Count} 帧实测 DLC 与声明不一致",
+                [new NmTimeRange(wrongTimes.Min(), wrongTimes.Max())], ids.ToArray());
+    }
+
+    /// <summary>
+    /// spec §9.1：时间戳必须单调。非单调要报受影响区间，供上层剔除。
+    /// <para>
+    /// 只按传入顺序比较：不排序、不依赖 <see cref="NmFrameSelector"/> 的回退标志（R44），
+    /// 否则本检查的结果会随调用方是否先行过滤而漂移。
+    /// </para>
+    /// </summary>
+    private static NmDataQualityCheck CheckNonMonotonic(IReadOnlyList<ReplayFrame> frames)
+    {
+        // spec §9.2：没有帧就没有可检查的对象——不能因为「循环没跑」而报通过。
+        if (frames.Count == 0)
+        {
+            return NotChecked("non_monotonic", "窗口内没有可检查的帧，无法判定时间戳单调性");
+        }
+
+        var regressions = new List<double>();
+        double? previous = null;
+        foreach (var frame in frames)
+        {
+            if (previous is { } p && frame.Timestamp < p) regressions.Add(frame.Timestamp);
+            previous = frame.Timestamp;
+        }
+
+        return regressions.Count == 0
+            ? new NmDataQualityCheck(
+                "non_monotonic", NmDataQualityStatus.Passed,
+                "时间戳单调",
+                Array.Empty<NmTimeRange>(), Array.Empty<string>())
+            : new NmDataQualityCheck(
+                "non_monotonic", NmDataQualityStatus.Failed,
+                $"{regressions.Count} 处时间戳回退，相关区间结论不可靠",
+                [new NmTimeRange(regressions.Min(), regressions.Max())], Array.Empty<string>());
+    }
+
+    /// <summary>
+    /// spec §9.1：NID 是否与 CAN ID 映射一致。
+    /// 只有 profile 能解析出生效 <c>nid_byte</c> 时才可判——否则 NotChecked，不能记成通过。
+    /// <para>
+    /// 判据是 <c>nid_byte</c> 本身而非 <see cref="NmProfile.StandardRules"/>（R46）：
+    /// 声明了 layout 但没声明规则的 profile 仍然可判 NID。
+    /// </para>
+    /// </summary>
+    private static NmDataQualityCheck CheckNidMapping(
+        NmAnalysisRequest request, IReadOnlyList<ReplayFrame> frames)
+    {
+        // spec §9.2：没有帧就没有可检查的对象——不能因为「循环没跑」而报通过。
+        if (frames.Count == 0)
+        {
+            return NotChecked("nid_mapping", "窗口内没有可检查的帧，无法校验 NID 映射");
+        }
+
+        if (NmProfilePrecedence.EffectiveNidByte(request.Profile) is not { } nidByte)
+        {
+            return NotChecked(
+                "nid_mapping", "profile 未声明 layout.nid_byte，无法校验 NID 映射");
+        }
+
+        // spec §14.4：扩展帧 NID == CAN ID 低字节；标准帧 NID == ID - 0x400。
+        var wrongTimes = new List<double>();
+        var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var frame in frames)
+        {
+            var data = frame.Data;
+            if (data.Length <= nidByte) continue;
+
+            // 标准帧 ID < 0x400 时 (Id - 0x400) 下溢，会算出一个貌似合理的期望 NID；
+            // 这类帧不得臆造期望值。
+            if (!frame.IsExtended && frame.Id < 0x400) continue;
+
+            var expected = frame.IsExtended
+                ? (byte)(frame.Id & 0xFF)
+                : (byte)((frame.Id - 0x400) & 0xFF);
+            if (data[nidByte] != expected)
+            {
+                wrongTimes.Add(frame.Timestamp);
+                ids.Add("0x" + frame.Id.ToString("X", CultureInfo.InvariantCulture));
+            }
+        }
+
+        return wrongTimes.Count == 0
+            ? new NmDataQualityCheck(
+                "nid_mapping", NmDataQualityStatus.Passed,
+                "NID 与 CAN ID 映射一致",
+                Array.Empty<NmTimeRange>(), Array.Empty<string>())
+            : new NmDataQualityCheck(
+                "nid_mapping", NmDataQualityStatus.Failed,
+                $"{wrongTimes.Count} 帧 NID 与 CAN ID 映射不一致",
+                [new NmTimeRange(wrongTimes.Min(), wrongTimes.Max())], ids.ToArray());
+    }
+
+    private static NmDataQualityCheck NotChecked(string code, string detail)
+        => new(code, NmDataQualityStatus.NotChecked, detail,
             Array.Empty<NmTimeRange>(), Array.Empty<string>());
 }
