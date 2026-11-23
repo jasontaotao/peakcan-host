@@ -354,12 +354,21 @@ public static class NmAnalyzer
             // 规则副本带 RuleId（可追溯到条款），M1 副本的 RuleId 为 null。
             // 这样自动覆盖：取消（引擎未运行 → 不移除）、规则换码、Unobservable、
             // evaluator 无法求值进 Unmodeled（均无同码副本 → M1 副本保留）。
-            var ruleCodes = ruleResult.Findings
-                .Where(f => f.RuleId is not null)
-                .Select(f => f.Code)
-                .ToHashSet(StringComparer.Ordinal);
-            if (ruleCodes.Count > 0)
-                findings.RemoveAll(f => f.RuleId is null && ruleCodes.Contains(f.Code));
+            //
+            // 去重必须按「具体码」而不是「规则产出的所有码」：只有 NM_CYCLE_DEVIATION
+            // 能被证明两边判的是同一件事——M1 与 cycle_tolerance 都对每个报文组用同一
+            // 判据（NmCycleAnalyzer 的有效间隔与显著性），是真正的重复。
+            // 其他码不可按码一刀切：例如 NM_NID_MISMATCH 两边判的不是一回事——
+            // M1 比的是 DBC 站地址（NmContentAnalyzer.cs:243-249），NM_01 规则比的是
+            // CAN ID 低字节（spec §14.4）。按码去重会删掉语义不同、甚至属于其它报文的
+            // 结论。此处刻意写成白名单，不要泛化成按码集合去重。
+            const string CycleDeviationCode = "NM_CYCLE_DEVIATION";
+            var ruleProducedCycleFinding = ruleResult.Findings.Any(f =>
+                f.RuleId is not null
+                && string.Equals(f.Code, CycleDeviationCode, StringComparison.Ordinal));
+            if (ruleProducedCycleFinding)
+                findings.RemoveAll(f => f.RuleId is null
+                    && string.Equals(f.Code, CycleDeviationCode, StringComparison.Ordinal));
 
             findings.AddRange(ruleResult.Findings);
             observations.AddRange(ruleResult.Observations);
