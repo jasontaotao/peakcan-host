@@ -292,6 +292,9 @@ public static class NmStandardYaml
         public int? CycleMs { get; set; }
         public double? Pct { get; set; }
         public int? MinFrames { get; set; }
+        public string? MinId { get; set; }
+        public string? MaxId { get; set; }
+        public bool? Extended { get; set; }
     }
 
     private sealed class RuleExpectDto
@@ -306,6 +309,7 @@ public static class NmStandardYaml
         public int? MinMs { get; set; }
         public int? MaxMs { get; set; }
         public string? Anchor { get; set; }
+        public bool? WithBurst { get; set; }
     }
 
     private static NmRuleDef MapRule(RuleDto r)
@@ -345,9 +349,10 @@ public static class NmStandardYaml
         return new NmRuleDef(
             r.Id!, r.Requirement!, r.Phase ?? "normal",
             new NmRuleWhen(w.Kind!, w.Byte, w.Bit, w.Length, w.Role, w.LatencyKind,
-                w.MinSilenceMs, w.CycleMs, w.Pct, w.MinFrames),
+                w.MinSilenceMs, w.CycleMs, w.Pct, w.MinFrames,
+                w.MinId, w.MaxId, w.Extended),
             new NmRuleExpect(e.Kind!, e.Value, e.Byte, e.Bit, e.Count, e.IntervalMs,
-                e.Pct, e.MinMs, e.MaxMs, e.Anchor),
+                e.Pct, e.MinMs, e.MaxMs, e.Anchor, e.WithBurst),
             finding)
         {
             SourceRef = r.SourceRef,

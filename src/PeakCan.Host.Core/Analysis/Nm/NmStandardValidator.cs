@@ -163,13 +163,55 @@ public static class NmStandardValidator
             if (string.IsNullOrWhiteSpace(rule.Requirement))
                 throw new NmProfileValidationException($"规则 {rule.Id} 缺少 requirement");
 
+            // source_ref 同属可追溯性：没有它，报告里的 finding 无法回到企标原文，
+            // 结论不可复核（spec §8「requirement / source_ref 必填」）。
+            if (string.IsNullOrWhiteSpace(rule.SourceRef))
+                throw new NmProfileValidationException(
+                    $"规则 {rule.Id} 缺少 source_ref（条款出处，如 §5.4.3）");
+
             // spec §3：U 级条款不可观测，产出 finding 就是编造结论。
+            // 这条先于 finding code 注册表检查：语义违规比「码拼错」更根本。
             if (rule.Observability == NmObservability.Unobservable
                 && !string.IsNullOrWhiteSpace(rule.FindingCode))
             {
                 throw new NmProfileValidationException(
                     $"规则 {rule.Id} 标为 unobservable 却声明了 finding code「{rule.FindingCode}」；" +
                     "不可观测条款只能进 Unmodeled");
+            }
+
+            // finding code 必须在封闭注册表内：拼错的码会在报告里凭空造出
+            // 一个查不到语义的结论。观测型规则（expect=observe）按定义不产违规，
+            // 允许空 finding。
+            var isObserve = string.Equals(
+                rule.Expect.Kind, "observe", StringComparison.Ordinal);
+            if (!isObserve || !string.IsNullOrWhiteSpace(rule.FindingCode))
+            {
+                if (!NmFindingCodes.All.Contains(rule.FindingCode))
+                {
+                    throw new NmProfileValidationException(
+                        $"规则 {rule.Id} 的 finding code「{rule.FindingCode}」未注册。" +
+                        "新增 finding 时必须同步登记到 NmFindingCodes");
+                }
+            }
+
+            // duration_within_ms 的允许窗必须非空：min > max 时任何时长都会命中
+            // 上界或下界之一，产出互相矛盾的结论。
+            if (string.Equals(rule.Expect.Kind, "duration_within_ms", StringComparison.Ordinal)
+                && rule.Expect.MinMs is { } lo && rule.Expect.MaxMs is { } hi && lo > hi)
+            {
+                throw new NmProfileValidationException(
+                    $"规则 {rule.Id} 的允许窗非法：min_ms（{lo}）大于 max_ms（{hi}）");
+            }
+
+            // phase 取值必须在闭集内。注意：phase 目前**不驱动求值作用域**——
+            // spec §5.3 只给了三个候选值，未定义按阶段过滤的语义，故此处只校验取值，
+            // 不实现作用域。拼错的值若静默落成默认 "normal"，用户会以为自己
+            // 已按阶段限定规则，实际全窗口都在跑。
+            if (!NmRulePhases.All.Contains(rule.Phase))
+            {
+                throw new NmProfileValidationException(
+                    $"规则 {rule.Id} 的 phase「{rule.Phase}」非法，合法值：" +
+                    string.Join(" | ", NmRulePhases.All.Order(StringComparer.Ordinal)));
             }
 
             // spec §7.5.1.2：nmsts_transition 必须声明 byte 与 bit，

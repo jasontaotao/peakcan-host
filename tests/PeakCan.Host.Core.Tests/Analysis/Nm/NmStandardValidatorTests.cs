@@ -91,7 +91,8 @@ public class NmStandardValidatorTests
             [
                 new NmRuleDef("R_CYCLE", "周期", "normal",
                     new NmRuleWhen("cycle_tolerance", CycleMs: 0),
-                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION"),
+                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+                { SourceRef = "§5.5" },
             ],
         };
 
@@ -109,11 +110,149 @@ public class NmStandardValidatorTests
             [
                 new NmRuleDef("R_CYCLE", "周期", "normal",
                     new NmRuleWhen("cycle_tolerance"),
-                    new NmRuleExpect("equals"), "NM_CYCLE_DEVIATION"),
+                    new NmRuleExpect("equals"), "NM_CYCLE_DEVIATION")
+                { SourceRef = "§5.5" },
             ],
         };
 
         var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
         Assert.Contains("within_pct", ex.Message, StringComparison.Ordinal);
+    }
+
+    // spec §8：source_ref 是条款可追溯性的硬要求（spec §6.5.6）。
+    // 没有它，报告里的 finding 无法回到企标原文，等于结论不可复核。
+    [Fact]
+    public void Validate_RuleMissingSourceRef_Throws()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_NOREF", "周期", "normal",
+                    new NmRuleWhen("cycle_tolerance"),
+                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION"),
+            ],
+        };
+
+        var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
+        Assert.Contains("source_ref", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("R_NOREF", ex.Message, StringComparison.Ordinal);
+    }
+
+    // 未注册的 finding code 会在报告里凭空出现一个谁都对不上的结论：
+    // 用户既查不到它的严重度语义，也无法在别处引用。与闭集原语同一理由，加载期拒绝。
+    [Fact]
+    public void Validate_UnknownFindingCode_Throws()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_TYPO", "周期", "normal",
+                    new NmRuleWhen("cycle_tolerance"),
+                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATOIN")
+                { SourceRef = "§5.5" },
+            ],
+        };
+
+        var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
+        Assert.Contains("NM_CYCLE_DEVIATOIN", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_KnownFindingCode_Passes()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_OK", "周期", "normal",
+                    new NmRuleWhen("cycle_tolerance"),
+                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+                { SourceRef = "§5.5" },
+            ],
+        };
+
+        NmStandardValidator.Validate(profile); // 不抛即通过
+    }
+
+    // min_ms > max_ms 时任何时长都会命中上界或下界之一，产出互相矛盾的结论。
+    [Fact]
+    public void Validate_DurationWindowMinGreaterThanMax_Throws()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_WIN", "RMS 时长", "wakeup",
+                    new NmRuleWhen("repeat_message_duration", CycleMs: 500),
+                    new NmRuleExpect("duration_within_ms", MinMs: 1760, MaxMs: 1440,
+                        Anchor: "nmsts"),
+                    "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
+                { SourceRef = "§5.5", Observability = NmObservability.Partial },
+            ],
+        };
+
+        var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
+        Assert.Contains("min_ms", ex.Message, StringComparison.Ordinal);
+    }
+
+    // phase 目前不参与求值作用域（spec 未定义其语义），但取值必须在闭集内：
+    // 拼错的 phase 若静默落成默认值，用户会以为自己按阶段限定了规则。
+    [Fact]
+    public void Validate_UnknownPhase_Throws()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_PHASE", "周期", "wakeuup",
+                    new NmRuleWhen("cycle_tolerance"),
+                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+                { SourceRef = "§5.5" },
+            ],
+        };
+
+        var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
+        Assert.Contains("wakeuup", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("phase", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("wakeup")]
+    [InlineData("normal")]
+    [InlineData("sleep")]
+    public void Validate_KnownPhase_Passes(string phase)
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_PHASE", "周期", phase,
+                    new NmRuleWhen("cycle_tolerance"),
+                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+                { SourceRef = "§5.5" },
+            ],
+        };
+
+        NmStandardValidator.Validate(profile); // 不抛即通过
+    }
+
+    // 观测型规则（expect=observe）按定义不产违规，finding 允许为空串。
+    [Fact]
+    public void Validate_ObserveRuleWithEmptyFinding_Passes()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_OBS", "停发观察", "sleep",
+                    new NmRuleWhen("stop_sending"),
+                    new NmRuleExpect("observe"), "")
+                { SourceRef = "§5.9", Observability = NmObservability.Partial },
+            ],
+        };
+
+        NmStandardValidator.Validate(profile); // 不抛即通过
     }
 }

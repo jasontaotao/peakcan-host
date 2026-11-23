@@ -143,7 +143,13 @@ public sealed record NmRuleWhen(
     int? MinSilenceMs = null,
     int? CycleMs = null,
     double? Pct = null,
-    int? MinFrames = null);
+    int? MinFrames = null,
+    /// <summary>layout_check 的 ID 区间下界（十六进制串，如 <c>0x18FFFA00</c>）。</summary>
+    string? MinId = null,
+    /// <summary>layout_check 的 ID 区间上界（十六进制串）。</summary>
+    string? MaxId = null,
+    /// <summary>layout_check 的 ID 区间适用的帧类型；null = 两种都查。</summary>
+    bool? Extended = null);
 
 /// <summary>规则期望。同上，闭集原语参数的并集。</summary>
 public sealed record NmRuleExpect(
@@ -157,7 +163,14 @@ public sealed record NmRuleExpect(
     int? MinMs = null,
     int? MaxMs = null,
     /// <summary>repeat_message_duration 的锚点：nmsts | burst_end。</summary>
-    string? Anchor = null);
+    string? Anchor = null,
+    /// <summary>
+    /// repeat_message_duration 的「是否含快发」选择器（spec §2.4 双区间）：
+    /// true = 只适用于观察到快发段的 RMS（吉利 1640–1760）；
+    /// false = 只适用于无快发段的 RMS（吉利 1440–1560）；
+    /// null = 不做区分，用 min_ms/max_ms 的并集（向后兼容）。
+    /// </summary>
+    bool? WithBurst = null);
 
 /// <summary>
 /// 原语闭集（spec §7.2）。不在集合内的 kind 在加载期报错——
@@ -180,6 +193,72 @@ public static class NmRulePrimitives
             "count_equals", "interval_within_pct", "duration_within_ms",
             "present", "absent", "observe",
         };
+}
+
+/// <summary>
+/// finding code 的封闭注册表（spec §8「finding code 已注册」）。
+/// <para>
+/// 拼错的码若静默通过，报告里会出现一个谁都对不上的结论：用户查不到它的严重度语义，
+/// 也无法在别处引用。与闭集原语同一理由，加载期拒绝。
+/// </para>
+/// <para>
+/// 收录范围 = M1 各分析器实际产出的码 + 企标规则声明会产出的码。
+/// 新增 finding 时必须同步登记，否则对应 profile 加载失败——这是刻意的摩擦。
+/// </para>
+/// </summary>
+public static class NmFindingCodes
+{
+    public static readonly IReadOnlySet<string> All =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            // —— M1 分析器产出 ——
+            "NM_ALL_NM_SILENT",
+            "NM_ATTR_RANGE_MISMATCH",
+            "NM_BUS_WIDE_SILENCE",
+            "NM_CONFIG_CONFLICT",
+            "NM_CYCLE_DEVIATION",
+            "NM_DLC_MISMATCH",
+            "NM_LOG_GAP_SUSPECTED",
+            "NM_MESSAGE_ABSENT",
+            "NM_NID_MISMATCH",
+            "NM_NODE_DROPOUT",
+            "NM_PNI_WHILE_PN_DISABLED",
+            "NM_SENDER_SILENT_BEYOND_TIMEOUT",
+            "NM_TIMESTAMP_REGRESSION",
+            "NM_TRACE_BOUNDARY",
+            "NM_UNKNOWN_NID",
+            "NM_USER_DATA_UNUSED_NONZERO",
+
+            // —— 企标规则产出（spec §4 条款覆盖表） ——
+            "NM_LAYOUT_VIOLATION",
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED",
+            "NM_RESERVED_BIT_SET",
+            "NM_RMR_SET_WHILE_DISABLED",
+            "NM_WAKEUP_BURST_MISMATCH",
+            "NM_ACTIVE_WAKEUP_SUSPECT",
+            // first_frame_latency（spec §4：T_START_NM_TX / T_WakeUp，P 级）。
+            // 原语已实现且超差会产 finding，缺码会让任何声明它的 profile 在加载期被拒。
+            "NM_FIRST_FRAME_LATENCY_EXCEEDED",
+            // normal_resume_shape（spec §4：NM_02/NM_15，P 级）。
+            // 原语尚未实现，但码先登记：profile 可以先声明，规则会进 Unmodeled
+            // 而不是加载失败——「未实现」和「码非法」是两件事。
+            "NM_NORMAL_RESUME_SHAPE_MISMATCH",
+        };
+}
+
+/// <summary>
+/// 规则的阶段取值闭集（spec §5.3）。
+/// <para>
+/// <b>注意：phase 目前不驱动求值作用域。</b> spec 只给了这三个候选值，未定义
+/// 「按阶段过滤求值」的语义，因此引擎对所有规则在全窗口求值。此处的闭集只用于
+/// 加载期拒绝拼错的值——静默落成默认 "normal" 会让用户误以为已按阶段限定。
+/// 若将来 spec 定义作用域，需在此注释与引擎求值处同步实现。
+/// </para>
+/// </summary>
+public static class NmRulePhases
+{
+    public static readonly IReadOnlySet<string> All =
+        new HashSet<string>(StringComparer.Ordinal) { "wakeup", "normal", "sleep" };
 }
 
 /// <summary>规则的可观测性分级（spec §3）。</summary>

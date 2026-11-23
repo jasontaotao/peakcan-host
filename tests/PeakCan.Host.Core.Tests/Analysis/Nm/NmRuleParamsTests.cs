@@ -106,6 +106,7 @@ rules:
     expect:
       kind: observe
     finding: ""
+    source_ref: §7.3
 """;
 
         var profile = NmStandardYaml.Load(yaml);
@@ -127,6 +128,7 @@ rules:
     when: { kind: layout_check }
     expect: { kind: present }
     finding: NM_X
+    source_ref: §5.4
 """;
 
         var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardYaml.Load(bad));
