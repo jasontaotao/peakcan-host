@@ -541,7 +541,14 @@ public enum NmSilenceVerdict
 
 理由：语义无法在不引入通用表达式语言的前提下精确定义，或依赖不可观测输入。NMSts 用 `nmsts_transition` 专用原语，不做通用序列匹配。
 
-未知 `when`/`expect` 原语 → 该规则进 `Unmodeled`，不产 finding，不抛异常。
+**未知 `when`/`expect` 原语（Rev 6 修正）**：分两个阶段处理，不再统一「不抛异常」。
+
+| 阶段 | 行为 | 理由 |
+|---|---|---|
+| **加载期**（`NmStandardYaml.Load`） | 原语不在 `NmRulePrimitives` 闭集内 → **抛 `NmProfileValidationException`**，消息列出全部合法值 | 拼错的原语名（`cycle_tolerence`）若静默进 Unmodeled，用户会以为条款已被校验——这是最危险的静默失败 |
+| **求值期**（`NmRuleEngine.Evaluate`） | 闭集内但 v1 尚无实现的原语 → 进 `Unmodeled`，不产 finding，不抛异常 | 引擎必须能处理「profile 合法但当前版本未实现」的情形，不能崩溃 |
+
+Rev 5 及更早写的「未知原语一律进 Unmodeled 不抛异常」只覆盖了求值期，遗漏了加载期拼写错误的危害。闭集校验把这类错误前移到加载期，是本设计的刻意收紧。
 
 ### 7.3 主动唤醒判定（降级为「疑似不一致」）
 
