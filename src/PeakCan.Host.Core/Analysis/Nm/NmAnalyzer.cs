@@ -89,6 +89,8 @@ public static class NmAnalyzer
         var truncations = new List<NmTruncation>();
         var messageReports = new List<NmMessageReport>();
         var observations = new List<NmObservation>();
+        // 未建模条款（spec §7.1.1）：只有规则引擎实际运行过才可能有内容。
+        var unmodeled = new List<NmUnmodeledRule>();
         var nmFrames = new List<NmFrame>();
         IReadOnlyList<NmEpisode> episodes = Array.Empty<NmEpisode>();
         IReadOnlyList<string>? gapUnknowns = null;
@@ -140,7 +142,7 @@ public static class NmAnalyzer
                 Direction: direction,
                 IsPartial: partial,
                 Observations: observations.Count == 0 ? null : observations,
-                UnmodeledRules: null);
+                UnmodeledRules: unmodeled.Count == 0 ? null : unmodeled);
         }
 
         // 选择阶段（含能力/缺项）完成后即检查取消：此时报告至少带有选择诊断与能力矩阵。
@@ -177,6 +179,27 @@ public static class NmAnalyzer
             request.Profile.Timings, request.Profile.StandardTimings);
         var timeoutMs = globalTiming.TimeoutMs;
         var cycleMs = globalTiming.CycleMs;
+
+        // 周期偏差只能有一个产出方（spec §7.4）：企标规则里已有一条会产出同码 finding 的
+        // cycle_tolerance 规则时，M1 的副本必须让位——规则副本带 RuleId/SourceRef，
+        // 可追溯到条款；两条同时保留会让同一事实报两次。
+        // 只有 M1 路径（StandardRules 为 null）不变，保证无 profile 行为逐字节一致。
+        var standardCycleRuleActive = false;
+        if (request.Profile.StandardRules is { Count: > 0 } standardRules)
+        {
+            for (var i = 0; i < standardRules.Count; i++)
+            {
+                var rule = standardRules[i];
+                // Unobservable 规则只进 Unmodeled、永不产 finding：此时抑制 M1 会丢结论。
+                if (rule.Observability != NmObservability.Unobservable
+                    && string.Equals(rule.When.Kind, "cycle_tolerance", StringComparison.Ordinal)
+                    && string.Equals(rule.FindingCode, "NM_CYCLE_DEVIATION", StringComparison.Ordinal))
+                {
+                    standardCycleRuleActive = true;
+                    break;
+                }
+            }
+        }
 
         episodes = NmEpisodeBuilder.Build(nmFrames, timeoutMs, request.Start, request.End);
         if (IsCanceled(NmAnalyzerCheckpoint.AfterEpisodes))
@@ -249,7 +272,8 @@ public static class NmAnalyzer
 
                 // spec §7.4: 偏差占比 > 5% 或连续 3 帧超容差才算 finding；
                 // 共享 ID 不拆节点时本报告只给按报文的周期结论，不做按节点的偏差归因。
-                if (!sharedId && NmCycleAnalyzer.IsDeviationSignificant(cycle))
+                // 企标规则接管时不再重复产出（见 standardCycleRuleActive 的说明）。
+                if (!sharedId && !standardCycleRuleActive && NmCycleAnalyzer.IsDeviationSignificant(cycle))
                 {
                     findings.Add(new NmFinding("NM_CYCLE_DEVIATION", "warn",
                         $"{def.CanIdHex} 周期偏差 {cycle.DeviationCount}/{cycle.IntervalCount} 次（期望 {def.CycleMs}ms）",
@@ -325,6 +349,23 @@ public static class NmAnalyzer
 
         if (IsCanceled(NmAnalyzerCheckpoint.AfterContent))
             return Finish(partial: true);
+
+        // 企标规则（spec §7）：只有选中 profile 时才跑；无 profile 时规则引擎完全不执行，
+        // 保证 M1 输出逐字节不变。结果与 M1 finding 合并，但保留 RuleId/SourceRef
+        // 以便条款追溯。传全局时序，evaluator 按报文自行 Resolve 生效时序。
+        if (request.Profile.StandardRules is { Count: > 0 } activeRules)
+        {
+            var ruleResult = NmRuleEngine.Evaluate(activeRules,
+                new NmRuleContext(nmFrames, episodes, request.Profile, globalTiming, window)
+                {
+                    Rules = activeRules,
+                });
+
+            findings.AddRange(ruleResult.Findings);
+            observations.AddRange(ruleResult.Observations);
+            unmodeled.AddRange(ruleResult.Unmodeled);
+            truncations.AddRange(ruleResult.Truncations);
+        }
 
         if (request.Dbc is not null)
         {
