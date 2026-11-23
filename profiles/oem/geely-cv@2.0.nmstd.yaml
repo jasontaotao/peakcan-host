@@ -140,6 +140,8 @@ rules:
   # 吉利 §5.3.2：睡眠/预睡眠状态下被远程唤醒后，应以正常周期恢复发送。
   # v1 的 normal_resume_shape 只判发送节奏，无法区分唤醒源：
   # NM_02/NM_15 是「远程唤醒 → 正常周期」，NM_03/NM_16 是「本地唤醒 → 快发」。
+  # NM_10 也挂 normal_resume_shape，但目标状态是 NOS（NMSts=1），而 NM_02/15 是
+  # RMS（NMSts=0）；v1 不区分恢复后的目标状态（需要 phase 作用域 + expect_nmsts）。
   # 真实数据里静默后快发是 NM_03/16 的合规形态，启用为 partial 会在 §14.6 形态上误报。
   # 因此标 unobservable：报告显式列出「未建模」，而不是静默消失，也不是误报。
   # 待 bit_rule is_one + wakeup 作用域落地后，**同时**把下面三项改掉：
@@ -148,10 +150,10 @@ rules:
   #   finding: NM_NORMAL_RESUME_SHAPE_MISMATCH
   # 三者缺一，规则会静默失效（expect 不匹配时原语直接进 Unmodeled，永不产 finding）。
   - id: NM_RESUME_TO_RMS
-    requirement: 静默唤醒后以 T_NM_MessageCycle 正常周期恢复发送（NM_02 / NM_15）
+    requirement: 静默唤醒后以 T_NM_MessageCycle 正常周期恢复发送（NM_02 / NM_10 / NM_15）
     declared_phase: wakeup
     observability: unobservable
-    clauses: ["NM_02", "NM_15"]
+    clauses: ["NM_02", "NM_10", "NM_15"]
     when: { kind: normal_resume_shape, min_silence_ms: 2000, cycle_ms: 500, pct: 0.1, min_frames: 4 }
     expect: { kind: observe }
     finding: ""

@@ -220,6 +220,41 @@ public class NmDataQualityAnalyzerTests
             Assert.Single(checks, c => c.Code == "nid_mapping").Status);
     }
 
+    // Fix 1：应用报文的 byte0 没有 NID 语义。只校验 profile 声明为 NM 的报文，
+    // 与规则引擎的 NmFrames 同口径；否则任何带应用流量的真实 trace 都会恒报 Failed，
+    // 而同一次分析里的 NM_NID_MAPPING 规则却不产 finding（同一报告两个相反结论）。
+    [Fact]
+    public void NidMapping_ApplicationFrameWithNonNidByte0_IsIgnored()
+    {
+        var profile = Profile("0x18FFFAF4");
+        var frames = new[]
+        {
+            FrameAt(0.0, 0x18FFFAF4, 0xF4),   // NM 帧：NID 与 ID 低字节一致
+            FrameAt(0.5, 0x18FFFB27, 0x99),   // 应用帧：byte0 不是 NID，也不等于 0x27
+        };
+
+        var checks = Run(frames, profile);
+
+        var check = Assert.Single(checks, c => c.Code == "nid_mapping");
+        Assert.Equal(NmDataQualityStatus.Passed, check.Status);
+        // 应用帧的 ID 绝不能出现在 NID 结论里。
+        Assert.DoesNotContain("0x18FFFB27", check.AffectedCanIds);
+    }
+
+    // Fix 1：窗口里只有应用帧时，没有任何 NM 帧可判 NID——必须 NotChecked，不能是 Passed。
+    [Fact]
+    public void NidMapping_OnlyApplicationFrames_IsNotChecked()
+    {
+        var profile = Profile("0x18FFFAF4");
+        var frames = new[] { FrameAt(0.5, 0x18FFFB27, 0x99) };
+
+        var checks = Run(frames, profile);
+
+        var check = Assert.Single(checks, c => c.Code == "nid_mapping");
+        Assert.Equal(NmDataQualityStatus.NotChecked, check.Status);
+        Assert.Empty(check.AffectedCanIds);
+    }
+
     // R45：DBC 存在时按 DBC 的 DLC 比对。
     [Fact]
     public void DlcMismatch_DbcDeclaresDlc_IsFailed()

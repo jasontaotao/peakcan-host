@@ -1053,6 +1053,31 @@ BA_ "NmStationAddress" BU_ ECU_A 244;
 
         json["data_quality"].Should().BeOfType<JsonArray>();
         json["data_quality"]!.AsArray().Should().BeEmpty();
+        // 没有体检结果当然也没有「体检不通过」。
+        json["data_quality_failed"]!.GetValue<bool>().Should().BeFalse();
+    }
+
+    // Fix 5：预期消费方先读体检再读结论。字段顺序与布尔标志都要支持这一点。
+    [Fact]
+    public async Task NmOverview_DataQualityPrecedesFindingsAndFlagsFailure()
+    {
+        var checks = new[]
+        {
+            new NmDataQualityCheck("unknown_id", NmDataQualityStatus.Failed,
+                "1 帧的 CAN ID 未知", UnknownIdRanges, UnknownIdCanIds),
+            new NmDataQualityCheck("dlc_mismatch", NmDataQualityStatus.NotChecked,
+                "没有可比对的帧", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+        };
+
+        var json = await OverviewJsonAsync(Report() with { DataQualityChecks = checks });
+
+        json["data_quality_failed"]!.GetValue<bool>().Should().BeTrue();
+
+        var text = json.ToJsonString();
+        var dataQuality = text.IndexOf("\"data_quality\"", StringComparison.Ordinal);
+        var findings = text.IndexOf("\"findings\"", StringComparison.Ordinal);
+        dataQuality.Should().BeGreaterThanOrEqualTo(0);
+        findings.Should().BeGreaterThan(dataQuality);
     }
 
     [Fact]
@@ -1066,6 +1091,7 @@ BA_ "NmStationAddress" BU_ ECU_A 244;
             {
                 RuleId = "NM_ACT_BURST",
                 ReasonCode = "missing_profile_data",
+                Clauses = BurstClauses,
             },
             new NmUnmodeledRule("NM_08", "条款不可观测"),
         };
@@ -1075,9 +1101,14 @@ BA_ "NmStationAddress" BU_ ECU_A 244;
         var rules = json["unmodeled_rules"]!.AsArray();
         rules[0]!["rule_id"]!.GetValue<string>().Should().Be("NM_ACT_BURST");
         rules[0]!["reason_code"]!.GetValue<string>().Should().Be("missing_profile_data");
+        // Fix 2：完整条款列表必须离开 Core。只发 ordinal-first 的单值会丢条款。
+        rules[0]!["clauses"]!.AsArray()
+            .Select(n => n!.GetValue<string>()).Should().Equal("NM_03", "NM_04", "NM_16");
+        rules[0]!["clause"]!.GetValue<string>().Should().Be("§7.2");
         // 无规则身份时输出 null，而不是空串。
         rules[1]!["rule_id"].Should().BeNull();
         rules[1]!["reason_code"].Should().BeNull();
+        rules[1]!["clauses"]!.AsArray().Should().BeEmpty();
     }
 
     // ==== §7.1.1 多态静默判定 + 观测事实 ====

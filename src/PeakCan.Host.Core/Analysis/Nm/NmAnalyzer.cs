@@ -371,7 +371,7 @@ public static class NmAnalyzer
             // 能被证明两边判的是同一件事——M1 与 cycle_tolerance 都对每个报文组用同一
             // 判据（NmCycleAnalyzer 的有效间隔与显著性），是真正的重复。
             // 其他码不可按码一刀切：例如 NM_NID_MISMATCH 两边判的不是一回事——
-            // M1 比的是 DBC 站地址（NmContentAnalyzer.cs:243-249），NM_01 规则比的是
+            // M1 比的是 DBC 站地址（NmContentAnalyzer.cs:243-249），NM_NID_MAPPING 规则比的是
             // CAN ID 低字节（spec §14.4）。按码去重会删掉语义不同、甚至属于其它报文的
             // 结论。此处刻意写成白名单，不要泛化成按码集合去重。
             const string CycleDeviationCode = "NM_CYCLE_DEVIATION";

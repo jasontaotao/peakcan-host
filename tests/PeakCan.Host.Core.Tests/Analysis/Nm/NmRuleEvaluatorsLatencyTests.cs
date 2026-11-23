@@ -246,6 +246,8 @@ public class NmRuleEvaluatorsLatencyTests
                 StringComparison.Ordinal));
         var u = Assert.Single(result.Unmodeled);
         Assert.Equal("NM_06", u.RuleId);
+        // Fix 3：位角色缺失属于 profile 数据缺失。
+        Assert.Equal("missing_profile_data", u.ReasonCode);
     }
 
     [Fact]
@@ -261,6 +263,8 @@ public class NmRuleEvaluatorsLatencyTests
         var u = Assert.Single(result.Unmodeled);
         Assert.Equal("NM_06", u.RuleId);
         Assert.Contains("未观察到 RMS 锚点", u.Reason, StringComparison.Ordinal);
+        // Fix 3：整段没有 RMS 是「本条 trace 没有该事件」，不是 profile 缺数据。
+        Assert.Equal("not_applicable", u.ReasonCode);
     }
 
     [Fact]

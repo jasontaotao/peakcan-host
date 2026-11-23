@@ -132,6 +132,104 @@ public class NmReportWriterTests
             .Should().NotContain("## Data Quality");
     }
 
+    // Fix 5：spec §9 要求体检放在结论之前；§9.4 要求顶部显式提示「数据可疑」。
+    [Fact]
+    public void WriteMarkdown_DataQualitySectionPrecedesFindings()
+    {
+        var checks = new[]
+        {
+            new NmDataQualityCheck("unknown_id", NmDataQualityStatus.Failed,
+                "1 帧的 CAN ID 未知", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+            new NmDataQualityCheck("dlc_mismatch", NmDataQualityStatus.Passed,
+                "实测 DLC 与声明一致", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(Report() with { DataQualityChecks = checks }));
+
+        var dq = md.IndexOf("## Data Quality", StringComparison.Ordinal);
+        var findings = md.IndexOf("## Findings", StringComparison.Ordinal);
+        dq.Should().BeGreaterThanOrEqualTo(0);
+        findings.Should().BeGreaterThan(dq);
+    }
+
+    [Fact]
+    public void WriteMarkdown_DataQualityFailed_EmitsTopNotice()
+    {
+        var checks = new[]
+        {
+            new NmDataQualityCheck("unknown_id", NmDataQualityStatus.Failed,
+                "1 帧的 CAN ID 未知", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(Report() with { DataQualityChecks = checks }));
+
+        md.Should().Contain("数据体检未通过");
+        // 提示必须在结论之前：读者先知道数据可疑，再看 findings。
+        md.IndexOf("数据体检未通过", StringComparison.Ordinal)
+            .Should().BeLessThan(md.IndexOf("## Findings", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void WriteMarkdown_DataQualityWithoutFailures_EmitsNoNotice()
+    {
+        var checks = new[]
+        {
+            new NmDataQualityCheck("unknown_id", NmDataQualityStatus.NotChecked,
+                "未选中企标 profile", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+            new NmDataQualityCheck("dlc_mismatch", NmDataQualityStatus.Passed,
+                "实测 DLC 与声明一致", Array.Empty<NmTimeRange>(), Array.Empty<string>()),
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(Report() with { DataQualityChecks = checks }));
+
+        // 「没查」不等于「不通过」，不能触发可疑提示。
+        md.Should().NotContain("数据体检未通过");
+    }
+
+    // Fix 4：base 规则的 clauses 为空，只渲染 Clause 会得到空的加粗标识；
+    // 多条款规则则必须把完整条款列表渲染出来，不能只显示 ordinal-first。
+    [Fact]
+    public void WriteMarkdown_UnmodeledRendersRuleIdAndFullClauses()
+    {
+        var report = Report() with
+        {
+            UnmodeledRules = new[]
+            {
+                new NmUnmodeledRule("NM_03", "快发段被分析边界截断", RequirementId: "NM_03")
+                {
+                    RuleId = "NM_BURST_SHAPE",
+                    Clauses = BurstClauses,
+                },
+            },
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        md.Should().Contain("- **NM_BURST_SHAPE** [NM_03,NM_04,NM_16]：快发段被分析边界截断");
+    }
+
+    [Fact]
+    public void WriteMarkdown_UnmodeledBaseRuleWithoutClauses_RendersRuleIdNotEmptyBold()
+    {
+        var report = Report() with
+        {
+            UnmodeledRules = new[]
+            {
+                // base 规则：clauses: []，没有条款号。
+                new NmUnmodeledRule("", "没有可用的 NM 帧", RequirementId: null)
+                {
+                    RuleId = "NM_CYCLE",
+                },
+            },
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        md.Should().Contain("- **NM_CYCLE**：没有可用的 NM 帧");
+        // 旧实现会渲染成 `- ****：...`，规则身份完全丢失。
+        md.Should().NotContain("****");
+    }
+
     [Fact]
     public void WriteMarkdown_ProfileShowsStandardId()
     {

@@ -268,6 +268,10 @@ overrides:
         // 规则按 id 合并。
         Assert.Contains(flat.Rules!, r => r.Id == "NM_CYCLE");
         Assert.Contains(flat.Rules!, r => r.Id == "NM_RMS_DURATION_BURST");
+        // spec §4：NM_10 也挂 normal_resume_shape。v1 不区分它的 NOS 目标状态，
+        // 但条款归因不能因此把 NM_10 从报告里丢掉。
+        var resume = Assert.Single(flat.Rules!, r => r.Id == "NM_RESUME_TO_RMS");
+        Assert.Equal(ResumeClauses, resume.Clauses);
     }
 
     // spec §7.2：stop_sending 的参数是 timeout_ms，当前 NmRuleWhen 没有这个字段。
@@ -301,6 +305,9 @@ overrides:
 
     // CA1861 要求复用静态数组而不是内联 new[]（与 NmRuleNegativeSetTests 同一处置）。
     private static readonly string[] BurstClauses = ["NM_03", "NM_04", "NM_16"];
+
+    // spec §4：NM_10 与 NM_02/15 共用 normal_resume_shape（目标状态差异见 profile 注释）。
+    private static readonly string[] ResumeClauses = ["NM_02", "NM_10", "NM_15"];
 
     // spec §4.0：规则 ID 与条款号是两个东西。规则可挂多条条款
     // （burst_shape 覆盖 NM_03/NM_04/NM_16），所以 Clauses 是列表不是单值。

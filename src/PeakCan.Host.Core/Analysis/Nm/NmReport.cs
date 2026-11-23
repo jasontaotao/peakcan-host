@@ -68,8 +68,15 @@ public sealed record NmUnmodeledRule(
     /// <summary>未实现的规则 ID；Clause 是条款号，两者不是一回事。</summary>
     public string? RuleId { get; init; }
 
-    /// <summary>结构化原因码，见 spec §9.4。</summary>
+    /// <summary>结构化原因码，见 spec §9.4 / <see cref="NmUnmodeledCodes"/>。</summary>
     public string? ReasonCode { get; init; }
+
+    /// <summary>
+    /// 本规则覆盖的完整条款列表（来自 rule.Clauses）。
+    /// <see cref="Clause"/> 只是 ordinal-first 的兼容字段：多条款规则
+    /// （NM_STOP_SENDING → NM_09/NM_12）只读 Clause 会丢条款。
+    /// </summary>
+    public IReadOnlyList<string> Clauses { get; init; } = Array.Empty<string>();
 }
 
 public sealed record NmSegment(double Start, double End, string Kind);

@@ -154,7 +154,7 @@ public class NmRuleEvaluatorsResumeTests
         var findings = new List<NmFinding>();
         var observations = new List<NmObservation>();
         var implemented = NmRuleEvaluators.TryEvaluate(
-            rule, ctx, findings, observations, out var reason);
+            rule, ctx, findings, observations, out var reason, out _);
 
         Assert.True(implemented, "normal_resume_shape 必须在 v1 闭集内有实现");
         return new Outcome(findings, reason);
@@ -196,7 +196,7 @@ public class NmRuleEvaluatorsResumeTests
         var findings = new List<NmFinding>();
         var observations = new List<NmObservation>();
         var implemented = NmRuleEvaluators.TryEvaluate(
-            rule, ctx, findings, observations, out var reason);
+            rule, ctx, findings, observations, out var reason, out _);
 
         Assert.True(implemented, "stop_sending 必须在 v1 闭集内有实现");
         return new StopOutcome(findings, observations, reason);

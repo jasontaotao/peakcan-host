@@ -230,9 +230,10 @@ public static class NmDataQualityAnalyzer
     /// 声明了 layout 但没声明规则的 profile 仍然可判 NID。
     /// </para>
     /// <para>
-    /// <b>前提（R49）</b>：本检查把<b>每一帧</b>都当作 NM 帧解释（应用报文的该字节没有
-    /// NID 语义）。因此声明 <c>nid_byte</c> 等于断言整个通道（本报告窗口内）都使用该布局；
-    /// 同一通道混有其它报文时，应用帧可能被误报。Detail 必须带此限定，不能给出无条件结论。
+    /// <b>只校验 profile 声明为 NM 的报文</b>：应用报文的 byte 0 没有 NID 语义，
+    /// 把它们也按 NM 布局解释会在任何带应用流量的真实 trace 上恒报 Failed。
+    /// 口径与规则引擎一致——<c>NmAnalyzer</c> 交给 <c>NmRuleContext.NmFrames</c> 的
+    /// 也只包含 profile 声明为 NM 的报文，两条路径不能对 NID 给出相反结论。
     /// </para>
     /// </summary>
     private static NmDataQualityCheck CheckNidMapping(
@@ -250,12 +251,27 @@ public static class NmDataQualityAnalyzer
                 "nid_mapping", "profile 未声明 layout.nid_byte，无法校验 NID 映射");
         }
 
+        // NID 语义只属于 profile 声明的 NM 报文。没有声明就没有可校验的对象。
+        var nmKeys = request.Profile.Messages
+            .Where(m => m.IsNm)
+            .Select(m => (m.CanIdHex, m.IsExtended))
+            .ToHashSet();
+        if (nmKeys.Count == 0)
+        {
+            return NotChecked("nid_mapping",
+                "profile 未声明 NM 报文，无法校验 NID 映射");
+        }
+
         // spec §14.4：扩展帧 NID == CAN ID 低字节；标准帧 NID == ID - 0x400。
         var wrongTimes = new List<double>();
         var ids = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         var compared = 0;
         foreach (var frame in frames)
         {
+            // 应用报文（未在 profile 中声明为 NM）不参与 NID 映射判定。
+            var hex = "0x" + frame.Id.ToString("X", CultureInfo.InvariantCulture);
+            if (!nmKeys.Contains((hex, frame.IsExtended))) continue;
+
             var data = frame.Data;
             if (data.Length <= nidByte) continue;
 
@@ -270,7 +286,7 @@ public static class NmDataQualityAnalyzer
             if (data[nidByte] != expected)
             {
                 wrongTimes.Add(frame.Timestamp);
-                ids.Add("0x" + frame.Id.ToString("X", CultureInfo.InvariantCulture));
+                ids.Add(hex);
             }
         }
 
@@ -279,17 +295,17 @@ public static class NmDataQualityAnalyzer
         {
             return NotChecked(
                 "nid_mapping",
-                "所有帧都无法读取 NID（DLC 不足或标准帧 CAN ID < 0x400），没有可比对的帧");
+                "窗口内没有可判定的 NM 帧（profile 声明的 NM 报文未出现，或 DLC 不足/标准帧 CAN ID < 0x400）");
         }
 
         return wrongTimes.Count == 0
             ? new NmDataQualityCheck(
                 "nid_mapping", NmDataQualityStatus.Passed,
-                "NID 与 CAN ID 映射一致（按 layout.nid_byte 声明解释）",
+                "NID 与 CAN ID 映射一致（仅校验 profile 声明的 NM 报文，按 layout.nid_byte 解释）",
                 Array.Empty<NmTimeRange>(), Array.Empty<string>())
             : new NmDataQualityCheck(
                 "nid_mapping", NmDataQualityStatus.Failed,
-                $"{wrongTimes.Count} 帧 NID 与 CAN ID 映射不一致（按 layout.nid_byte 声明解释）",
+                $"{wrongTimes.Count} 帧 NID 与 CAN ID 映射不一致（仅校验 profile 声明的 NM 报文，按 layout.nid_byte 解释）",
                 [new NmTimeRange(wrongTimes.Min(), wrongTimes.Max())], ids.ToArray());
     }
 

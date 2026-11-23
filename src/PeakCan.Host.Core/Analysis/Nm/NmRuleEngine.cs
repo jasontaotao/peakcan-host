@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace PeakCan.Host.Core.Analysis.Nm;
 
 /// <summary>规则求值输入（spec §7.1）。</summary>
@@ -23,6 +25,25 @@ public sealed record NmRuleResult(
     IReadOnlyList<NmObservation> Observations,
     IReadOnlyList<NmUnmodeledRule> Unmodeled,
     IReadOnlyList<NmTruncation> Truncations);
+
+/// <summary>
+/// 未建模原因码（spec §9.4）。<c>missing_profile_data</c> 会让 AI 让用户去改 profile；
+/// 若真实原因是「这条 trace 没有该事件」，那是把用户引向错误的方向。
+/// </summary>
+public static class NmUnmodeledCodes
+{
+    /// <summary>本条 trace 的帧里没有该规则要判的事件（静默段、停发段、RMS 锚点等）。</summary>
+    public const string NotApplicable = "not_applicable";
+
+    /// <summary>原语的 expect / 参数变体尚未实现。</summary>
+    public const string UnimplementedPrimitive = "unimplemented_primitive";
+
+    /// <summary>profile 缺少规则所需的声明（位角色、nid_byte、时限等）。</summary>
+    public const string MissingProfileData = "missing_profile_data";
+
+    /// <summary>U 级条款：规则本身不可观测。</summary>
+    public const string Unobservable = "unobservable";
+}
 
 /// <summary>
 /// 规则引擎（spec §7.2 闭集原语）。未知原语进 Unmodeled，不产 finding、不抛异常；
@@ -53,13 +74,15 @@ public static class NmRuleEngine
                     RequirementId: firstClause, SourceRef: rule.SourceRef)
                 {
                     RuleId = rule.Id,
-                    ReasonCode = "unobservable",
+                    Clauses = rule.Clauses,
+                    ReasonCode = NmUnmodeledCodes.Unobservable,
                 });
                 continue;
             }
 
             var implemented = NmRuleEvaluators.TryEvaluate(
-                rule, context, findings, observations, out var unmodeledReason);
+                rule, context, findings, observations,
+                out var unmodeledReason, out var unmodeledCode);
 
             if (!implemented)
             {
@@ -68,19 +91,25 @@ public static class NmRuleEngine
                     RequirementId: firstClause, SourceRef: rule.SourceRef)
                 {
                     RuleId = rule.Id,
-                    ReasonCode = "unimplemented_primitive",
+                    Clauses = rule.Clauses,
+                    ReasonCode = NmUnmodeledCodes.UnimplementedPrimitive,
                 });
             }
             else if (unmodeledReason is not null)
             {
                 // 原语已实现，但本条规则缺参数 / 缺 profile 数据 / 期望未实现：
                 // 必须显式进 Unmodeled，否则用户会把「没检查」误读成「通过了」。
+                // 原因码由 evaluator 给出——「trace 里没有该事件」与「profile 缺数据」
+                // 必须可区分，否则 AI 会让用户去改一份本来没问题的 profile。
+                Debug.Assert(unmodeledCode is not null,
+                    $"规则 {rule.Id} 给出了 unmodeledReason 却没有 unmodeledCode");
                 unmodeled.Add(new NmUnmodeledRule(
                     firstClause ?? "", unmodeledReason,
                     RequirementId: firstClause, SourceRef: rule.SourceRef)
                 {
                     RuleId = rule.Id,
-                    ReasonCode = "missing_profile_data",
+                    Clauses = rule.Clauses,
+                    ReasonCode = unmodeledCode ?? NmUnmodeledCodes.MissingProfileData,
                 });
             }
         }

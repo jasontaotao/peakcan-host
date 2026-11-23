@@ -21,6 +21,13 @@ public static class NmReportWriter
         var sb = new StringBuilder();
         sb.AppendLine("# NM 分析报告");
         sb.AppendLine();
+        // spec §9 / §9.4：体检不通过时必须在顶部提示，避免读者把下方结论当成可信结论。
+        if (r.DataQualityChecks is { } dq && dq.Any(c => c.Status == NmDataQualityStatus.Failed))
+        {
+            sb.AppendLine(
+                "> **数据体检未通过**：以下结论仅供指示性参考，请先核对数据质量（见 Data Quality 段）。");
+            sb.AppendLine();
+        }
         // 数字一律用 InvariantCulture：报告内容不应随系统区域设置变化（同 CA1305）。
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"- source: `{r.SourceId}`"));
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
@@ -95,16 +102,8 @@ public static class NmReportWriter
                 $"| {m.CanIdHex} | {Esc(red.Apply(m.Name))} | {Esc(red.Apply(m.Sender))} | {m.FrameCount} | {median} | {m.FirstSeen:F3} | {m.LastSeen:F3} |"));
         }
         sb.AppendLine();
-        sb.AppendLine("## Findings");
-        foreach (var f in r.Findings)
-        {
-            // 条款追溯只在有值时追加：无追溯信息的行与旧输出逐字节一致。
-            var trace = TraceSuffix(f, red);
-            sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
-                $"- **{f.Code}** ({f.Severity}, inference={f.IsInference}): {Esc(red.Apply(f.Message))}{trace}"));
-        }
-        sb.AppendLine();
-        // spec §9.2：数据体检三态必须进入导出；「未检查」不是「不通过」，更不是「通过」。
+        // spec §9.2 / §9.4：数据体检放在结论之前——读者必须先知道数据是否可信。
+        // 「未检查」不是「不通过」，更不是「通过」。
         if (r.DataQualityChecks is { Count: > 0 } checks)
         {
             sb.AppendLine("## Data Quality");
@@ -121,6 +120,15 @@ public static class NmReportWriter
             }
             sb.AppendLine();
         }
+        sb.AppendLine("## Findings");
+        foreach (var f in r.Findings)
+        {
+            // 条款追溯只在有值时追加：无追溯信息的行与旧输出逐字节一致。
+            var trace = TraceSuffix(f, red);
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                $"- **{f.Code}** ({f.Severity}, inference={f.IsInference}): {Esc(red.Apply(f.Message))}{trace}"));
+        }
+        sb.AppendLine();
         sb.AppendLine("## Observations");
         if (r.Observations is null || r.Observations.Count == 0)
         {
@@ -144,9 +152,17 @@ public static class NmReportWriter
         }
         else
         {
+            // spec §4.0：条款号不是规则名。先用 RuleId 标识规则身份，再列出完整条款列表；
+            // base 规则的 clauses 为空时只渲染 RuleId，不能退化成一个空的加粗标识。
             foreach (var u in r.UnmodeledRules)
+            {
+                var identity = string.IsNullOrEmpty(u.RuleId) ? u.Clause : u.RuleId;
+                var clauses = u.Clauses.Count > 0
+                    ? " [" + string.Join(",", u.Clauses) + "]"
+                    : "";
                 sb.AppendLine(CultureInfo.InvariantCulture,
-                    $"- **{u.Clause}**：{Esc(red.Apply(u.Reason))}");
+                    $"- **{identity}**{clauses}：{Esc(red.Apply(u.Reason))}");
+            }
         }
         sb.AppendLine();
         sb.AppendLine("## Events");

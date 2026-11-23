@@ -38,15 +38,17 @@ public static partial class NmRuleEvaluators
     private static bool RepeatMessageDuration(
         NmRuleDef rule, NmRuleContext ctx,
         List<NmFinding> findings, List<NmObservation> observations,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
 
         // 期望必须是时长窗口；其它期望静默跳过会让用户误以为条款已被校验。
         if (!string.Equals(rule.Expect.Kind, "duration_within_ms", StringComparison.Ordinal))
         {
             unmodeledReason =
                 $"repeat_message_duration 仅实现 expect.kind=duration_within_ms，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
@@ -57,6 +59,7 @@ public static partial class NmRuleEvaluators
         {
             unmodeledReason =
                 $"repeat_message_duration 需要 expect.anchor=nmsts|burst_end，当前为 {anchor ?? "(空)"}";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
@@ -64,12 +67,14 @@ public static partial class NmRuleEvaluators
         if (rule.Expect.MaxMs is not { } maxMs)
         {
             unmodeledReason = "repeat_message_duration 缺少 expect.max_ms，无法判定超差";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
         if (ctx.Episodes.Count == 0)
         {
             unmodeledReason = "没有可用的 episode，无法界定 Repeat Message State 时长";
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
             return true;
         }
 
@@ -81,12 +86,16 @@ public static partial class NmRuleEvaluators
                 "NMSts 不可读，无法界定 Repeat Message State 终点；" +
                 "首末帧跨度含 NOS，不作为违规证据");
             unmodeledReason = "profile 未声明 NmSts 位角色，无法界定 Repeat Message State 时长";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
         var minMs = rule.Expect.MinMs ?? 0;
         var anchorObserved = false;
         var reasons = new List<string>();
+        // 缺判据 / 缺 finding code 是 profile 问题；「没有 RMS 锚点」「段被截断」
+        // 是这条 trace 的性质。
+        var missingProfileData = false;
 
         foreach (var episode in ctx.Episodes)
         {
@@ -125,6 +134,8 @@ public static partial class NmRuleEvaluators
                         reasons.Add(burst.IsIndeterminate
                             ? $"{def.CanIdHex} 快发判据缺失，无法按 burst_end 锚定 RMS 起点"
                             : $"{def.CanIdHex} anchor=burst_end，但未观察到快发段，无法按规则口径测量 RMS");
+                        // 判据缺失是 profile 问题；「没观察到快发段」是 trace 性质。
+                        if (burst.IsIndeterminate) missingProfileData = true;
                         continue;
                     }
 
@@ -224,6 +235,7 @@ public static partial class NmRuleEvaluators
                     if (string.IsNullOrEmpty(rule.FindingCode))
                     {
                         reasons.Add("RMS 超差，但规则未声明 finding code");
+                        missingProfileData = true;
                         continue;
                     }
 
@@ -248,6 +260,7 @@ public static partial class NmRuleEvaluators
                 if (string.IsNullOrEmpty(rule.FindingCode))
                 {
                     reasons.Add("RMS 过短，但规则未声明 finding code");
+                    missingProfileData = true;
                     continue;
                 }
 
@@ -265,12 +278,17 @@ public static partial class NmRuleEvaluators
         {
             // 没有 NMSts=0 帧 = 没有 Repeat Message State。此时「首末帧跨度」含 NOS，
             // 绝不能据此判 RMS 超差（spec §7.2 / R35）。
+            // 这是「本条 trace 没有该事件」，不是 profile 缺数据。
             unmodeledReason =
                 "未观察到 RMS 锚点（整段没有 NMSts=0 帧），无法界定 Repeat Message State 时长";
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
         }
         else if (reasons.Count > 0)
         {
             unmodeledReason = string.Join("；", reasons.Distinct());
+            unmodeledCode = missingProfileData
+                ? NmUnmodeledCodes.MissingProfileData
+                : NmUnmodeledCodes.NotApplicable;
         }
 
         return true;
@@ -288,26 +306,31 @@ public static partial class NmRuleEvaluators
     /// </summary>
     private static bool FirstFrameLatency(
         NmRuleDef rule, NmRuleContext ctx, List<NmFinding> findings,
-        List<NmObservation> observations, out string? unmodeledReason)
+        List<NmObservation> observations, out string? unmodeledReason,
+        out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
 
         if (!string.Equals(rule.Expect.Kind, "within_pct", StringComparison.Ordinal))
         {
             unmodeledReason =
                 $"first_frame_latency 仅实现 expect.kind=within_pct，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
         if (rule.Expect.MaxMs is not { } maxMs || maxMs <= 0)
         {
             unmodeledReason = "first_frame_latency 缺少有效的 expect.max_ms";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
         if (ctx.Episodes.Count == 0)
         {
             unmodeledReason = "没有可用的 episode，无法判定首帧延迟";
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
             return true;
         }
 
@@ -320,10 +343,13 @@ public static partial class NmRuleEvaluators
             unmodeledReason =
                 "first_frame_latency 需要 when.latency_kind=start_nm_tx|wakeup，" +
                 $"当前为 {latencyKind ?? "(空)"}";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
         var reasons = new List<string>();
+        // 「无独立锚点」是 trace 性质；「超差但无 finding code」是 profile 问题。
+        var missingProfileData = false;
 
         foreach (var episode in ctx.Episodes)
         {
@@ -363,6 +389,7 @@ public static partial class NmRuleEvaluators
                 reasons.Add(
                     $"episode {episode.Index} 首帧延迟 {latencyMs:F0}ms 超差，" +
                     $"但规则未声明 finding code（latency_kind={latencyKind}）");
+                missingProfileData = true;
                 continue;
             }
 
@@ -377,7 +404,13 @@ public static partial class NmRuleEvaluators
 
         // 逐 episode 汇总，不能后一条覆盖前一条：多个 episode 各有不可测/超差原因时
         // 报告必须全部可见（与 .Timing.cs 同口径）。
-        if (reasons.Count > 0) unmodeledReason = string.Join("；", reasons.Distinct());
+        if (reasons.Count > 0)
+        {
+            unmodeledReason = string.Join("；", reasons.Distinct());
+            unmodeledCode = missingProfileData
+                ? NmUnmodeledCodes.MissingProfileData
+                : NmUnmodeledCodes.NotApplicable;
+        }
         return true;
     }
 

@@ -334,6 +334,8 @@ public class NmRuleEngineTests
         Assert.Empty(result.Findings);
         var u = Assert.Single(result.Unmodeled);
         Assert.Contains("equals", u.Reason, StringComparison.Ordinal);
+        // Fix 3：原语已实现、只是 expect 变体未实现——不是 profile 缺数据。
+        Assert.Equal("unimplemented_primitive", u.ReasonCode);
     }
 
     [Fact]
@@ -732,6 +734,46 @@ public class NmRuleEngineTests
         Assert.Equal("", u.Clause);
         Assert.Null(u.RequirementId);
         Assert.Equal("NM_NO_CLAUSE", u.RuleId);
+    }
+
+    // Fix 2：未建模条目必须携带完整条款列表。多条款规则只保留 ordinal-first
+    // 的单值 Clause 时，NM_STOP_SENDING → NM_09/NM_12 这类条目会在报告里丢掉条款。
+    [Fact]
+    public void Evaluate_UnmodeledCarriesFullClauseList()
+    {
+        var rule = Rule("NM_BURST_SHAPE", When("max_gap_observe"), Expect("observe"), "",
+            clauses: BurstShapeClauses);
+        var ctx = Context(Array.Empty<NmFrame>(), rules: new[] { rule });
+
+        var u = Assert.Single(NmRuleEngine.Evaluate(ctx.Rules, ctx).Unmodeled);
+
+        Assert.Equal(BurstShapeClauses, u.Clauses);
+        // 兼容字段仍是 ordinal-first，不依赖 YAML 声明顺序。
+        Assert.Equal("NM_03", u.Clause);
+    }
+
+    // Fix 3：原语已实现、profile 齐全，但整条 trace 没有 ≥2s 静默。
+    // 原因码必须是「本条 trace 没有该事件」，不能让 AI 去改一份没问题的 profile。
+    [Fact]
+    public void Evaluate_UnmodeledTraceWithoutEvent_UsesNotApplicableCode()
+    {
+        var rule = new NmRuleDef("NM_RESUME_TO_RMS", "静默后恢复", "wakeup",
+            new NmRuleWhen("normal_resume_shape", MinSilenceMs: 2000, CycleMs: 500,
+                Pct: 0.1, MinFrames: 4),
+            new NmRuleExpect("equals"), "NM_NORMAL_RESUME_SHAPE_MISMATCH")
+        {
+            Clauses = ["NM_02"],
+            Observability = NmObservability.Partial,
+        };
+        var frames = Enumerable.Range(0, 5)
+            .Select(i => Frame(i * 0.5, 0x500, 0xF4, 0x00))
+            .ToArray();
+        var ctx = Context(frames, rules: new[] { rule });
+
+        var u = Assert.Single(NmRuleEngine.Evaluate(ctx.Rules, ctx).Unmodeled);
+
+        Assert.Equal("not_applicable", u.ReasonCode);
+        Assert.Contains("不适用", u.Reason, StringComparison.Ordinal);
     }
 
     // ==== 构造辅助 ====

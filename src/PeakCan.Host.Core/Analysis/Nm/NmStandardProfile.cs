@@ -249,9 +249,9 @@ public static class NmFindingCodes
             // first_frame_latency（spec §4：T_START_NM_TX / T_WakeUp，P 级）。
             // 原语已实现且超差会产 finding，缺码会让任何声明它的 profile 在加载期被拒。
             "NM_FIRST_FRAME_LATENCY_EXCEEDED",
-            // normal_resume_shape（spec §4：NM_02/NM_15，P 级）。
-            // 原语尚未实现，但码先登记：profile 可以先声明，规则会进 Unmodeled
-            // 而不是加载失败——「未实现」和「码非法」是两件事。
+            // normal_resume_shape（spec §4：NM_02/NM_10/NM_15，P 级）。
+            // 原语已实现；码已登记，声明它的 profile 在求值成功且超差时会产 finding
+            // （吉利 profile 目前因无法区分 NM_10 的目标状态而标 unobservable，规则进 Unmodeled）。
             "NM_NORMAL_RESUME_SHAPE_MISMATCH",
         };
 }

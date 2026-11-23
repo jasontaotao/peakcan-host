@@ -25,9 +25,10 @@ public static partial class NmRuleEvaluators
     private static bool NormalResumeShape(
         NmRuleDef rule, NmRuleContext ctx,
         List<NmFinding> findings, List<NmObservation> observations,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
 
         // 期望语义未实现时不能静默按 equals 求值，否则用户会以为规则已被校验。
         if (!string.Equals(rule.Expect.Kind, "equals", StringComparison.Ordinal)
@@ -35,12 +36,14 @@ public static partial class NmRuleEvaluators
         {
             unmodeledReason =
                 $"normal_resume_shape 仅实现 expect.kind=equals/within_pct，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
         if (rule.When.CycleMs is not { } cycleMs || cycleMs <= 0)
         {
             unmodeledReason = "normal_resume_shape 缺少有效的 when.cycle_ms";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
@@ -49,6 +52,7 @@ public static partial class NmRuleEvaluators
         if (rule.When.MinSilenceMs is not { } minSilenceMs || minSilenceMs <= 0)
         {
             unmodeledReason = "normal_resume_shape 缺少有效的 when.min_silence_ms（必须为正数）";
+            unmodeledCode = NmUnmodeledCodes.MissingProfileData;
             return true;
         }
 
@@ -112,6 +116,7 @@ public static partial class NmRuleEvaluators
         {
             unmodeledReason =
                 "没有含 ≥2 帧的报文，normal_resume_shape 在本 trace 上不适用";
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
             return true;
         }
 
@@ -120,6 +125,7 @@ public static partial class NmRuleEvaluators
         {
             unmodeledReason =
                 $"窗口内没有 ≥{minSilenceMs}ms 的静默段，normal_resume_shape 在本 trace 上不适用";
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
             return true;
         }
 
@@ -130,6 +136,7 @@ public static partial class NmRuleEvaluators
             {
                 unmodeledReason =
                     $"{violations.Count} 处静默恢复形态异常，但规则未声明 finding code";
+                unmodeledCode = NmUnmodeledCodes.MissingProfileData;
                 return true;
             }
 
@@ -148,7 +155,11 @@ public static partial class NmRuleEvaluators
                 SuggestedNextCheck: "核对唤醒后的 Repeat Message State 与发送周期配置",
                 RuleId: rule.Id,
                 // 条款归因只取 Clauses；为空时宁可无归因，不能拿 rule.Id 冒充条款号。
-                RequirementId: rule.Clauses.Count > 0 ? rule.Clauses[0] : null,
+                // 取 ordinal-first 而非 Clauses[0]：与 NmRuleEngine 的统一回填同口径，
+                // 直接调用 evaluator（不经引擎）时也不会因 YAML 声明顺序而漂移。
+                RequirementId: rule.Clauses.Count > 0
+                    ? rule.Clauses.Order(StringComparer.Ordinal).First()
+                    : null,
                 SourceRef: rule.SourceRef));
         }
 
@@ -182,14 +193,16 @@ public static partial class NmRuleEvaluators
     private static bool StopSending(
         NmRuleDef rule, NmRuleContext ctx,
         List<NmObservation> observations,
-        out string? unmodeledReason)
+        out string? unmodeledReason, out string? unmodeledCode)
     {
         unmodeledReason = null;
+        unmodeledCode = null;
 
         // 期望语义未实现时不能静默按 observe 求值，否则用户会以为规则已被校验。
         if (!string.Equals(rule.Expect.Kind, "observe", StringComparison.Ordinal))
         {
             unmodeledReason = $"stop_sending 仅实现 expect.kind=observe，当前为 {rule.Expect.Kind}";
+            unmodeledCode = NmUnmodeledCodes.UnimplementedPrimitive;
             return true;
         }
 
@@ -246,6 +259,7 @@ public static partial class NmRuleEvaluators
         if (emitted == 0)
         {
             unmodeledReason = "窗口内没有可归因的停发段（各报文都在持续发送，或已归为全网静默）";
+            unmodeledCode = NmUnmodeledCodes.NotApplicable;
             return true;
         }
 
