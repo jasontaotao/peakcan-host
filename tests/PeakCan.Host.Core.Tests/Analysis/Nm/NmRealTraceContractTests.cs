@@ -13,9 +13,8 @@ namespace PeakCan.Host.Core.Tests.Analysis.Nm;
 /// 会假通过（spec §12）。
 /// </para>
 /// <para>
-/// 范围说明：本文件只覆盖 Task 7 可达的 §14.6 子集（真实 trace 形态 + 已实现/未实现
-/// 规则的可见性 + 静默分类 + 周期规则真的求值）。完整 §14.6 契约（含 Task 8 的 RMS
-/// 时长 finding）由 S5 的终态测试承担。
+/// 范围说明：本文件覆盖 §14.6 的可合成子集——真实 trace 形态、RMS 时长 finding、
+/// 已实现/未实现规则的可见性、静默分类，以及周期规则真的求值。
 /// </para>
 /// </summary>
 public class NmRealTraceContractTests
@@ -31,15 +30,14 @@ public class NmRealTraceContractTests
         var report = NmAnalyzer.Analyze(
             new NmAnalysisRequest("geely-contract", null, frames, null, profile, 0, 9.0));
 
-        // (1) 第一段 RMS ~2.1s（无快发）必须被规则覆盖。
-        //     当前 repeat_message_duration 尚未实现（Task 8），rules[].when.kind 走
-        //     TryEvaluate 的 default 分支，无论帧内容如何 NM_06 都进 Unmodeled——
-        //     因此这条断言只证明「完整规则集被加载且未实现条款显式可见」，
-        //     不证明引擎对这一段求过值。真正的求值证据见 (3) 的 NM_CYCLE。
-        //     TODO(Task 8): 原语落地后，这里必须改断言 NM_REPEAT_MESSAGE_DURATION_EXCEEDED。
-        Assert.NotNull(report.UnmodeledRules);
-        var nm06 = Assert.Single(report.UnmodeledRules!, u => u.Clause == "NM_06");
-        Assert.Contains("repeat_message_duration", nm06.Reason, StringComparison.Ordinal);
+        // (1) 第一段 RMS ~2.1s（无快发，全程 NMSts=0）必须被 repeat_message_duration
+        //     检出：吉利 NM_06 允许 1440–1760ms，2.1s 超差。P 级原语必须标推断。
+        var rms = Assert.Single(report.Findings,
+            f => f.Code == "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+        Assert.True(rms.IsInference, "P 级原语必须标推断");
+        Assert.Equal("NM_06", rms.RuleId);
+        // 求值成功就不该同时进 Unmodeled；第二段纯 NOS 不应让规则整体失效。
+        Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_06");
         // Geely 的另一条未实现条款同样显式可见，证明加载的是完整规则集。
         Assert.Contains(report.UnmodeledRules!, u => u.Clause == "NM_09");
 

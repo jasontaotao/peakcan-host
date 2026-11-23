@@ -30,6 +30,11 @@ public static partial class NmRuleEvaluators
                 return BurstShape(rule, ctx, findings, out unmodeledReason);
             case "nmsts_transition":
                 return NmstsTransition(rule, ctx, observations, out unmodeledReason);
+            case "repeat_message_duration":
+                return RepeatMessageDuration(
+                    rule, ctx, findings, observations, out unmodeledReason);
+            case "first_frame_latency":
+                return FirstFrameLatency(rule, ctx, findings, out unmodeledReason);
             default:
                 return false;
         }
