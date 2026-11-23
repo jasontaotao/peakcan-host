@@ -34,7 +34,8 @@ public static partial class NmRuleEvaluators
                 return RepeatMessageDuration(
                     rule, ctx, findings, observations, out unmodeledReason);
             case "first_frame_latency":
-                return FirstFrameLatency(rule, ctx, findings, out unmodeledReason);
+                return FirstFrameLatency(
+                    rule, ctx, findings, observations, out unmodeledReason);
             default:
                 return false;
         }

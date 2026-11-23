@@ -28,15 +28,22 @@ public class NmRealTraceContractTests
         var frames = RealTraceShape();
 
         var report = NmAnalyzer.Analyze(
-            new NmAnalysisRequest("geely-contract", null, frames, null, profile, 0, 9.0));
+            new NmAnalysisRequest("geely-contract", null, frames, null, profile, 0, 11.0));
 
-        // (1) 第一段 RMS ~2.1s（无快发，全程 NMSts=0）必须被 repeat_message_duration
-        //     检出：吉利 NM_06 允许 1440–1760ms，2.1s 超差。P 级原语必须标推断。
-        var rms = Assert.Single(report.Findings,
-            f => f.Code == "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
-        Assert.True(rms.IsInference, "P 级原语必须标推断");
-        Assert.Equal("NM_06", rms.RuleId);
-        // 求值成功就不该同时进 Unmodeled；第二段纯 NOS 不应让规则整体失效。
+        // (1) 真实 trace §14.6 有两段 RMS：第一段 ~2.1s，第二段 ~2.325s（465ms 间隔）。
+        //     第二段落在最后一个 episode，且后接 NOS 帧——整段 episode 的 BoundaryEnd=true，
+        //     但段终点并未触到 episode 末帧。两段都必须被检出，否则「episode 被边界截断」
+        //     的过度抑制会吞掉第二段（review C1）。P 级原语必须标推断。
+        var rms = report.Findings
+            .Where(f => f.Code == "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
+            .ToArray();
+        Assert.Equal(2, rms.Length);
+        Assert.All(rms, f => Assert.True(f.IsInference, "P 级原语必须标推断"));
+        Assert.All(rms, f => Assert.Equal("NM_06", f.RuleId));
+        // 两段分别结束于 2.1s 与 8.825s（EvidenceTimes = [start, end]）。
+        Assert.Contains(rms, f => Math.Abs(f.EvidenceTimes[1] - 2.1) < 1e-6);
+        Assert.Contains(rms, f => Math.Abs(f.EvidenceTimes[1] - 8.825) < 1e-6);
+        // 求值成功就不该同时进 Unmodeled；第二段 RMS 也不应让规则整体失效。
         Assert.DoesNotContain(report.UnmodeledRules!, u => u.Clause == "NM_06");
         // Geely 的另一条未实现条款同样显式可见，证明加载的是完整规则集。
         Assert.Contains(report.UnmodeledRules!, u => u.Clause == "NM_09");
@@ -105,30 +112,34 @@ public class NmRealTraceContractTests
     }
 
     /// <summary>
-    /// 真实 trace 的三段形态：
-    /// 0–2.1s 无快发 RMS（525ms 间隔）→ 2.9s 全网静默 → 5.0s 起 514–537ms 稳态。
+    /// 真实 trace 的完整形态（spec §14.6）：
+    /// 0–2.1s 无快发 RMS → 2.6–4.188s NOS → 2.312s 全网静默（切 episode）→
+    /// 6.5–8.825s 第二段 RMS（465ms 间隔，共 2325ms）→ 9.339–9.853s NOS。
+    /// 窗口取 11s，使最后一个 episode 的 BoundaryEnd=true——第二段 RMS 正是
+    /// review C1 指出的「最后 episode 内」场景。
     /// </summary>
     private static ReplayFrame[] RealTraceShape()
     {
-        double[] rms = [0.0, 0.525, 1.05, 1.575, 2.1];
-        double[] steady = [5.0, 5.514, 6.051, 6.588, 7.125, 7.662];
+        double[] rms1 = [0.0, 0.525, 1.05, 1.575, 2.1];
+        double[] nos1 = [2.6, 3.114, 3.651, 4.188];
+        double[] rms2 = [6.5, 6.965, 7.43, 7.895, 8.36, 8.825];
+        double[] nos2 = [9.339, 9.853];
 
-        var frames = new List<ReplayFrame>(2 * (rms.Length + steady.Length));
-        foreach (var t in rms)
-        {
-            // NMSts=0：Repeat Message State（吉利的锚点定义）。
-            frames.Add(FrameAt(t, 0x500, nid: 0x00, nmsts: 0));
-            frames.Add(FrameAt(t, 0x510, nid: 0x10, nmsts: 0));
-        }
-
-        foreach (var t in steady)
-        {
-            // NMSts=1：Normal Operation State。
-            frames.Add(FrameAt(t, 0x500, nid: 0x00, nmsts: 1));
-            frames.Add(FrameAt(t, 0x510, nid: 0x10, nmsts: 1));
-        }
-
+        var frames = new List<ReplayFrame>(2 * (rms1.Length + nos1.Length + rms2.Length + nos2.Length));
+        AddSegment(frames, rms1, nmsts: 0);
+        AddSegment(frames, nos1, nmsts: 1);
+        AddSegment(frames, rms2, nmsts: 0);
+        AddSegment(frames, nos2, nmsts: 1);
         return frames.ToArray();
+
+        static void AddSegment(List<ReplayFrame> target, double[] times, byte nmsts)
+        {
+            foreach (var t in times)
+            {
+                target.Add(FrameAt(t, 0x500, nid: 0x00, nmsts: nmsts));
+                target.Add(FrameAt(t, 0x510, nid: 0x10, nmsts: nmsts));
+            }
+        }
     }
 
     // byte0 = NID（标准帧期望 (Id-0x400)&0xFF）；byte1.bit0 = RMR=0；

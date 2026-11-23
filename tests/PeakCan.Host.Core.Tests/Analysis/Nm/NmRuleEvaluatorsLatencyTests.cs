@@ -31,10 +31,11 @@ public class NmRuleEvaluatorsLatencyTests
     }
 
     [Fact]
-    public void RepeatMessageDuration_WithBurst_OverLimit_ProducesFinding()
+    public void RepeatMessageDuration_BurstShapedTrace_OverLimit_ProducesFinding()
     {
-        // 有快发：允许 1640–1760ms。真实 trace 第二段 = 10 帧快发 + 稳态，
-        // 实测 2325ms（§14.6）。这里构造同样的形态：快发段之后接 536ms 稳态。
+        // 有快发形态的 trace：允许 1640–1760ms。真实 trace 第二段 = 10 帧快发 + 稳态，
+        // 实测 2325ms（§14.6）。anchor=nmsts，快发只作为观测证据参与，
+        // 所以这里额外钉住 EvidenceKind，证明快发确实被看到了。
         var burst = Enumerable.Range(0, 10).Select(i => i * 0.020).ToArray();
         var steady = Enumerable.Range(1, 4).Select(i => 0.180 + i * 0.536).ToArray();
         var frames = burst.Concat(steady).Select(t => FrameAt(t)).ToArray();
@@ -43,6 +44,8 @@ public class NmRuleEvaluatorsLatencyTests
 
         var f = Assert.Single(result.Findings);
         Assert.Equal("NM_REPEAT_MESSAGE_DURATION_EXCEEDED", f.Code);
+        var obs = Assert.Single(result.Observations, o => o.Kind == "repeat_message_duration");
+        Assert.Equal("measured", obs.EvidenceKind);
     }
 
     [Fact]
@@ -53,6 +56,8 @@ public class NmRuleEvaluatorsLatencyTests
         var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "nmsts"));
 
         Assert.Empty(result.Findings);
+        // 原语根本没被求值时也会「无 finding」，必须钉住它确实求过值。
+        Assert.Empty(result.Unmodeled);
     }
 
     [Fact]
@@ -65,7 +70,9 @@ public class NmRuleEvaluatorsLatencyTests
             windowEnd: frames[^1].Frame.Timestamp);
 
         Assert.Empty(result.Findings);
-        Assert.Contains(result.Observations, o => o.Kind == "repeat_message_duration");
+        var obs = Assert.Single(result.Observations, o => o.Kind == "repeat_message_duration");
+        // 截断时证据只能是「边界」，不能冒充实测值。
+        Assert.Equal("boundary", obs.EvidenceKind);
     }
 
     [Fact]
@@ -105,17 +112,117 @@ public class NmRuleEvaluatorsLatencyTests
     [Fact]
     public void RepeatMessageDuration_EpisodeBoundaryEnd_IsIndeterminate()
     {
-        // episode 自身被 trace 边界切断（BoundaryEnd）：同样只能给下限。
-        var frames = Steady(0.0, count: 6, stepSec: 0.42);
-        var episode = new NmEpisode(0, frames[0].Frame.Timestamp,
-            frames[^1].Frame.Timestamp + 1.0, "active", null,
+        // episode 自身被 trace 边界切断（BoundaryEnd），**且 NMSts=0 一直持续到
+        // episode 末帧**：RMS 可能仍在继续，时长只是下限，不能判超差。
+        // 注意「episode 被切断」本身不足以判定段内所有测量都不可判——那是 C1 的误判。
+        double[] times = [0.0, 0.525, 1.05, 1.575, 2.1, 2.625, 3.1];
+        var frames = times.Select(t => FrameAt(t)).ToArray();
+        var episode = new NmEpisode(0, 0.0, frames[^1].Frame.Timestamp, "active", null,
             ParticipantA, BoundaryStart: false, BoundaryEnd: true);
 
-        var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "burst_end"),
-            episodes: new[] { episode }, windowEnd: frames[^1].Frame.Timestamp + 5);
+        var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "nmsts"),
+            episodes: new[] { episode }, windowEnd: 8.0);
 
         Assert.Empty(result.Findings);
-        Assert.Contains(result.Observations, o => o.Kind == "repeat_message_duration");
+        var obs = Assert.Single(result.Observations, o => o.Kind == "repeat_message_duration");
+        Assert.Equal("boundary", obs.EvidenceKind);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_RmsInLastEpisodeFollowedByNos_StillReportsFinding()
+    {
+        // 真实 trace §14.6 的第二段 RMS 形态：段落在**最后一个 episode** 里
+        // （BoundaryEnd=true），但随后还有 NOS 帧，段终点并未触到 episode 末帧。
+        // 「episode 被边界截断」不等于「段内任何测量都不可判」——否则第二段 RMS
+        // 永远不会被检出（review C1）。
+        var rms = Steady(0.0, count: 6, stepSec: 0.42);           // NMSts=0，0→2.1s
+        var nos = Steady(2.6, count: 3, stepSec: 0.5, nmsts: 1);  // NMSts=1，2.6→3.6s
+        var frames = rms.Concat(nos).ToArray();
+        var episode = new NmEpisode(0, 0.0, frames[^1].Frame.Timestamp, "active", null,
+            ParticipantA, BoundaryStart: false, BoundaryEnd: true);
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "nmsts"),
+            episodes: new[] { episode }, windowEnd: 8.0);
+
+        var f = Assert.Single(result.Findings);
+        Assert.Equal("NM_REPEAT_MESSAGE_DURATION_EXCEEDED", f.Code);
+        Assert.True(f.IsInference, "P 级原语必须标推断");
+        Assert.Empty(result.Unmodeled);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_BurstEndAnchor_NoBurst_UnmodeledNoObservation()
+    {
+        // anchor=burst_end 但没有快发段：不能悄悄退回 nmstsStart（那会改变规则要求的
+        // 测量口径），必须显式不可求值。
+        var frames = Steady(0.0, count: 6, stepSec: 0.42);
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "burst_end"));
+
+        Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Observations, o => o.Kind == "repeat_message_duration");
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("未观察到快发段", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_BurstEndAnchor_IndeterminateBurst_Unmodeled()
+    {
+        // 快发段尾触到 episode 边界：burst.End 只是下限，不能拿它当 RMS 起点。
+        var burst = Enumerable.Range(0, 10).Select(i => i * 0.020).ToArray();
+        var frames = burst.Select(t => FrameAt(t)).ToArray();
+        var episode = new NmEpisode(0, 0.0, frames[^1].Frame.Timestamp, "active", null,
+            ParticipantA, BoundaryStart: false, BoundaryEnd: false);
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "burst_end"),
+            episodes: new[] { episode }, windowEnd: 8.0);
+
+        Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Observations, o => o.Kind == "repeat_message_duration");
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("下限", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_NonPositiveDuration_NoObservation()
+    {
+        // 快发段终点越过 NMSts=0 终点（尾部帧已是 NOS 且以短间隔发送）：
+        // 算出的时长为负，绝不能写成观测，更不能判违规。
+        double[] zeroTimes = [0.0, 0.42, 0.84, 1.26];
+        double[] shortNosTimes = [1.36, 1.38, 1.40, 1.42];
+        double[] tailTimes = [1.92, 2.42];
+        var frames = zeroTimes.Select(t => FrameAt(t, 0))
+            .Concat(shortNosTimes.Select(t => FrameAt(t, 1)))
+            .Concat(tailTimes.Select(t => FrameAt(t, 1)))
+            .ToArray();
+        var episode = new NmEpisode(0, 0.0, frames[^1].Frame.Timestamp, "active", null,
+            ParticipantA, BoundaryStart: false, BoundaryEnd: false);
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "burst_end"),
+            episodes: new[] { episode }, windowEnd: 8.0);
+
+        Assert.Empty(result.Findings);
+        Assert.DoesNotContain(result.Observations, o => o.Kind == "repeat_message_duration");
+        Assert.Contains(result.Unmodeled, u => u.Reason.Contains("非正", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RepeatMessageDuration_NmstsToggleWithinEpisode_DoesNotFabricateFinding()
+    {
+        // 一个 episode 内 NMSts 0→1→0（两段 RMS 之间没有整段静默）：
+        // 若用「首个 0 → 末个 0」跨越中间的 NOS，会把两段拼成 3.5s 的假 RMS 并误报超差。
+        var firstRms = Steady(0.0, count: 3, stepSec: 0.2);         // 0→0.4s NMSts=0
+        var nos = Steady(0.5, count: 4, stepSec: 0.5, nmsts: 1);    // 0.5→2.0s NMSts=1
+        var secondRms = Steady(2.5, count: 3, stepSec: 0.5);        // 2.5→3.5s NMSts=0
+        var frames = firstRms.Concat(nos).Concat(secondRms).ToArray();
+
+        var result = Evaluate(frames, Rule(min: 1440, max: 1560, anchor: "nmsts"));
+
+        Assert.Empty(result.Findings);
+        var obs = Assert.Single(result.Observations, o => o.Kind == "repeat_message_duration");
+        // 只取包含首个 NMSts=0 帧的连续段：0→0.4s。
+        Assert.Equal(0.4, obs.End, 3);
+        Assert.Empty(result.Unmodeled);
     }
 
     [Fact]
@@ -172,9 +279,49 @@ public class NmRuleEvaluatorsLatencyTests
             episodes: new[] { episode });
 
         Assert.Empty(result.Findings);
+        // 原语根本没被求值时也会「无 finding」，必须钉住它确实求过值。
+        Assert.Empty(result.Unmodeled);
     }
 
-    // ==== 构造辅助 ====
+    [Fact]
+    public void FirstFrameLatency_UnknownLatencyKind_UnmodeledNoFinding()
+    {
+        // latency_kind 打错字不能被静默接受：必须显式不可求值并给出合法取值。
+        var frames = Steady(0.3, count: 4, stepSec: 0.5);
+
+        var result = Evaluate(frames,
+            new NmRuleDef("NM_02", "首帧延迟", "wakeup",
+                new NmRuleWhen("first_frame_latency", LatencyKind: "start_nm_txx"),
+                new NmRuleExpect("within_pct", MaxMs: 10),
+                "NM_FIRST_FRAME_LATENCY"));
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("start_nm_tx", u.Reason, StringComparison.Ordinal);
+        Assert.Contains("wakeup", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FirstFrameLatency_NoSeparateStartAnchor_Unmodeled()
+    {
+        // 生产路径的 episode.Start 就是首帧时间：没有独立的 wakeup/启动锚点。
+        // 测得的 0 不是「延迟为 0」，必须显式不可求值，不能当作通过。
+        var frames = Steady(1.0, count: 4, stepSec: 0.5);
+        var episode = new NmEpisode(0, frames[0].Frame.Timestamp,
+            frames[^1].Frame.Timestamp + 1.0, "active", null,
+            ParticipantA, BoundaryStart: false, BoundaryEnd: false);
+
+        var result = Evaluate(frames,
+            new NmRuleDef("NM_02", "首帧延迟", "wakeup",
+                new NmRuleWhen("first_frame_latency", LatencyKind: "wakeup"),
+                new NmRuleExpect("within_pct", MaxMs: 10),
+                "NM_FIRST_FRAME_LATENCY"),
+            episodes: new[] { episode });
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Contains("首帧延迟不可测", u.Reason, StringComparison.Ordinal);
+    }
 
     private static NmRuleDef Rule(int min, int max, string anchor)
         => new("NM_06", "RMS 持续时长", "wakeup",
