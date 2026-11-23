@@ -60,8 +60,9 @@ public class NmRuleNegativeSetTests
             o => o.Kind == "repeat_message_duration" && o.RuleId == "NM_06");
         Assert.Equal(1500.0, (rms.End - rms.Start) * 1000.0, 6);
         // NM_01 / NM_05 已实际求值并通过，不能以「未建模」冒充通过。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_01");
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_05");
+        // 断言落在条款号上（Clauses），不是规则名——两者不是一回事（spec §4.0）。
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.4.2");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.4.3");
     }
 
     [Fact]
@@ -86,7 +87,7 @@ public class NmRuleNegativeSetTests
 
         // 非空洞性守卫：burst_shape 必须真的判过一次合规。
         // 10 帧 / 20ms 被判合规时不会留下 finding，也不应退化成「无候选 → Unmodeled」。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_03");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.5");
     }
 
     [Fact]
@@ -195,7 +196,7 @@ public class NmRuleNegativeSetTests
         AssertNoViolation(report);
 
         // 非空洞性守卫：两条原语都必须真的求值（未进入 Unmodeled）。
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_CYCLE_500");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.5");
         // layout_check 在 DLC 一致时不会产 finding；「不在 Unmodeled」是空断言
         // （LayoutCheck 从不设置 unmodeledReason），真正的阴性证据是 DLC 不一致的
         // finding 不存在。正向路径由 LayoutDlcMismatch_ReportsDlcMismatch 覆盖。
@@ -257,7 +258,7 @@ public class NmRuleNegativeSetTests
         var rmsObservation = Assert.Single(ObservationsOf(report),
             o => o.Kind == "repeat_message_duration" && o.RuleId == "NM_06");
         Assert.DoesNotContain("窗口截断", rmsObservation.Detail);
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_06");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "§5.5");
     }
 
     /// <summary>
@@ -326,18 +327,26 @@ public class NmRuleNegativeSetTests
 
     private static NmRuleDef[] Rules() => new[]
     {
+        // spec §4.0：Clauses 是条款号，不是规则名。断言必须落在条款号上。
         new NmRuleDef("NM_01", "NID 与 ID 映射一致", "normal",
             new NmRuleWhen("nid_id_mapping"),
-            new NmRuleExpect("matches_id_low_byte"), "NM_NID_MISMATCH"),
+            new NmRuleExpect("matches_id_low_byte"), "NM_NID_MISMATCH")
+        {
+            Clauses = ["§5.4.2"],
+        },
         new NmRuleDef("NM_05", "预留位必须为 0", "normal",
             new NmRuleWhen("bit_rule", Role: "RepeatMessageRequest"),
-            new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+            new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED")
+        {
+            Clauses = ["§5.4.3"],
+        },
         new NmRuleDef("NM_06", "RMS 持续时长", "wakeup",
             new NmRuleWhen("repeat_message_duration", CycleMs: 500),
             new NmRuleExpect("duration_within_ms", MinMs: 1440, MaxMs: 1760,
                 Anchor: "nmsts"), "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
         {
             Observability = NmObservability.Partial,
+            Clauses = ["§5.5"],
         },
         new NmRuleDef("NM_03", "快发形态", "wakeup",
             new NmRuleWhen("burst_shape", CycleMs: 500),
@@ -345,15 +354,22 @@ public class NmRuleNegativeSetTests
             "NM_WAKEUP_BURST_MISMATCH")
         {
             Observability = NmObservability.Partial,
+            Clauses = ["§5.5"],
         },
         // cycle_tolerance 与 layout_check 之前没有任何场景级负例；前者对正常抖动最易误报，
         // 后者此前全仓无测试。放进默认规则集，让每个合法场景顺带覆盖。
         new NmRuleDef("NM_CYCLE_500", "500ms 周期容差 ±10%", "normal",
             new NmRuleWhen("cycle_tolerance", CycleMs: 500, Pct: 0.1),
-            new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION"),
+            new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+        {
+            Clauses = ["§5.5"],
+        },
         new NmRuleDef("NM_LAYOUT", "帧长与矩阵一致", "normal",
             new NmRuleWhen("layout_check"),
-            new NmRuleExpect("equals"), "NM_DLC_MISMATCH"),
+            new NmRuleExpect("equals"), "NM_DLC_MISMATCH")
+        {
+            Clauses = ["§5.4.1"],
+        },
     };
 
     private static NmFrame[] Steady(

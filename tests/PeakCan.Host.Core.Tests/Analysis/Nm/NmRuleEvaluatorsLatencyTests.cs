@@ -82,7 +82,10 @@ public class NmRuleEvaluatorsLatencyTests
             new NmRuleWhen("repeat_message_duration", CycleMs: 500),
             new NmRuleExpect("duration_within_ms", MinMs: 1640, MaxMs: 1760,
                 Anchor: "nmsts", WithBurst: true),
-            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
+        {
+            Clauses = ["§5.5"],
+        };
 
         var result = Evaluate(frames, rule);
 
@@ -105,7 +108,10 @@ public class NmRuleEvaluatorsLatencyTests
             new NmRuleWhen("repeat_message_duration", CycleMs: 500),
             new NmRuleExpect("duration_within_ms", MinMs: 1440, MaxMs: 1560,
                 Anchor: "nmsts", WithBurst: false),
-            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
+        {
+            Clauses = ["§5.5"],
+        };
 
         var result = Evaluate(frames, rule);
 
@@ -126,7 +132,10 @@ public class NmRuleEvaluatorsLatencyTests
             new NmRuleWhen("repeat_message_duration", CycleMs: 500),
             new NmRuleExpect("duration_within_ms", MinMs: 1640, MaxMs: 1760,
                 Anchor: "nmsts", WithBurst: true),
-            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
+        {
+            Clauses = ["§5.5"],
+        };
 
         var result = Evaluate(frames, rule);
 
@@ -509,7 +518,10 @@ public class NmRuleEvaluatorsLatencyTests
             new NmRuleDef("NM_02", "首帧延迟", "wakeup",
                 new NmRuleWhen("first_frame_latency", LatencyKind: "start_nm_tx"),
                 new NmRuleExpect("within_pct", MaxMs: 10),
-                "NM_FIRST_FRAME_LATENCY"),
+                "NM_FIRST_FRAME_LATENCY")
+            {
+                Clauses = ["NM_02"],
+            },
             episodes: new[] { episode });
 
         var f = Assert.Single(result.Findings);
@@ -528,7 +540,10 @@ public class NmRuleEvaluatorsLatencyTests
             new NmRuleDef("NM_02", "首帧延迟", "wakeup",
                 new NmRuleWhen("first_frame_latency", LatencyKind: "start_nm_tx"),
                 new NmRuleExpect("within_pct", MaxMs: 10),
-                "NM_FIRST_FRAME_LATENCY"),
+                "NM_FIRST_FRAME_LATENCY")
+            {
+                Clauses = ["NM_02"],
+            },
             episodes: new[] { episode });
 
         Assert.Empty(result.Findings);
@@ -546,7 +561,10 @@ public class NmRuleEvaluatorsLatencyTests
             new NmRuleDef("NM_02", "首帧延迟", "wakeup",
                 new NmRuleWhen("first_frame_latency", LatencyKind: "start_nm_txx"),
                 new NmRuleExpect("within_pct", MaxMs: 10),
-                "NM_FIRST_FRAME_LATENCY"));
+                "NM_FIRST_FRAME_LATENCY")
+            {
+                Clauses = ["NM_02"],
+            });
 
         Assert.Empty(result.Findings);
         var u = Assert.Single(result.Unmodeled);
@@ -568,7 +586,10 @@ public class NmRuleEvaluatorsLatencyTests
             new NmRuleDef("NM_02", "首帧延迟", "wakeup",
                 new NmRuleWhen("first_frame_latency", LatencyKind: "wakeup"),
                 new NmRuleExpect("within_pct", MaxMs: 10),
-                "NM_FIRST_FRAME_LATENCY"),
+                "NM_FIRST_FRAME_LATENCY")
+            {
+                Clauses = ["NM_02"],
+            },
             episodes: new[] { episode });
 
         Assert.Empty(result.Findings);
@@ -580,7 +601,10 @@ public class NmRuleEvaluatorsLatencyTests
         => new("NM_06", "RMS 持续时长", "wakeup",
             new NmRuleWhen("repeat_message_duration", CycleMs: 500),
             new NmRuleExpect("duration_within_ms", MinMs: min, MaxMs: max, Anchor: anchor),
-            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED")
+        {
+            Clauses = ["§5.5"],
+        };
 
     /// <summary>
     /// 带 NMSts 位的 profile：byte3.bit0。测试帧把 NMSts 恒写 0

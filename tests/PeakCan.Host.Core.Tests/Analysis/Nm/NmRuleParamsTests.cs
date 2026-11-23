@@ -299,6 +299,70 @@ overrides:
         Assert.Equal(2500, rule.When.TimeoutMs);
     }
 
+    // CA1861 要求复用静态数组而不是内联 new[]（与 NmRuleNegativeSetTests 同一处置）。
+    private static readonly string[] BurstClauses = ["NM_03", "NM_04", "NM_16"];
+
+    // spec §4.0：规则 ID 与条款号是两个东西。规则可挂多条条款
+    // （burst_shape 覆盖 NM_03/NM_04/NM_16），所以 Clauses 是列表不是单值。
+    [Fact]
+    public void Load_RuleWithMultipleClauses_ParsesList()
+    {
+        var yaml = """
+            standard:
+              id: t
+              version: "1.0"
+            rules:
+              - id: NM_BURST_SHAPE
+                requirement: 快发 10 帧 × 20ms
+                declared_phase: wakeup
+                observability: partial
+                clauses: ["NM_03", "NM_04", "NM_16"]
+                when:
+                  kind: burst_shape
+                expect:
+                  kind: count_equals
+                  count: 10
+                  interval_ms: 20
+                  pct: 0.1
+                finding: NM_WAKEUP_BURST_MISMATCH
+                source_ref: §5.5
+            """;
+
+        var profile = NmStandardYaml.Load(yaml);
+
+        var rule = Assert.Single(profile.Rules!);
+        Assert.Equal(BurstClauses, rule.Clauses);
+        Assert.Equal("wakeup", rule.DeclaredPhase);
+    }
+
+    // spec §5.3：phase 必填却不驱动求值作用域，用户会误以为它生效。
+    // 改名 DeclaredPhase 让名字本身诚实。
+    [Fact]
+    public void Load_LegacyPhaseKey_StillAcceptedWithAssumption()
+    {
+        var yaml = """
+            standard:
+              id: t
+              version: "1.0"
+            rules:
+              - id: R1
+                requirement: 周期
+                phase: normal
+                observability: observed
+                clauses: ["§5.5"]
+                when:
+                  kind: cycle_tolerance
+                expect:
+                  kind: within_pct
+                finding: NM_CYCLE_DEVIATION
+                source_ref: §5.5
+            """;
+
+        var profile = NmStandardYaml.Load(yaml);
+
+        Assert.Equal("normal", Assert.Single(profile.Rules!).DeclaredPhase);
+    }
+
     private static string RepoPath(string relative)
     {
         // 本测试项目有同名 namespace PeakCan.Host.Core.Tests.Path，显式指回 System.IO.Path。

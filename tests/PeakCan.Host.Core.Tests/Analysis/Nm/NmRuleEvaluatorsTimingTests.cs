@@ -311,7 +311,10 @@ public class NmRuleEvaluatorsTimingTests
         };
         var rule = new NmRuleDef("NM_06", "NMSts 状态段", "wakeup",
             new NmRuleWhen("nmsts_transition", Byte: 3, Bit: 0),
-            new NmRuleExpect("duration_within_ms"), "");
+            new NmRuleExpect("duration_within_ms"), "")
+        {
+            Clauses = ["§5.5"],
+        };
 
         var result = Evaluate(frames, rule, roles: [new NmBitRole(3, 0, "NmSts")]);
 
@@ -378,7 +381,10 @@ public class NmRuleEvaluatorsTimingTests
         };
         var rule = new NmRuleDef("NM_06", "NMSts 状态段", "wakeup",
             new NmRuleWhen("nmsts_transition"),
-            new NmRuleExpect("observe"), "");
+            new NmRuleExpect("observe"), "")
+        {
+            Clauses = ["§5.5"],
+        };
 
         var result = Evaluate(frames, rule, roles: [new NmBitRole(3, 0, "NmSts")]);
 
@@ -436,25 +442,37 @@ public class NmRuleEvaluatorsTimingTests
     private static NmRuleDef CycleRule(int cycleMs, double pct)
         => new("NM_CYCLE", "周期偏差", "normal",
             new NmRuleWhen("cycle_tolerance", CycleMs: cycleMs, Pct: pct),
-            new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION");
+            new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+        {
+            Clauses = ["§5.5"],
+        };
 
     private static NmRuleDef BurstRule(int? intervalMs = 20)
         => new("NM_03", "快发形态", "wakeup",
             new NmRuleWhen("burst_shape", CycleMs: 500),
             new NmRuleExpect("count_equals", Count: 10, IntervalMs: intervalMs, Pct: 0.1),
-            "NM_WAKEUP_BURST_MISMATCH");
+            "NM_WAKEUP_BURST_MISMATCH")
+        {
+            Clauses = ["§5.5"],
+        };
 
     private static NmRuleDef BurstRuleNoParams()
         // 只声明 kind：count / interval_ms / pct 全部依赖 profile 生效时序。
         => new("NM_03", "快发形态", "wakeup",
             new NmRuleWhen("burst_shape"),
             new NmRuleExpect("count_equals"),
-            "NM_WAKEUP_BURST_MISMATCH");
+            "NM_WAKEUP_BURST_MISMATCH")
+        {
+            Clauses = ["§5.5"],
+        };
 
     private static NmRuleDef NmstsRule()
         => new("NM_06", "NMSts 状态段", "wakeup",
             new NmRuleWhen("nmsts_transition", Byte: 3, Bit: 0),
-            new NmRuleExpect("observe"), "");
+            new NmRuleExpect("observe"), "")
+        {
+            Clauses = ["§5.5"],
+        };
 
     /// <summary>构造等间隔周期序列，指定下标处的间隔额外 +40ms 作为超差样本。</summary>
     private static NmFrame[] CycleFrames(int intervalCount, int cycleMs, params int[] deviatingIndexes)

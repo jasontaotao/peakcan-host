@@ -246,11 +246,13 @@ public class NmRuleIntegrationTests
                         new NmRuleExpect("is_zero"), "NM_RMR_SET_WHILE_DISABLED")
                     {
                         SourceRef = "§5.4.3",
+                        Clauses = ["§5.4.3"],
                     },
                     new NmRuleDef("NM_U1", "内部定时器", "normal",
                         new NmRuleWhen("stop_sending"), new NmRuleExpect("observe"), "")
                     {
                         Observability = NmObservability.Unobservable,
+                        Clauses = ["§5.9"],
                     },
                 }
                 : null);
@@ -285,6 +287,7 @@ public class NmRuleIntegrationTests
                     new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
                 {
                     SourceRef = "§7.4",
+                    Clauses = ["§5.5"],
                 },
             ]);
     }
@@ -314,6 +317,7 @@ public class NmRuleIntegrationTests
                 "NM_NID_MISMATCH")
             {
                 SourceRef = "§14.4",
+                Clauses = ["§5.4.2"],
             },
         };
         if (withCycleRule)
@@ -323,6 +327,7 @@ public class NmRuleIntegrationTests
                 "NM_CYCLE_DEVIATION")
             {
                 SourceRef = "§7.4",
+                Clauses = ["§5.5"],
             });
         }
 

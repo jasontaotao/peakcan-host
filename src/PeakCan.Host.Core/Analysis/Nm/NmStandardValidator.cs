@@ -207,11 +207,23 @@ public static class NmStandardValidator
             // spec §5.3 只给了三个候选值，未定义按阶段过滤的语义，故此处只校验取值，
             // 不实现作用域。拼错的值若静默落成默认 "normal"，用户会以为自己
             // 已按阶段限定规则，实际全窗口都在跑。
-            if (!NmRulePhases.All.Contains(rule.Phase))
+            if (!NmRulePhases.All.Contains(rule.DeclaredPhase))
             {
                 throw new NmProfileValidationException(
-                    $"规则 {rule.Id} 的 phase「{rule.Phase}」非法，合法值：" +
+                    $"规则 {rule.Id} 的 declared_phase「{rule.DeclaredPhase}」非法，合法值：" +
                     string.Join(" | ", NmRulePhases.All.Order(StringComparer.Ordinal)));
+            }
+
+            // spec §4.0：条款号必须是「NM_02 / §5.5 / 附录A」形状，不能是规则名。
+            // 不锚定会让 NM_06_NOBURST 被 NM_\d{2} 前缀匹配通过。
+            foreach (var clause in rule.Clauses)
+            {
+                if (!IsClauseIdShape(clause))
+                {
+                    throw new NmProfileValidationException(
+                        $"规则 {rule.Id} 的 clauses 项「{clause}」不是合法条款号。" +
+                        "合法形状：NM_01 / §5.4.2 / 附录A。规则名不得出现在 clauses 里");
+                }
             }
 
             // spec §7.5.1.2：nmsts_transition 必须声明 byte 与 bit，
@@ -241,6 +253,23 @@ public static class NmStandardValidator
                         $"实际为「{rule.Expect.Kind}」");
                 }
             }
+
+            // stop_sending 的超时窗口必须为正：0 或负数会让规则「立即判停发」，
+            // 与用户意图相反且无从察觉。
+            if (string.Equals(rule.When.Kind, "stop_sending", StringComparison.Ordinal)
+                && rule.When.TimeoutMs is { } stopTimeoutMs && stopTimeoutMs <= 0)
+            {
+                throw new NmProfileValidationException(
+                    $"规则 {rule.Id} 的 stop_sending 的 when.timeout_ms 必须为正数，实际 {stopTimeoutMs}");
+            }
         }
     }
+
+    // 锚定正则：不锚定时 NM_06_NOBURST 会被 NM_\d{2} 前缀匹配通过。
+    private static readonly System.Text.RegularExpressions.Regex ClauseIdPattern =
+        new(@"\A(NM_\d{2}|§\d+(\.\d+)*|附录 ?A)\z",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static bool IsClauseIdShape(string clause)
+        => ClauseIdPattern.IsMatch(clause);
 }

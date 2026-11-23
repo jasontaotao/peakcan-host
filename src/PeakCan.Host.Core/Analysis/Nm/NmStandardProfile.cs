@@ -119,13 +119,21 @@ public enum NmBitConstraint
 public sealed record NmRuleDef(
     string Id,
     string Requirement,
-    string Phase,
+    // spec §5.3：phase 不驱动求值作用域，改名让「声明性」这件事在代码里可见。
+    string DeclaredPhase,
     NmRuleWhen When,
     NmRuleExpect Expect,
     string FindingCode)
 {
     public string? SourceRef { get; init; }
     public NmObservability Observability { get; init; } = NmObservability.Observed;
+
+    /// <summary>
+    /// 本规则覆盖的条款号（spec §4.0）。finding 的条款归因一律从这里取，不取 <see cref="Id"/>。
+    /// 一条规则可挂多条（burst_shape → NM_03/NM_04/NM_16）。
+    /// 空列表 = 不参与条款覆盖统计（base profile 的规则可能不属于 OEM 条款空间）。
+    /// </summary>
+    public required IReadOnlyList<string> Clauses { get; init; }
 }
 
 /// <summary>

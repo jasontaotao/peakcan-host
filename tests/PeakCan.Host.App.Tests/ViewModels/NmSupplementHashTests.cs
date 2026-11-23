@@ -186,7 +186,10 @@ public class NmSupplementHashTests
         => new(id, "requirement-" + id, "normal",
             new NmRuleWhen("cycle_tolerance", CycleMs: cycleMs),
             new NmRuleExpect("within_pct", Pct: 0.1),
-            "CODE_" + id);
+            "CODE_" + id)
+        {
+            Clauses = ["§5.5"],
+        };
 
     private static NmProfile Profile()
         => new(NmProfileSource.Dbc,

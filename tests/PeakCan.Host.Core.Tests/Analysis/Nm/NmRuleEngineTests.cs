@@ -169,6 +169,7 @@ public class NmRuleEngineTests
             new NmRuleWhen("max_gap_observe"), new NmRuleExpect("observe"), "")
         {
             Observability = NmObservability.Partial,
+            Clauses = ["§5.5"],
         };
         var ctx = Context(frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00) },
             rules: new[] { rule });
@@ -189,6 +190,7 @@ public class NmRuleEngineTests
             new NmRuleExpect("is_zero"), "SHOULD_NOT_APPEAR")
         {
             Observability = NmObservability.Unobservable,
+            Clauses = ["§5.4.3"],
         };
         var ctx = Context(frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
             rules: new[] { rule },
@@ -511,6 +513,7 @@ public class NmRuleEngineTests
             Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED")
         {
             Observability = NmObservability.Partial,
+            Clauses = ["§5.4.3"],
         };
         var ctx = Context(
             frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
@@ -654,7 +657,10 @@ public class NmRuleEngineTests
 
     private static NmRuleDef Rule(
         string id, NmRuleWhen when, NmRuleExpect expect, string finding)
-        => new(id, "测试条款", "normal", when, expect, finding);
+        => new(id, "测试条款", "normal", when, expect, finding)
+        {
+            Clauses = ["§5.5"],
+        };
 
     private static NmMessageDef Def(string id, bool isExtended = false)
         => new(id, isExtended, "NM", "A", 8, true, TestReasons, CycleMs: 500, TimeoutMs: 2000);
