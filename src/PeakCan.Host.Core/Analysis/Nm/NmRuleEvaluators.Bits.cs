@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace PeakCan.Host.Core.Analysis.Nm;
 
 /// <summary>规则原语的实现表（spec §7.2 闭集）。按原语拆分到 partial 文件。</summary>
@@ -112,6 +114,16 @@ public static partial class NmRuleEvaluators
         out string? unmodeledReason)
     {
         unmodeledReason = null;
+
+        // 只实现 matches_id_low_byte。其它期望若静默求值，用户会以为规则要求的语义
+        // 已被校验，实际跑的仍是「NID == ID 低字节」——静默降级。
+        if (!string.Equals(rule.Expect.Kind, "matches_id_low_byte", StringComparison.Ordinal))
+        {
+            unmodeledReason =
+                $"nid_id_mapping 仅实现 expect.kind=matches_id_low_byte，当前为 {rule.Expect.Kind}";
+            return true;
+        }
+
         var nidByte = NmProfilePrecedence.EffectiveNidByte(ctx.Profile);
         if (nidByte is null)
         {
@@ -181,8 +193,28 @@ public static partial class NmRuleEvaluators
     {
         unmodeledReason = null;
 
-        // IReadOnlyList 可直接索引，避免 CA1826 的 Enumerable.FirstOrDefault。
-        var dlc = ctx.Profile.Messages.Count > 0 ? ctx.Profile.Messages[0].Dlc : (byte)8;
+        // 只实现 equals（「帧形态与矩阵一致」）。其它期望若静默求值，
+        // 用户会以为规则要求的语义已被校验，实际跑的仍是 DLC/ID 范围比对。
+        if (!string.Equals(rule.Expect.Kind, "equals", StringComparison.Ordinal))
+        {
+            unmodeledReason =
+                $"layout_check 仅实现 expect.kind=equals，当前为 {rule.Expect.Kind}";
+            return true;
+        }
+
+        // 一条 layout_check 只做**一件事**：声明了 ID 区间就只查区间，
+        // 否则查 DLC。两者都做会让 profile 里成对声明的 EXT/STD 两条规则
+        // 各自重复报同一条 DLC 违规（文案相同、RuleId 不同），
+        // 且 STD 规则会对扩展帧报 DLC——归属完全错乱（review MEDIUM）。
+        if (rule.When.MinId is not null || rule.When.MaxId is not null)
+        {
+            CheckIdRange(rule, ctx, findings, out var rangeReason);
+            if (rangeReason is not null) unmodeledReason = rangeReason;
+            return true;
+        }
+
+        // DLC 检查。逐帧用该帧自己的 def.Dlc 作期望，文案里的示例值取首帧的 Dlc——
+        // 不能拿 Messages[0].Dlc 当所有报文的期望（多报文时口径不一致）。
         var wrong = ctx.NmFrames
             .Where(f => f.Frame.Dlc != f.Def.Dlc)
             .Select(f => f.Frame.Timestamp)
@@ -192,13 +224,86 @@ public static partial class NmRuleEvaluators
         {
             findings.Add(new NmFinding(
                 rule.FindingCode, "warn",
-                $"{wrong.Length} 帧 DLC 与矩阵（{dlc}）不一致",
+                $"{wrong.Length} 帧实测 DLC 与矩阵声明不一致",
                 wrong.Take(10).ToArray(), IsInference: false,
                 SuggestedNextCheck: "核对帧格式配置",
                 RuleId: rule.Id, RequirementId: rule.Id, SourceRef: rule.SourceRef));
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// 校验 ID 落在 profile 声明的区间内（吉利 §5.4.1：扩展帧 0x18FFFA00~0x18FFFAFF、
+    /// 标准帧 0x400~0x47F）。区间端点是十六进制串，解析失败必须在求值期显式报错，
+    /// 不能当成「无区间」静默跳过。
+    /// <para>
+    /// <b>已知边界</b>：本检查只遍历 <see cref="NmRuleContext.NmFrames"/>，而后者只含
+    /// 「profile 已声明为 NM 的报文」的帧（<c>NmAnalyzer</c> 的 defByKey 过滤）。
+    /// 因此它覆盖的是「声明了但 ID 写错」的情形；总线上一个**完全未声明**的越界 ID
+    /// 在帧选择阶段就被丢弃，只会落 NM_MESSAGE_ABSENT，本规则看不到。
+    /// 要覆盖那种情形需在 defByKey 过滤前对原始帧做检查，归属只能标 unknown——另行设计。
+    /// </para>
+    /// </summary>
+    private static void CheckIdRange(
+        NmRuleDef rule, NmRuleContext ctx, List<NmFinding> findings, out string? reason)
+    {
+        reason = null;
+
+        var minHex = rule.When.MinId;
+        var maxHex = rule.When.MaxId;
+        if (minHex is null && maxHex is null) return;
+
+        // 只声明一端也算配置错误：区间必须有界，否则判不出「超出范围」。
+        if (minHex is null || maxHex is null)
+        {
+            reason = "layout_check 的 ID 区间必须同时声明 when.min_id 与 when.max_id";
+            return;
+        }
+
+        if (!TryParseHexId(minHex, out var minId) || !TryParseHexId(maxHex, out var maxId))
+        {
+            reason = $"layout_check 的 ID 区间不是合法十六进制：min_id={minHex} max_id={maxHex}";
+            return;
+        }
+
+        if (minId > maxId)
+        {
+            reason = $"layout_check 的 ID 区间上下界颠倒：min_id={minHex} > max_id={maxHex}";
+            return;
+        }
+
+        var extended = rule.When.Extended;
+        var violations = new List<double>();
+        // 点名越界的具体 ID：只给计数时，用户还得自己翻 trace 找是哪条报文。
+        var offendingIds = new SortedSet<uint>();
+        foreach (var frame in ctx.NmFrames)
+        {
+            if (extended is { } wantExtended && frame.Def.IsExtended != wantExtended) continue;
+            if (frame.Frame.Id < minId || frame.Frame.Id > maxId)
+            {
+                violations.Add(frame.Frame.Timestamp);
+                offendingIds.Add(frame.Frame.Id);
+            }
+        }
+
+        if (violations.Count == 0 || string.IsNullOrEmpty(rule.FindingCode)) return;
+
+        var ids = string.Join(", ", offendingIds.Select(
+            id => "0x" + id.ToString("X", CultureInfo.InvariantCulture)));
+        findings.Add(new NmFinding(
+            rule.FindingCode, "warn",
+            $"{violations.Count} 帧 CAN ID 不在声明的区间 {minHex}–{maxHex} 内：{ids}",
+            violations.Take(10).ToArray(), IsInference: false,
+            SuggestedNextCheck: "核对发送节点的 CAN ID 分配",
+            RuleId: rule.Id, RequirementId: rule.Id, SourceRef: rule.SourceRef));
+    }
+
+    private static bool TryParseHexId(string hex, out uint id)
+    {
+        var span = hex.AsSpan();
+        if (span.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) span = span[2..];
+        return uint.TryParse(span, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out id);
     }
 
     /// <summary>

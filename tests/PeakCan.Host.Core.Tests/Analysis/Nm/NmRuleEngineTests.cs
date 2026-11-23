@@ -322,6 +322,170 @@ public class NmRuleEngineTests
     }
 
     [Fact]
+    public void BitRule_ReservedBitSet_ProducesReservedBitFinding()
+    {
+        // 吉利 §5.4.3：CBV bit1–3、bit5–7 预留，必须填 0。byte1 = 0x04 → bit2 被置位。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0x00, 0x04) },
+            rules: new[]
+            {
+                Rule("NM_RESERVED_B1_2", When("bit_rule", byteIndex: 1, bitIndex: 2),
+                    Expect("is_zero"), "NM_RESERVED_BIT_SET"),
+            },
+            roles: new[]
+            {
+                new NmBitRole(1, 2, "Reserved")
+                    { Constraint = NmBitConstraint.MustBeZero },
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        var f = Assert.Single(result.Findings);
+        Assert.Equal("NM_RESERVED_BIT_SET", f.Code);
+        Assert.Equal("NM_RESERVED_B1_2", f.RuleId);
+    }
+
+    [Fact]
+    public void BitRule_ReservedBitClear_NoFinding()
+    {
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0x00, 0x10) },   // 只有 AWB 位，预留位全 0
+            rules: new[]
+            {
+                Rule("NM_RESERVED_B1_2", When("bit_rule", byteIndex: 1, bitIndex: 2),
+                    Expect("is_zero"), "NM_RESERVED_BIT_SET"),
+            },
+            roles: new[]
+            {
+                new NmBitRole(1, 2, "Reserved")
+                    { Constraint = NmBitConstraint.MustBeZero },
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        Assert.Empty(result.Unmodeled);
+    }
+
+    [Fact]
+    public void LayoutCheck_IdOutsideDeclaredRange_ProducesFinding()
+    {
+        // 吉利 §5.4.1：扩展帧 NM ID 必须落在 0x18FFFA00~0x18FFFAFF。
+        // 0x18FFFB27 低字节同为 0x27，NID 映射完全正确——只有 ID 范围能抓出来。
+        var ctx = Context(
+            frames: new[]
+            {
+                new NmFrame(Def("0x18FFFB27", isExtended: true),
+                    new ReplayFrame(0.0, 0x18FFFB27, 8,
+                        new byte[] { 0x27, 0x00, 0, 0, 0, 0, 0, 0 },
+                        PeakCan.HIL.Core.FrameFlags.None, IsExtended: true)),
+            },
+            rules: new[]
+            {
+                Rule("NM_LAYOUT_ID", When("layout_check", minId: "0x18FFFA00",
+                        maxId: "0x18FFFAFF", extended: true),
+                    Expect("equals"), "NM_LAYOUT_VIOLATION"),
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        var f = Assert.Single(result.Findings);
+        Assert.Equal("NM_LAYOUT_VIOLATION", f.Code);
+        Assert.Equal("NM_LAYOUT_ID", f.RuleId);
+        Assert.Contains("0x18FFFB27", f.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LayoutCheck_IdInsideDeclaredRange_NoFinding()
+    {
+        var ctx = Context(
+            frames: new[]
+            {
+                new NmFrame(Def("0x18FFFA27", isExtended: true),
+                    new ReplayFrame(0.0, 0x18FFFA27, 8,
+                        new byte[] { 0x27, 0x00, 0, 0, 0, 0, 0, 0 },
+                        PeakCan.HIL.Core.FrameFlags.None, IsExtended: true)),
+            },
+            rules: new[]
+            {
+                Rule("NM_LAYOUT_ID", When("layout_check", minId: "0x18FFFA00",
+                        maxId: "0x18FFFAFF", extended: true),
+                    Expect("equals"), "NM_LAYOUT_VIOLATION"),
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        Assert.Empty(result.Unmodeled);
+    }
+
+    [Fact]
+    public void LayoutCheck_NoIdRangeDeclared_OnlyChecksDlc()
+    {
+        // 未声明 min_id/max_id 时不做 ID 范围判定（M1 行为不变）：
+        // 任意 ID 都不应因「不在区间内」被报。
+        var ctx = Context(
+            frames: new[]
+            {
+                new NmFrame(Def("0x18FFFB27", isExtended: true),
+                    new ReplayFrame(0.0, 0x18FFFB27, 8,
+                        new byte[] { 0x27, 0x00, 0, 0, 0, 0, 0, 0 },
+                        PeakCan.HIL.Core.FrameFlags.None, IsExtended: true)),
+            },
+            rules: new[]
+            {
+                Rule("NM_LAYOUT", When("layout_check"), Expect("equals"), "NM_DLC_MISMATCH"),
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+    }
+
+    [Fact]
+    public void LayoutCheck_ExpectNotEquals_GoesToUnmodeled()
+    {
+        // layout_check 目前只实现 expect.kind=equals（DLC 与矩阵一致）。
+        // 其它期望若静默求值，用户会以为「ID 范围/未使用位」这类语义已被检查过，
+        // 实际跑的仍是 DLC 比对——这是最危险的一类静默降级。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00) },
+            rules: new[]
+            {
+                Rule("NM_LAYOUT", When("layout_check"),
+                    Expect("within_pct"), "NM_DLC_MISMATCH"),
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Equal("NM_LAYOUT", u.Clause);
+        Assert.Contains("within_pct", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NidIdMapping_ExpectNotMatchesIdLowByte_GoesToUnmodeled()
+    {
+        // nid_id_mapping 只实现 expect.kind=matches_id_low_byte。
+        // 声明别的期望（如 duration_within_ms）时必须显式进 Unmodeled。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0x00, 0x00) },
+            rules: new[]
+            {
+                Rule("NM_01", When("nid_id_mapping"),
+                    Expect("duration_within_ms"), "NM_NID_MISMATCH"),
+            });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        var u = Assert.Single(result.Unmodeled);
+        Assert.Equal("NM_01", u.Clause);
+        Assert.Contains("duration_within_ms", u.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BitRule_IsZeroWithNoneConstraint_StillProducesFinding()
     {
         // expect.is_zero 才是「该位必须为 0」的权威驱动；role.Constraint=none 不该让规则失效。
@@ -480,8 +644,10 @@ public class NmRuleEngineTests
     }
 
     private static NmRuleWhen When(
-        string kind, string? role = null, byte? byteIndex = null, int? bitIndex = null)
-        => new(kind, Byte: byteIndex, Bit: bitIndex, Role: role);
+        string kind, string? role = null, byte? byteIndex = null, int? bitIndex = null,
+        string? minId = null, string? maxId = null, bool? extended = null)
+        => new(kind, Byte: byteIndex, Bit: bitIndex, Role: role,
+            MinId: minId, MaxId: maxId, Extended: extended);
 
     private static NmRuleExpect Expect(string kind)
         => new(kind);
