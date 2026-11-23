@@ -79,6 +79,8 @@ public sealed class GetNmOverviewTool : ChatToolBase
             ["last_seen"] = m.LastSeen,
             ["last_seen_label"] = TraceTimeFormatter.Format(m.LastSeen, null),
             ["cycle"] = CycleJson(m.Cycle),
+            // 四态静默判定（spec §7.1.2）：AI 必须能区分「全网静默」与「单节点静默」。
+            ["silence_verdict"] = m.SilenceVerdict.ToString(),
             ["silent_beyond_timeout"] = m.SilentBeyondTimeout,
         });
 
@@ -114,6 +116,30 @@ public sealed class GetNmOverviewTool : ChatToolBase
         root["episodes"] = new JsonArray(episodes.ToArray());
         root["messages"] = new JsonArray(messages.ToArray());
         root["findings"] = new JsonArray(findings.ToArray());
+        // spec §7.1.1：观测事实独立于违规结论输出，AI 不得据此直接断言故障。
+        root["observations"] = report.Observations is null
+            ? new JsonArray()
+            : new JsonArray(report.Observations.Select(o => (JsonNode)new JsonObject
+            {
+                ["kind"] = o.Kind,
+                ["node"] = o.Node,
+                ["can_id"] = o.CanIdHex,
+                ["start"] = o.Start,
+                ["end"] = o.End,
+                ["detail"] = NmEventPrivacy.RedactText(o.Detail, allowedCanIds),
+                ["evidence_kind"] = o.EvidenceKind,
+                ["is_inference"] = o.IsInference,
+                ["rule_id"] = o.RuleId,
+            }).ToArray());
+        // spec §15：Unmodeled 只发条款号，不发条款正文。
+        root["unmodeled_rules"] = report.UnmodeledRules is null
+            ? new JsonArray()
+            : new JsonArray(report.UnmodeledRules.Select(u => (JsonNode)new JsonObject
+            {
+                ["clause"] = u.Clause,
+                ["reason"] = u.Reason,
+                ["requirement_id"] = u.RequirementId,
+            }).ToArray());
         root["capabilities"] = new JsonArray(report.Capabilities.Select(c => (JsonNode)new JsonObject
         {
             ["capability"] = c.Capability.ToString(),

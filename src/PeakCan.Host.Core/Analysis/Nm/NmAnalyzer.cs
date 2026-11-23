@@ -88,6 +88,7 @@ public static class NmAnalyzer
         var events = new List<NmEvent>();
         var truncations = new List<NmTruncation>();
         var messageReports = new List<NmMessageReport>();
+        var observations = new List<NmObservation>();
         var nmFrames = new List<NmFrame>();
         IReadOnlyList<NmEpisode> episodes = Array.Empty<NmEpisode>();
         IReadOnlyList<string>? gapUnknowns = null;
@@ -137,7 +138,9 @@ public static class NmAnalyzer
                 EngineVersion: EngineVersion,
                 Selection: diagnostics,
                 Direction: direction,
-                IsPartial: partial);
+                IsPartial: partial,
+                Observations: observations.Count == 0 ? null : observations,
+                UnmodeledRules: null);
         }
 
         // 选择阶段（含能力/缺项）完成后即检查取消：此时报告至少带有选择诊断与能力矩阵。
@@ -268,16 +271,30 @@ public static class NmAnalyzer
                     allNmFrames: nmFrames,
                     windowEnd: request.End,
                     effectiveTimeoutMs: effectiveTimeoutMs);
-                // 与 NmCycleAnalyzer.Analyze 同源：两者都用 effectiveTimeoutMs。
-                var defTimeoutSec = effectiveTimeoutMs / 1000.0;
+                // 静默归因走唯一实现（spec §7.1.2）：必须看「其它 NM 报文是否仍在发」，
+                // 否则全网静默会被误判成单节点掉线。
+                var lastEpisode = episodes.LastOrDefault(e =>
+                    e.Start <= timestamps[^1] && e.End >= timestamps[^1]);
+                // episodeTruncated 不能直接用 episode.BoundaryEnd：后者由「全网最后一帧」
+                // 算出（NmEpisodeBuilder.cs:47），单节点静默时恰好为 true，会把
+                // SilentWithOtherNmActive 误降成 IndeterminateAtBoundary。
+                // 必须再夹一个「该报文自己的末帧就是被切掉的那一帧」：
+                // 单节点静默时 lastSeen(1.0) < episode.End(5.5) → false，不误降；
+                // 报文在窗口末仍在发时 lastSeen == episode.End → true，判不可判明。
+                var messageCutByWindow = lastEpisode is { BoundaryEnd: true }
+                    && timestamps[^1] >= lastEpisode.End - 1e-9;
+                var verdict = NmSilenceClassifier.Classify(
+                    nmFrames, def.CanIdHex, def.IsExtended,
+                    lastSeen: timestamps[^1],
+                    episodeEnd: lastEpisode?.End ?? timestamps[^1],
+                    windowEnd: request.End,
+                    timeoutSec: effectiveTimeoutMs / 1000.0,
+                    nidByte: request.Profile.Layout?.NidByte,
+                    episodeTruncated: messageCutByWindow);
                 messageReports.Add(new NmMessageReport(
                     def.CanIdHex, def.IsExtended, def.Name, def.Sender,
                     frames.Length, timestamps[0], timestamps[^1], cycle, activity,
-                    // 本任务只做兼容映射：保持 M1 的 SilentBeyondTimeout 可观测行为不变，
-                    // 真实归因（其它 NM 是否仍在发）在 Task 2 接入 NmSilenceClassifier。
-                    SilenceVerdict: request.End - timestamps[^1] > defTimeoutSec
-                        ? NmSilenceVerdict.SilentWithOtherNmActive
-                        : NmSilenceVerdict.NotSilent));
+                    SilenceVerdict: verdict));
             }
         }
 
@@ -291,6 +308,8 @@ public static class NmAnalyzer
         var gap = NmGapAnalyzer.Analyze(new NmGapInput(
             request.SourceId, nmFrames, selected, request.Profile, episodes, window, diagnostics,
             Timing: globalTiming));
+        // 紧接着收集观测：AfterGap 取消检查前已有的观测不能丢。
+        observations.AddRange(gap.Observations);
         findings.AddRange(gap.Findings);
         events.AddRange(gap.Events);
         gapUnknowns = gap.Unknowns;

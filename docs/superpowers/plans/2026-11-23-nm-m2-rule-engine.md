@@ -592,17 +592,22 @@ cd /d/claude_proj2/peakcan-host && dotnet test tests/PeakCan.Host.Core.Tests/Pea
 ```csharp
                 var lastEpisode = episodes.LastOrDefault(e =>
                     e.Start <= timestamps[^1] && e.End >= timestamps[^1]);
-                // 不传 episode.BoundaryEnd：它由「全网最后一帧」算出
-                // （NmEpisodeBuilder.cs:47），单节点静默时恰好为 true，
-                // 会把 SilentWithOtherNmActive 误降成 IndeterminateAtBoundary。
-                // 窗口截断已由 windowEnd - lastSeen < timeoutSec 覆盖。
+                // episodeTruncated 不能直接用 episode.BoundaryEnd：后者由「全网最后一帧」
+                // 算出（NmEpisodeBuilder.cs:47），单节点静默时恰好为 true，会把
+                // SilentWithOtherNmActive 误降成 IndeterminateAtBoundary。
+                // 必须再夹一个「该报文自己的末帧就是被切掉的那一帧」：
+                // 单节点静默时 lastSeen(1.0) < episode.End(5.5) → false，不误降；
+                // 报文在窗口末仍在发时 lastSeen == episode.End → true，判不可判明。
+                var messageCutByWindow = lastEpisode is { BoundaryEnd: true }
+                    && timestamps[^1] >= lastEpisode.End - 1e-9;
                 var verdict = NmSilenceClassifier.Classify(
                     nmFrames, def.CanIdHex, def.IsExtended,
                     lastSeen: timestamps[^1],
                     episodeEnd: lastEpisode?.End ?? timestamps[^1],
                     windowEnd: request.End,
                     timeoutSec: effectiveTimeoutMs / 1000.0,
-                    nidByte: request.Profile.Layout?.NidByte);
+                    nidByte: request.Profile.Layout?.NidByte,
+                    episodeTruncated: messageCutByWindow);
 ```
 
 在 `NmGapAnalyzer` 调用之后（`NmAnalyzer.cs:292` 附近），把 gap 的事件与 unknown 转成 observation。因为 `NmGapAnalyzer` 内部已经算出 `all_nm_silent` 事件，最省事且不重复实现的接法是在 `NmGapResult` 里加 `IReadOnlyList<NmObservation> Observations`：

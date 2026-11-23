@@ -15,7 +15,8 @@ public sealed record NmGapInput(
 public sealed record NmGapResult(
     IReadOnlyList<NmFinding> Findings,
     IReadOnlyList<NmEvent> Events,
-    IReadOnlyList<string> Unknowns);
+    IReadOnlyList<string> Unknowns,
+    IReadOnlyList<NmObservation> Observations);
 
 /// <summary>
 /// 空档归因，严格按 spec §7.5 的优先级：先网络级、后单报文。
@@ -28,6 +29,7 @@ public static class NmGapAnalyzer
         var findings = new List<NmFinding>();
         var events = new List<NmEvent>();
         var unknowns = new List<string>();
+        var observations = new List<NmObservation>();
 
         // 统一时序优先（spec §5.2）：避免 episode 切分用 2200、静默判定用 2000 的漂移。
         var globalTiming = input.Timing
@@ -51,6 +53,11 @@ public static class NmGapAnalyzer
                 "正常释放/下电/记录停止；不对单个报文重复报 dropout"));
             events.Add(new NmEvent(gapStart, "all_nm_silent", null, null,
                 $"NM silent until {gapEnd:F3}s", input.Episodes[i].Index, "measured"));
+            // 观测事实与 finding 并列：原因不可证明，只能标 inferred（spec §14.5）。
+            observations.Add(new NmObservation(
+                "all_nm_silent", null, null, gapStart, gapEnd,
+                $"全部 NM 报文静默 {gapEnd - gapStart:F2}s（≥ 超时 {timeoutMs}ms）",
+                "inferred", IsInference: true));
             unknowns.Add("all_nm_silent_reason_unknown（release / 下电 / 记录停止 / bus sleep 无法区分）");
         }
 
@@ -81,6 +88,11 @@ public static class NmGapAnalyzer
                 events.Add(new NmEvent(lastEpisode.End, "all_nm_silent", null, null,
                     $"NM silent until window end {input.Window.End:F3}s",
                     lastEpisode.Index, "measured"));
+                // 窗口尾部静默同样是一条原因未知的观测事实（spec §7.5.5 / §14.5）。
+                observations.Add(new NmObservation(
+                    "all_nm_silent", null, null, lastEpisode.End, input.Window.End,
+                    $"全部 NM 报文静默 {input.Window.End - lastEpisode.End:F2}s（≥ 超时 {timeoutMs}ms）",
+                    "inferred", IsInference: true));
                 unknowns.Add("all_nm_silent_reason_unknown（release / 下电 / 记录停止 / bus sleep 无法区分）");
             }
         }
@@ -175,7 +187,8 @@ public static class NmGapAnalyzer
                 "对比记录仪日志/其它日志源"));
         }
 
-        return new NmGapResult(findings, events, unknowns.Distinct().ToArray());
+        return new NmGapResult(
+            findings, events, unknowns.Distinct().ToArray(), observations);
     }
 
     /// <summary>区间与任意相邻 episode 之间的全静默区间有交集时，不做单报文归因。</summary>

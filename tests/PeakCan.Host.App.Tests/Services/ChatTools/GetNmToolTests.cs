@@ -889,4 +889,40 @@ BA_ "NmStationAddress" BU_ ECU_A 244;
         json["findings"]![0]!["message"]!.GetValue<string>()
             .Should().Be("报文 0x50/0x500，NID 0x??，未配置 ID 0x??");
     }
+
+    // ==== §7.1.1 四态静默判定 + 观测事实 ====
+
+    [Fact]
+    public async Task GetNmOverview_AllNmSilent_EmitsVerdictAndObservation()
+    {
+        // spec §7.1.1 AI 输出负例：全网静默时 silent_beyond_timeout 必须为 false。
+        var report = new NmReport(
+            new NmWindow(0, 6, "full"), "src", null,
+            Array.Empty<NmEpisode>(),
+            new[]
+            {
+                new NmMessageReport("0x500", false, "NM", "A", 3, 0, 1.0,
+                    new NmCycleStats(null, null, null, null, null, 0),
+                    Array.Empty<NmSegment>(),
+                    SilenceVerdict: NmSilenceVerdict.AllNmSilent),
+            },
+            Array.Empty<NmNodeReport>(), Array.Empty<NmEvent>(),
+            Array.Empty<NmFinding>(), Array.Empty<string>(), Array.Empty<string>(),
+            Array.Empty<NmCapabilityState>(), Array.Empty<NmInputMissing>(),
+            Array.Empty<NmTruncation>(),
+            Observations: new[]
+            {
+                new NmObservation("all_nm_silent", null, null, 1.0, 6.0,
+                    "NM silent", "inferred", IsInference: true),
+            });
+
+        var ctx = new FakeChatToolContext { NmSnapshotValue = Snapshot() with { Report = report } };
+        var tool = new GetNmOverviewTool(ctx, NullLogger<GetNmOverviewTool>.Instance);
+        var root = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
+
+        Assert.Equal("AllNmSilent", root["messages"]![0]!["silence_verdict"]!.GetValue<string>());
+        Assert.False(root["messages"]![0]!["silent_beyond_timeout"]!.GetValue<bool>());
+        Assert.Equal("all_nm_silent", root["observations"]![0]!["kind"]!.GetValue<string>());
+        Assert.True(root["observations"]![0]!["is_inference"]!.GetValue<bool>());
+    }
 }

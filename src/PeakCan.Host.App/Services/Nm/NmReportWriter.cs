@@ -99,6 +99,34 @@ public static class NmReportWriter
                 $"- **{f.Code}** ({f.Severity}, inference={f.IsInference}): {Esc(red.Apply(f.Message))}"));
         }
         sb.AppendLine();
+        sb.AppendLine("## Observations");
+        if (r.Observations is null || r.Observations.Count == 0)
+        {
+            sb.AppendLine("- （无观测事实）");
+        }
+        else
+        {
+            sb.AppendLine("| kind | can id | start | end | evidence | detail |");
+            sb.AppendLine("|---|---|---|---|---|---|");
+            foreach (var o in r.Observations)
+            {
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"| {o.Kind} | {o.CanIdHex ?? "—"} | {o.Start:F3} | {o.End:F3} | {o.EvidenceKind} | {Esc(red.Apply(o.Detail))} |"));
+            }
+        }
+        sb.AppendLine();
+        sb.AppendLine("## Unmodeled Rules");
+        if (r.UnmodeledRules is null || r.UnmodeledRules.Count == 0)
+        {
+            sb.AppendLine("- （无未建模条款）");
+        }
+        else
+        {
+            foreach (var u in r.UnmodeledRules)
+                sb.AppendLine(CultureInfo.InvariantCulture,
+                    $"- **{u.Clause}**：{Esc(u.Reason)}");
+        }
+        sb.AppendLine();
         sb.AppendLine("## Events");
         sb.AppendLine("| time | type | subject | detail | evidence |");
         sb.AppendLine("|---|---|---|---|---|");
