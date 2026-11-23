@@ -501,7 +501,7 @@ public sealed record NmMessageReport(
 
 现有 `NmMessageReport.SilentBeyondTimeout`（`NmReport.cs:41`）只看窗口末尾距末帧的时间（`NmAnalyzer.cs:265`），**不检查其它 NM 是否仍活动**，且已输出给 AI（`GetNmOverviewTool.cs:82`）和导出（`NmReportWriter.cs:81`）。真实 trace 的全网静默会被它标成 true。
 
-改为四态：
+改为多态（M2 收尾时为五态）：
 
 ```csharp
 public enum NmSilenceVerdict
@@ -510,8 +510,11 @@ public enum NmSilenceVerdict
     SilentWithOtherNmActive,    // 单节点静默且其它 NM 仍在发 → 可疑
     AllNmSilent,                // 全网 NM 静默 → 原因未知，非单节点违规
     IndeterminateAtBoundary,    // 窗口截断/共享 ID 无法拆分
+    ReleasedInReadySleep,       // 末帧 NMSts=1 后停发，其它 NM 仍在发 → 合规释放（NM_09）
 }
 ```
+
+`ReleasedInReadySleep` 与 `SilentWithOtherNmActive` 必须分开：节点确实不再发送，但这是 NM_09 允许的合规释放，AI 不能把它读成可疑静默。只能在明确读到末帧 `NMSts=1` 时使用；位角色缺失或 DLC 不足（未知）必须保持可疑判定。`silent_beyond_timeout` 仍只对 `SilentWithOtherNmActive` 为 true。
 
 `SilentBeyondTimeout` 字段保留一个版本做兼容，但**语义改为 `Verdict == SilentWithOtherNmActive`**，并加 AI 输出负例测试（全网静默时该字段必须为 false）。
 
@@ -541,7 +544,14 @@ public enum NmSilenceVerdict
 
 理由：语义无法在不引入通用表达式语言的前提下精确定义，或依赖不可观测输入。NMSts 用 `nmsts_transition` 专用原语，不做通用序列匹配。
 
-未知 `when`/`expect` 原语 → 该规则进 `Unmodeled`，不产 finding，不抛异常。
+**未知 `when`/`expect` 原语（Rev 6 修正）**：分两个阶段处理，不再统一「不抛异常」。
+
+| 阶段 | 行为 | 理由 |
+|---|---|---|
+| **加载期**（`NmStandardYaml.Load`） | 原语不在 `NmRulePrimitives` 闭集内 → **抛 `NmProfileValidationException`**，消息列出全部合法值 | 拼错的原语名（`cycle_tolerence`）若静默进 Unmodeled，用户会以为条款已被校验——这是最危险的静默失败 |
+| **求值期**（`NmRuleEngine.Evaluate`） | 闭集内但 v1 尚无实现的原语 → 进 `Unmodeled`，不产 finding，不抛异常 | 引擎必须能处理「profile 合法但当前版本未实现」的情形，不能崩溃 |
+
+Rev 5 及更早写的「未知原语一律进 Unmodeled 不抛异常」只覆盖了求值期，遗漏了加载期拼写错误的危害。闭集校验把这类错误前移到加载期，是本设计的刻意收紧。
 
 ### 7.3 主动唤醒判定（降级为「疑似不一致」）
 
@@ -799,8 +809,11 @@ public static class NmBurstDetector
         double Start, double End,
         bool IsCandidate,        // 宽松检测：≥2 个间隔 ≤ 2.0×Immediate
         bool IsCompliant,        // 严格判定：count==ImmediateCount 且间隔 ∈ 1±ratio
-        string Detector,         // "immediate" | "cycle_ratio_fallback"
-        bool IsIndeterminate);   // 窗口截断/帧数不足
+        string Detector,         // "immediate" | "cycle_ratio_fallback" | "none"
+        // 段尾触到 episode/窗口边界：实测时长只是下限，既不得判合规也不得判不合规。
+        // 注意：**不含「帧数不足」**——那是 IsCandidate=false 的语义，不是不可判明。
+        // 「两个阈值都缺失」也置 true（此时 IsCandidate=false），表示检测器无法判定。
+        bool IsIndeterminate);
 }
 ```
 
@@ -809,8 +822,10 @@ public static class NmBurstDetector
 | 情形 | 检测方式 | Detector | Evidence |
 |---|---|---|---|
 | `ImmediateCycleMs` 已配置 | `≤ 2.0 × ImmediateCycleMs` | `immediate` | measured |
-| `ImmediateCycleMs` 未配置 | `≤ 0.5 × CycleMs`（M1 现有行为） | `cycle_ratio_fallback` | **inferred** |
-| 两者都无（CycleMs 也无） | 不检测快发 | — | 不选双窗口，用 M1 默认 |
+| `ImmediateCycleMs` 未配置 | `< 0.5 × CycleMs`（**严格小于**，与 M1 的 `NmActivityBuilder.cs:130` 一致） | `cycle_ratio_fallback` | **inferred** |
+| 两者都无（CycleMs 也无） | 不检测快发 | `none`，`IsIndeterminate = true` | 不选双窗口，用 M1 默认 |
+
+两行的比较方向**不同**且都是刻意的：`immediate` 路径用 `≤`（spec §7.4 原文），回退路径用严格 `<`（M1 在 `delta >= 0.5×cycle` 时断开连续段）。恰好等于阈值时两者结论相反，这是沿用各自原有语义的结果，不是笔误。
 
 **回退时不得选 1700**：`cycle_ratio_fallback` 检测到的快发不足以证明「符合 N_ImmediateNM_TIMES」，按 1500 兜底并标 `inferred`。
 

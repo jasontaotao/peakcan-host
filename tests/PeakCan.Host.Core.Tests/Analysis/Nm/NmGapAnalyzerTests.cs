@@ -33,6 +33,35 @@ public class NmGapAnalyzerTests
     private static NmSelectionDiagnostics Diag(bool regression = false)
         => new(0, 0, 0, 0, 0, 0, regression, false);
 
+    // 企标 layout 的 NMSts 位（与负例集一致：byte3.bit0）。
+    private const byte NmStsByte = 3;
+
+    /// <summary>
+    /// 带 NMSts 位的标准帧。readable=false 时 DLC 只到 byte1，
+    /// 用来模拟「停发前最后一帧读不出 NMSts」。
+    /// </summary>
+    private static NmFrame NmWithSts(double t, byte nmsts, bool readable = true, string id = "0x500")
+    {
+        var payload = readable
+            ? new byte[] { 0xF4, 0, 0, nmsts, 0, 0, 0, 0 }
+            : new byte[] { 0xF4, 0 };
+        return new(new NmMessageDef(id, false, "NM", "A", 8, true, TestReasons, 500, 2000),
+                   new ReplayFrame(t, CanId(id), (byte)payload.Length, payload, FrameFlags.None));
+    }
+
+    /// <summary>M1 profile 上加/去 NMSts 位角色，专门控制 NMSts 是否可定位。</summary>
+    private static NmProfile ProfileWithNmStsRole(bool includeNmSts)
+        => Profile() with
+        {
+            StandardBitRoles = includeNmSts
+                ? new[] { new NmBitRole(NmStsByte, 0, "NmSts") }
+                : null,
+        };
+
+    /// <summary>另一条 NM 报文，0→4.5s 每 500ms 一帧，保证逐报文分支真的运行。</summary>
+    private static NmFrame[] OtherMessageSteady(string id = "0x501")
+        => Enumerable.Range(0, 10).Select(i => NmWithSts(i * 0.5, nmsts: 1, id: id)).ToArray();
+
     [Fact]
     public void Analyze_AllNmSilent_ProducesOnlyAllSilentFinding()
     {
@@ -46,6 +75,13 @@ public class NmGapAnalyzerTests
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_SENDER_SILENT_BEYOND_TIMEOUT");
         Assert.Contains(result.Unknowns, u => u.Contains("all_nm_silent_reason_unknown"));
+
+        // 两个 episode 之间（1.0s → 4.0s）的静默只能由「间隙观测」站点产生：
+        // 窗口尾部静默仅 1.0s（< 2s 超时）不会触发尾部站点。
+        // spec §14.5：原因不可证明，观测必须标 inferred。
+        var obs = Assert.Single(result.Observations, o => o.Kind == "all_nm_silent");
+        Assert.True(obs.IsInference);
+        Assert.Equal("inferred", obs.EvidenceKind);
     }
 
     [Fact]
@@ -78,6 +114,94 @@ public class NmGapAnalyzerTests
         Assert.Contains(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_ALL_NM_SILENT");
         Assert.Contains(result.Unknowns, u => u.Contains("dropout_receiver_side_or_node_internal_state_not_excluded"));
+    }
+
+    [Fact]
+    public void Analyze_NodeEntersRssThenStops_NoDropoutFinding()
+    {
+        // NM_09：0x500 于 2.0s 进入 Ready Sleep State（NMSts=1）后停发，
+        // 0x501 继续发到 4.5s。这是合规释放，不得归因为节点掉线。
+        var nm = new List<NmFrame>
+        {
+            NmWithSts(0.0, 0), NmWithSts(0.5, 0), NmWithSts(1.0, 0), NmWithSts(2.0, 1),
+        };
+        nm.AddRange(OtherMessageSteady());
+        var input = new NmGapInput("src", nm, nm.Select(f => f.Frame).ToArray(),
+            ProfileWithNmStsRole(true), Episodes((0, 4.5)), new NmWindow(0, 5, "full"), Diag());
+
+        var result = NmGapAnalyzer.Analyze(input);
+
+        Assert.DoesNotContain(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
+        // 配套的 sender_silent 事件与「掉线原因未知」也必须一起消失。
+        Assert.DoesNotContain(result.Events, e => e.Type == "sender_silent");
+        Assert.DoesNotContain(result.Unknowns,
+            u => u.Contains("dropout_receiver_side_or_node_internal_state_not_excluded"));
+    }
+
+    [Fact]
+    public void Analyze_NodeStopsInRepeatMessageState_StillReportsDropout()
+    {
+        // 与上一个用例同形，但停发前最后一帧 NMSts=0（Repeat Message State）。
+        // RMS 期间停发不是合规释放，必须继续报掉线——此用例钉住「不是无条件抑制」。
+        var nm = new List<NmFrame>
+        {
+            NmWithSts(0.0, 0), NmWithSts(0.5, 0), NmWithSts(1.0, 0), NmWithSts(2.0, 0),
+        };
+        nm.AddRange(OtherMessageSteady());
+        var input = new NmGapInput("src", nm, nm.Select(f => f.Frame).ToArray(),
+            ProfileWithNmStsRole(true), Episodes((0, 4.5)), new NmWindow(0, 5, "full"), Diag());
+
+        var result = NmGapAnalyzer.Analyze(input);
+
+        Assert.Contains(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
+        Assert.Contains(result.Unknowns,
+            u => u.Contains("dropout_receiver_side_or_node_internal_state_not_excluded"));
+        // RepeatMessage 是**已知**状态：不得被记成「无法排除 RSS」的未知。
+        // 这条与不可读/缺失角色用例互补，钉住四态不会被折叠成三态。
+        Assert.DoesNotContain(result.Unknowns, u => u.Contains("dropout_cannot_exclude_rss"));
+    }
+
+    [Fact]
+    public void Analyze_NoNmStsRole_StillReportsDropoutWithUnknown()
+    {
+        // profile 未声明 NmSts 位角色 → 无法区分合规停发与掉线：保守上报，
+        // 并用 unknown 说明为什么无法排除 RSS。
+        var nm = new List<NmFrame>
+        {
+            NmWithSts(0.0, 0), NmWithSts(0.5, 0), NmWithSts(1.0, 0), NmWithSts(2.0, 1),
+        };
+        nm.AddRange(OtherMessageSteady());
+        var input = new NmGapInput("src", nm, nm.Select(f => f.Frame).ToArray(),
+            ProfileWithNmStsRole(false), Episodes((0, 4.5)), new NmWindow(0, 5, "full"), Diag());
+
+        var result = NmGapAnalyzer.Analyze(input);
+
+        Assert.Contains(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
+        Assert.Contains(result.Unknowns,
+            u => u.Contains("dropout_cannot_exclude_rss") && u.Contains("NmSts"));
+    }
+
+    [Fact]
+    public void Analyze_UnreadableNmStsByte_StillReportsDropout()
+    {
+        // 停发前最后一帧 DLC 只有 2 字节，读不到 byte3 的 NMSts。
+        // 「读不出」不等于 NMSts=1，不能据此抑制掉线。
+        var nm = new List<NmFrame>
+        {
+            NmWithSts(0.0, 0), NmWithSts(0.5, 0), NmWithSts(1.0, 0),
+            NmWithSts(2.0, 1, readable: false),
+        };
+        nm.AddRange(OtherMessageSteady());
+        var input = new NmGapInput("src", nm, nm.Select(f => f.Frame).ToArray(),
+            ProfileWithNmStsRole(true), Episodes((0, 4.5)), new NmWindow(0, 5, "full"), Diag());
+
+        var result = NmGapAnalyzer.Analyze(input);
+
+        Assert.Contains(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
+        // 「读不出」本身也必须作为未知上报：把 Unreadable 误当成 RepeatMessage
+        // 会丢掉这条 unknown，却仍然产出 dropout，只断言 finding 无法发现这种折叠。
+        Assert.Contains(result.Unknowns,
+            u => u.Contains("dropout_cannot_exclude_rss") && u.Contains("读不出"));
     }
 
     [Fact]

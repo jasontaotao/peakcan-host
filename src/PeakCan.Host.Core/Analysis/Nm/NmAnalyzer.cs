@@ -65,9 +65,11 @@ public static class NmAnalyzer
         if (request.Profile.Timings.TimeoutMs is null)
             assumptions.Add("未配置 NM 超时，按 2000ms 处理。");
 
-        // PNI 位角色是硬编码的 AUTOSAR 约定（CBV bit6），不是从矩阵读出的，按推断解释。
-        if (request.Profile.Layout?.CbvByte is not null
-            && request.Profile.Features?.PnEnabled == false)
+        // PNI 只在 profile 声明了 (cbv_byte, bit6) 的 PNI 位角色时才会被解释
+        // （与 NmContentAnalyzer.CheckCbv 同源）；未声明却仍写这条假设，
+        // 会让报告声称一个实际不执行的解读（如吉利 remove 了该位）。
+        if (NmProfilePrecedence.EffectivePnEnabled(request.Profile) == false
+            && NmProfilePrecedence.EffectivePniRole(request.Profile) is not null)
         {
             assumptions.Add("PNI 按 AUTOSAR CanNm CBV bit6 解读（M1 已知限制）");
         }
@@ -88,6 +90,9 @@ public static class NmAnalyzer
         var events = new List<NmEvent>();
         var truncations = new List<NmTruncation>();
         var messageReports = new List<NmMessageReport>();
+        var observations = new List<NmObservation>();
+        // 未建模条款（spec §7.1.1）：只有规则引擎实际运行过才可能有内容。
+        var unmodeled = new List<NmUnmodeledRule>();
         var nmFrames = new List<NmFrame>();
         IReadOnlyList<NmEpisode> episodes = Array.Empty<NmEpisode>();
         IReadOnlyList<string>? gapUnknowns = null;
@@ -132,12 +137,19 @@ public static class NmAnalyzer
                 capabilities,
                 missing,
                 truncations,
-                StandardId: null,
+                // spec §6.1 rule 6：报告必须能自述来源 profile（standard_id@version）。
+                StandardId: request.Standard is { } standard
+                    ? $"{standard.StandardId}@{standard.Version}"
+                    : null,
+                // spec §10.1.1 要求 ProfileHash 是「展平后 canonical profile 的 SHA256」；
+                // 本任务没有 canonical 序列化器，留空而不是给一个会被误当权威的哈希。
                 ProfileHash: null,
                 EngineVersion: EngineVersion,
                 Selection: diagnostics,
                 Direction: direction,
-                IsPartial: partial);
+                IsPartial: partial,
+                Observations: observations.Count == 0 ? null : observations,
+                UnmodeledRules: unmodeled.Count == 0 ? null : unmodeled);
         }
 
         // 选择阶段（含能力/缺项）完成后即检查取消：此时报告至少带有选择诊断与能力矩阵。
@@ -174,6 +186,10 @@ public static class NmAnalyzer
             request.Profile.Timings, request.Profile.StandardTimings);
         var timeoutMs = globalTiming.TimeoutMs;
         var cycleMs = globalTiming.CycleMs;
+
+        // 周期偏差的去重不能在这里预判：取消会让规则引擎根本不运行（spec §9.4），
+        // 若提前抑制 M1 副本，报告会既没有规则副本也没有 M1 副本。改为引擎求值后
+        // 按「实际产出的同码 finding」去重（见下方 ruleResult 处理）。
 
         episodes = NmEpisodeBuilder.Build(nmFrames, timeoutMs, request.Start, request.End);
         if (IsCanceled(NmAnalyzerCheckpoint.AfterEpisodes))
@@ -230,7 +246,7 @@ public static class NmAnalyzer
                 // 共享 ID（同一报文组内 NID 不唯一）无法按节点拆周期，偏差结论会被多节点
                 // 交错发送放大成假阳性，因此抑制 NM_CYCLE_DEVIATION。
                 var sharedId = false;
-                if (request.Profile.Layout?.NidByte is { } nidByte)
+                if (NmProfilePrecedence.EffectiveNidByte(request.Profile) is { } nidByte)
                 {
                     sharedId = frames
                         .Where(f => f.Frame.Data.Length > nidByte)
@@ -246,6 +262,8 @@ public static class NmAnalyzer
 
                 // spec §7.4: 偏差占比 > 5% 或连续 3 帧超容差才算 finding；
                 // 共享 ID 不拆节点时本报告只给按报文的周期结论，不做按节点的偏差归因。
+                // 有企标规则时先按 M1 口径产出，规则引擎跑完后按同码去重（见下方）。
+                // 引擎在取消路径上不运行，M1 的副本因此得以保留（spec §9.4）。
                 if (!sharedId && NmCycleAnalyzer.IsDeviationSignificant(cycle))
                 {
                     findings.Add(new NmFinding("NM_CYCLE_DEVIATION", "warn",
@@ -268,12 +286,35 @@ public static class NmAnalyzer
                     allNmFrames: nmFrames,
                     windowEnd: request.End,
                     effectiveTimeoutMs: effectiveTimeoutMs);
-                // 与 NmCycleAnalyzer.Analyze 同源：两者都用 effectiveTimeoutMs。
-                var defTimeoutSec = effectiveTimeoutMs / 1000.0;
+                // 静默归因走唯一实现（spec §7.1.2）：必须看「其它 NM 报文是否仍在发」，
+                // 否则全网静默会被误判成单节点掉线。
+                var lastEpisode = episodes.LastOrDefault(e =>
+                    e.Start <= timestamps[^1] && e.End >= timestamps[^1]);
+                // episodeTruncated 不能直接用 episode.BoundaryEnd：后者由「全网最后一帧」
+                // 算出（NmEpisodeBuilder.cs:47），单节点静默时恰好为 true，会把
+                // SilentWithOtherNmActive 误降成 IndeterminateAtBoundary。
+                // 必须再夹一个「该报文自己的末帧就是被切掉的那一帧」：
+                // 单节点静默时 lastSeen(1.0) < episode.End(5.5) → false，不误降；
+                // 报文在窗口末仍在发时 lastSeen == episode.End → true，判不可判明。
+                var messageCutByWindow = lastEpisode is { BoundaryEnd: true }
+                    && timestamps[^1] >= lastEpisode.End - 1e-9;
+                var verdict = NmSilenceClassifier.Classify(
+                    nmFrames, def.CanIdHex, def.IsExtended,
+                    lastSeen: timestamps[^1],
+                    episodeEnd: lastEpisode?.End ?? timestamps[^1],
+                    windowEnd: request.End,
+                    timeoutSec: effectiveTimeoutMs / 1000.0,
+                    nidByte: NmProfilePrecedence.EffectiveNidByte(request.Profile),
+                    episodeTruncated: messageCutByWindow,
+                    // 与 NmGapAnalyzer 抑制 NM_NODE_DROPOUT 的判据同源：末帧处于 RSS 时，
+                    // 「其它节点还在发、本节点不再发」是合规释放而非可疑静默。
+                    // 读不出/未声明位角色时传 null，分类器必须保守判为可疑。
+                    lastFrameInReadySleep:
+                        ReadLastFrameInReadySleep(frames[^1], request.Profile.StandardBitRoles));
                 messageReports.Add(new NmMessageReport(
                     def.CanIdHex, def.IsExtended, def.Name, def.Sender,
                     frames.Length, timestamps[0], timestamps[^1], cycle, activity,
-                    SilentBeyondTimeout: request.End - timestamps[^1] > defTimeoutSec));
+                    SilenceVerdict: verdict));
             }
         }
 
@@ -287,6 +328,8 @@ public static class NmAnalyzer
         var gap = NmGapAnalyzer.Analyze(new NmGapInput(
             request.SourceId, nmFrames, selected, request.Profile, episodes, window, diagnostics,
             Timing: globalTiming));
+        // 紧接着收集观测：AfterGap 取消检查前已有的观测不能丢。
+        observations.AddRange(gap.Observations);
         findings.AddRange(gap.Findings);
         events.AddRange(gap.Events);
         gapUnknowns = gap.Unknowns;
@@ -302,6 +345,43 @@ public static class NmAnalyzer
 
         if (IsCanceled(NmAnalyzerCheckpoint.AfterContent))
             return Finish(partial: true);
+
+        // 企标规则（spec §7）：只有选中 profile 时才跑；无 profile 时规则引擎完全不执行，
+        // 保证 M1 输出逐字节不变。结果与 M1 finding 合并，但保留 RuleId/SourceRef
+        // 以便条款追溯。传全局时序，evaluator 按报文自行 Resolve 生效时序。
+        if (request.Profile.StandardRules is { Count: > 0 } activeRules)
+        {
+            var ruleResult = NmRuleEngine.Evaluate(activeRules,
+                new NmRuleContext(nmFrames, episodes, request.Profile, globalTiming, window)
+                {
+                    Rules = activeRules,
+                });
+
+            // 引擎跑完后去重：只有规则真的产出了同码 finding 才移除 M1 副本。
+            // 规则副本带 RuleId（可追溯到条款），M1 副本的 RuleId 为 null。
+            // 这样自动覆盖：取消（引擎未运行 → 不移除）、规则换码、Unobservable、
+            // evaluator 无法求值进 Unmodeled（均无同码副本 → M1 副本保留）。
+            //
+            // 去重必须按「具体码」而不是「规则产出的所有码」：只有 NM_CYCLE_DEVIATION
+            // 能被证明两边判的是同一件事——M1 与 cycle_tolerance 都对每个报文组用同一
+            // 判据（NmCycleAnalyzer 的有效间隔与显著性），是真正的重复。
+            // 其他码不可按码一刀切：例如 NM_NID_MISMATCH 两边判的不是一回事——
+            // M1 比的是 DBC 站地址（NmContentAnalyzer.cs:243-249），NM_01 规则比的是
+            // CAN ID 低字节（spec §14.4）。按码去重会删掉语义不同、甚至属于其它报文的
+            // 结论。此处刻意写成白名单，不要泛化成按码集合去重。
+            const string CycleDeviationCode = "NM_CYCLE_DEVIATION";
+            var ruleProducedCycleFinding = ruleResult.Findings.Any(f =>
+                f.RuleId is not null
+                && string.Equals(f.Code, CycleDeviationCode, StringComparison.Ordinal));
+            if (ruleProducedCycleFinding)
+                findings.RemoveAll(f => f.RuleId is null
+                    && string.Equals(f.Code, CycleDeviationCode, StringComparison.Ordinal));
+
+            findings.AddRange(ruleResult.Findings);
+            observations.AddRange(ruleResult.Observations);
+            unmodeled.AddRange(ruleResult.Unmodeled);
+            truncations.AddRange(ruleResult.Truncations);
+        }
 
         if (request.Dbc is not null)
         {
@@ -328,6 +408,39 @@ public static class NmAnalyzer
             assumptions.Add($"direction=unknown 的帧 {diagnostics.DirectionUnknownFrames} 条；M1 不排除 Tx。");
 
         return Finish(partial: false);
+    }
+
+    /// <summary>
+    /// 读取一帧的 NMSts 并折叠成「是否处于 Ready Sleep State」：
+    /// true = NMSts=1，false = NMSts=0，null = 无法判定
+    /// （profile 未声明 NmSts 位角色，或 DLC 不足读不出该字节）。
+    /// 与 NmGapAnalyzer 的四态读取同口径（spec §7.5.1.2）；此处只需三态，
+    /// 「缺失角色」与「读不出」都归为未知。
+    /// </summary>
+    private static bool? ReadLastFrameInReadySleep(
+        NmFrame frame, IReadOnlyList<NmBitRole>? roles)
+    {
+        var role = FindBitRole(roles, "NmSts");
+        if (role is null) return null;
+
+        var data = frame.Frame.Data;
+        // DLC 不足即该帧不可读，不臆造状态位。
+        if (data.Length <= role.Byte) return null;
+
+        return ((data[role.Byte] >> role.Bit) & 1) != 0;
+    }
+
+    /// <summary>按名称定位位角色；profile 未声明该位时返回 null。</summary>
+    private static NmBitRole? FindBitRole(IReadOnlyList<NmBitRole>? roles, string name)
+    {
+        if (roles is null) return null;
+        // IReadOnlyList 可索引；用循环避开 CA1826（Enumerable.FirstOrDefault）。
+        for (var i = 0; i < roles.Count; i++)
+        {
+            if (string.Equals(roles[i].Name, name, StringComparison.Ordinal)) return roles[i];
+        }
+
+        return null;
     }
 
     private static uint ParseId(string hex)

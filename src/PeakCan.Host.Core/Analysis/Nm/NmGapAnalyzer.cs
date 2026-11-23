@@ -15,7 +15,8 @@ public sealed record NmGapInput(
 public sealed record NmGapResult(
     IReadOnlyList<NmFinding> Findings,
     IReadOnlyList<NmEvent> Events,
-    IReadOnlyList<string> Unknowns);
+    IReadOnlyList<string> Unknowns,
+    IReadOnlyList<NmObservation> Observations);
 
 /// <summary>
 /// 空档归因，严格按 spec §7.5 的优先级：先网络级、后单报文。
@@ -28,6 +29,7 @@ public static class NmGapAnalyzer
         var findings = new List<NmFinding>();
         var events = new List<NmEvent>();
         var unknowns = new List<string>();
+        var observations = new List<NmObservation>();
 
         // 统一时序优先（spec §5.2）：避免 episode 切分用 2200、静默判定用 2000 的漂移。
         var globalTiming = input.Timing
@@ -51,6 +53,11 @@ public static class NmGapAnalyzer
                 "正常释放/下电/记录停止；不对单个报文重复报 dropout"));
             events.Add(new NmEvent(gapStart, "all_nm_silent", null, null,
                 $"NM silent until {gapEnd:F3}s", input.Episodes[i].Index, "measured"));
+            // 观测事实与 finding 并列：原因不可证明，只能标 inferred（spec §14.5）。
+            observations.Add(new NmObservation(
+                "all_nm_silent", null, null, gapStart, gapEnd,
+                $"全部 NM 报文静默 {gapEnd - gapStart:F2}s（≥ 超时 {timeoutMs}ms）",
+                "inferred", IsInference: true));
             unknowns.Add("all_nm_silent_reason_unknown（release / 下电 / 记录停止 / bus sleep 无法区分）");
         }
 
@@ -81,6 +88,11 @@ public static class NmGapAnalyzer
                 events.Add(new NmEvent(lastEpisode.End, "all_nm_silent", null, null,
                     $"NM silent until window end {input.Window.End:F3}s",
                     lastEpisode.Index, "measured"));
+                // 窗口尾部静默同样是一条原因未知的观测事实（spec §7.5.5 / §14.5）。
+                observations.Add(new NmObservation(
+                    "all_nm_silent", null, null, lastEpisode.End, input.Window.End,
+                    $"全部 NM 报文静默 {input.Window.End - lastEpisode.End:F2}s（≥ 超时 {timeoutMs}ms）",
+                    "inferred", IsInference: true));
                 unknowns.Add("all_nm_silent_reason_unknown（release / 下电 / 记录停止 / bus sleep 无法区分）");
             }
         }
@@ -100,7 +112,9 @@ public static class NmGapAnalyzer
                 var canId = group.Key.CanIdHex;
                 var isExtended = group.Key.IsExtended;
                 var display = Display(canId, isExtended);
-                var times = group.Select(f => f.Frame.Timestamp).OrderBy(t => t).ToArray();
+                // 先按时间排成帧数组：掉线判定不只需要时刻，还要读停发前最后一帧的 NMSts。
+                var ordered = group.OrderBy(f => f.Frame.Timestamp).ToArray();
+                var times = ordered.Select(f => f.Frame.Timestamp).ToArray();
                 var lastEpisode = input.Episodes.Count > 0 ? input.Episodes[^1] : null;
                 // 单报文阈值用该报文的生效超时（def > profile > 2000），与周期统计同源；
                 // 全网络静默仍用全局超时。
@@ -113,16 +127,44 @@ public static class NmGapAnalyzer
                     && !OverlapsAllNmSilent(times[^1], lastEpisode.End, input.Episodes)
                     && OthersActiveBetween(times[^1], lastEpisode.End, canId, isExtended, input.NmFrames))
                 {
-                    findings.Add(new NmFinding(
-                        "NM_NODE_DROPOUT", "warn",
-                        $"{display} 从 {times[^1]:F2}s 起未再发送（episode 结束 {lastEpisode.End:F2}s），其它 NM 报文仍在发送",
-                        new[] { times[^1], lastEpisode.End }, IsInference: true,
-                        "检查该发送节点的复位/掉线/发送停止"));
-                    events.Add(new NmEvent(times[^1], "sender_silent", null, canId,
-                        $"{lastEpisode.End - times[^1]:F2}s", lastEpisode.Index, "inferred",
-                        isExtended));
-                    unknowns.Add("dropout_receiver_side_or_node_internal_state_not_excluded（只看发送侧）");
+                    // NM_09：停发前最后一帧处于 Ready Sleep State（NMSts=1）时，
+                    // 停发是合规释放，不是节点掉线——连同 sender_silent 事件与
+                    // 「掉线原因未知」一起抑制。
+                    // NMSts=0 是 Repeat Message State，该状态下停发不是合规释放，
+                    // 必须继续上报；角色缺失或 DLC 不足时无法判定，同样保守上报
+                    // （读不出不等于 RSS），并补 unknown 说明无法排除 RSS 的原因。
+                    var lastNmSts = ReadNmSts(ordered[^1], input.Profile.StandardBitRoles);
+                    if (lastNmSts != NmStsReading.ReadySleep)
+                    {
+                        if (lastNmSts == NmStsReading.MissingRole)
+                        {
+                            unknowns.Add("dropout_cannot_exclude_rss（profile 未声明 NmSts 位，无法区分合规停发与掉线）");
+                        }
+                        else if (lastNmSts == NmStsReading.Unreadable)
+                        {
+                            unknowns.Add("dropout_cannot_exclude_rss（停发前最后一帧读不出 NmSts 位，无法区分合规停发与掉线）");
+                        }
+
+                        findings.Add(new NmFinding(
+                            "NM_NODE_DROPOUT", "warn",
+                            $"{display} 从 {times[^1]:F2}s 起未再发送（episode 结束 {lastEpisode.End:F2}s），其它 NM 报文仍在发送",
+                            new[] { times[^1], lastEpisode.End }, IsInference: true,
+                            "检查该发送节点的复位/掉线/发送停止"));
+                        events.Add(new NmEvent(times[^1], "sender_silent", null, canId,
+                            $"{lastEpisode.End - times[^1]:F2}s", lastEpisode.Index, "inferred",
+                            isExtended));
+                        unknowns.Add("dropout_receiver_side_or_node_internal_state_not_excluded（只看发送侧）");
+                    }
                 }
+
+                // 中间断档（断后又恢复）刻意不做 NMSts 抑制。原因不是「恢复发送
+                // 就证明断档期间没在 RSS」——CanNm 在 RSS 收到带 Repeat Message Request
+                // 的 NM 报文后会回到 Repeat Message State 并恢复发送，所以
+                // 「合法 RSS 停留 > 超时、随后又恢复」是真实存在的形态。
+                // 真正的原因是：仅凭断前最后一帧的 NMSts 无法把这种合法形态与
+                // 「真实挂死/复位后恢复」区分开，抑制会掩盖真实的发送中断，因此保留上报。
+                // 残余风险：上述合法形态仍会被误报为 NM_SENDER_SILENT_BEYOND_TIMEOUT，
+                // 要消除它需要轨迹级的多次状态跃迁证据，单帧 NMSts 不够。
 
                 for (int i = 1; i < times.Length; i++)
                 {
@@ -175,7 +217,8 @@ public static class NmGapAnalyzer
                 "对比记录仪日志/其它日志源"));
         }
 
-        return new NmGapResult(findings, events, unknowns.Distinct().ToArray());
+        return new NmGapResult(
+            findings, events, unknowns.Distinct().ToArray(), observations);
     }
 
     /// <summary>区间与任意相邻 episode 之间的全静默区间有交集时，不做单报文归因。</summary>
@@ -202,4 +245,50 @@ public static class NmGapAnalyzer
     /// <summary>事件/结论里的报文名：扩展帧带 <c>(ext)</c>，避免与同数值标准帧混淆。</summary>
     private static string Display(string canIdHex, bool isExtended)
         => isExtended ? canIdHex + "(ext)" : canIdHex;
+
+    /// <summary>
+    /// 读取一帧的 NMSts 位，位置取自 profile 的 <see cref="NmProfile.StandardBitRoles"/>。
+    /// 返回四态而不是 bool：无法判定（无位角色 / DLC 不足）与 NMSts=0 是两回事，
+    /// 调用方对前者要补 unknown 说明，但两者都必须继续上报掉线。
+    /// </summary>
+    private static NmStsReading ReadNmSts(NmFrame frame, IReadOnlyList<NmBitRole>? roles)
+    {
+        var role = FindRole(roles, "NmSts");
+        if (role is null) return NmStsReading.MissingRole;
+
+        var data = frame.Frame.Data;
+        // 与 NmRuleEvaluators 同口径（spec §7.5.1.2）：DLC 不足即该帧不可读，
+        // 不臆造状态位。
+        if (data.Length <= role.Byte) return NmStsReading.Unreadable;
+
+        return ((data[role.Byte] >> role.Bit) & 1) != 0
+            ? NmStsReading.ReadySleep
+            : NmStsReading.RepeatMessage;
+    }
+
+    /// <summary>按名称定位位角色；profile 未声明该位时返回 null。</summary>
+    private static NmBitRole? FindRole(IReadOnlyList<NmBitRole>? roles, string name)
+    {
+        if (roles is null) return null;
+        // IReadOnlyList 可索引；用循环避开 CA1826（Enumerable.FirstOrDefault）。
+        for (var i = 0; i < roles.Count; i++)
+        {
+            if (string.Equals(roles[i].Name, name, StringComparison.Ordinal)) return roles[i];
+        }
+
+        return null;
+    }
+
+    /// <summary>停发前最后一帧的 NMSts 读取结果。</summary>
+    private enum NmStsReading
+    {
+        /// <summary>profile 未声明 NmSts 位角色，无法判定。</summary>
+        MissingRole,
+        /// <summary>DLC 不足，读不出该位。</summary>
+        Unreadable,
+        /// <summary>NMSts=0：Repeat Message State。</summary>
+        RepeatMessage,
+        /// <summary>NMSts=1：Ready Sleep State（合规停发）。</summary>
+        ReadySleep,
+    }
 }

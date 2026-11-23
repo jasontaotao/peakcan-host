@@ -137,11 +137,18 @@ public class NmContentAnalyzerTests
             Nm(0.5, 0xF4, 0x40),
         };
 
-        var result = NmContentAnalyzer.Analyze(new NmContentInput(
-            frames, Profile(new NmLayout(NidByte: 0, CbvByte: 1), new NmFeatures(PnEnabled: false)), 500));
+        // PNI 语义现在只能来自 profile 的 bit_roles（plan Global Constraints）；
+        // 这里显式声明 AUTOSAR base 的 (1, 6) PartialNetworkInfo 位。
+        var profile = Profile(
+            new NmLayout(NidByte: 0, CbvByte: 1), new NmFeatures(PnEnabled: false)) with
+        {
+            StandardBitRoles = new[] { new NmBitRole(1, 6, "PartialNetworkInfo") },
+        };
 
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(frames, profile, 500));
+
+        // 位角色来自 profile 声明，结论仍按推断输出。
         var finding = Assert.Single(result.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
-        // 位角色是硬编码的 AUTOSAR 约定，不是从矩阵读出的，必须标为推断。
         Assert.True(finding.IsInference);
     }
 
@@ -156,8 +163,62 @@ public class NmContentAnalyzerTests
             Nm(0.5, 0xF4, 0x10),
         };
 
-        var result = NmContentAnalyzer.Analyze(new NmContentInput(
-            frames, Profile(new NmLayout(NidByte: 0, CbvByte: 1), new NmFeatures(PnEnabled: false)), 500));
+        // 声明 PNI 位后仍只看 bit6：bit4 置 1 不得触发 PNI 检查。
+        var profile = Profile(
+            new NmLayout(NidByte: 0, CbvByte: 1), new NmFeatures(PnEnabled: false)) with
+        {
+            StandardBitRoles = new[] { new NmBitRole(1, 6, "PartialNetworkInfo") },
+        };
+
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(frames, profile, 500));
+
+        Assert.DoesNotContain(result.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
+    }
+
+    [Fact]
+    public void Analyze_BaseProfileDeclaresPni_FiresWhenBit6Set()
+    {
+        // AUTOSAR base：layout/features 来自 Standard*，bit_roles 声明 (1,6) PNI。
+        var frames = new[]
+        {
+            Nm(0.0, 0xF4, 0x40),
+            Nm(0.5, 0xF4, 0x40),
+        };
+        var profile = Profile() with
+        {
+            StandardLayout = new NmStandardLayout
+            {
+                CbvByte = 1,
+                BitRoles = new[] { new NmBitRole(1, 6, "PartialNetworkInfo") },
+            },
+            StandardFeatures = new NmStandardFeatures { PnEnabled = false },
+            StandardBitRoles = new[] { new NmBitRole(1, 6, "PartialNetworkInfo") },
+        };
+
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(frames, profile, 500));
+
+        Assert.Contains(result.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
+    }
+
+    [Fact]
+    public void Analyze_GeelyProfileRemovesPni_DoesNotFireWhenBit6Set()
+    {
+        // 吉利 §5.4.3：remove bit_roles[1.6]，保留 pn_enabled=false、cbv_byte=1。
+        // byte1.6 不再是 PNI，置 1 不得报「PN 关闭但 PNI 置 1」。
+        var frames = new[]
+        {
+            Nm(0.0, 0xF4, 0x40),
+            Nm(0.5, 0xF4, 0x40),
+        };
+        var roles = new[] { new NmBitRole(3, 0, "NmSts") };
+        var profile = Profile() with
+        {
+            StandardLayout = new NmStandardLayout { CbvByte = 1, BitRoles = roles },
+            StandardFeatures = new NmStandardFeatures { PnEnabled = false },
+            StandardBitRoles = roles,
+        };
+
+        var result = NmContentAnalyzer.Analyze(new NmContentInput(frames, profile, 500));
 
         Assert.DoesNotContain(result.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
     }

@@ -1,0 +1,58 @@
+# AUTOSAR CanNm 基础 profile。只声明标准语义，不含 OEM 约束。
+standard:
+  id: autosar-cannm
+  version: "4.1.3"
+  vendor: AUTOSAR
+  source:
+    doc: AUTOSAR_SWS_CANNetworkManagement
+    revision: "4.1.3"
+
+overrides:
+  timings:
+    cycle_ms: 500
+    timeout_ms: 2000
+    wait_bus_sleep_ms: 2000
+    repeat_message_with_burst_ms: 1700
+    repeat_message_without_burst_ms: 1500
+    immediate_cycle_ms: 20
+    immediate_count: 10
+    start_nm_tx_ms: 10
+    wakeup_ms: 120
+    tolerance_ratio: 0.2
+  layout:
+    nid_byte: 0
+    cbv_byte: 1
+    bit_roles:
+      - byte: 1
+        bit: 0
+        name: RepeatMessageRequest
+        meaning: "1=请求进入 Repeat Message State"
+        constraint: must_be_zero_while_disabled
+      - byte: 1
+        bit: 4
+        name: ActiveWakeup
+        meaning: "1=主动唤醒"
+        constraint: none
+      - byte: 1
+        bit: 6
+        name: PartialNetworkInfo
+        meaning: "1=本帧携带部分网络信息"
+        constraint: none
+  features:
+    active_wakeup_bit_enabled: true
+    repeat_msg_ind_enabled: true
+    pn_enabled: true
+
+rules:
+  - id: NM_CYCLE
+    requirement: NM 报文应以 T_NM_MessageCycle 周期发送，容差 ±20%
+    phase: normal
+    observability: observed
+    when:
+      # 只声明语义，不钉数值：cycle_ms / pct 由生效时序提供，
+      # 否则 OEM 收紧的 tolerance_ratio（如吉利 0.1）会被基础层覆盖回 20%。
+      kind: cycle_tolerance
+    expect:
+      kind: within_pct
+    finding: NM_CYCLE_DEVIATION
+    source_ref: AUTOSAR SWS CanNm 4.1.3 §9

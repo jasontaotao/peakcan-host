@@ -122,6 +122,16 @@ public static class NmStandardValidator
         var seen = new HashSet<(byte, int)>();
         foreach (var role in roles)
         {
+            // spec §7.5.1.2：NMSts 必须是无符号、长度恰好 1 的位。
+            // profile 只描述单 bit，能校验的只有 bit ∈ [0,7]；位宽/符号要到 S6
+            // 与 DBC 信号合并时才能判。先于通用位范围检查跑，保证报错点名 NMSts。
+            if (string.Equals(role.Name, "NmSts", StringComparison.Ordinal)
+                && role.Bit is < 0 or > 7)
+            {
+                throw new NmProfileValidationException(
+                    $"NMSts 位的 bit（{role.Bit}）必须在 [0,7]");
+            }
+
             if (role.Bit is < 0 or > 7)
             {
                 throw new NmProfileValidationException(
@@ -152,6 +162,43 @@ public static class NmStandardValidator
             // 条款可追溯性是企标报告的硬要求（spec §6.5.6）。
             if (string.IsNullOrWhiteSpace(rule.Requirement))
                 throw new NmProfileValidationException($"规则 {rule.Id} 缺少 requirement");
+
+            // spec §3：U 级条款不可观测，产出 finding 就是编造结论。
+            if (rule.Observability == NmObservability.Unobservable
+                && !string.IsNullOrWhiteSpace(rule.FindingCode))
+            {
+                throw new NmProfileValidationException(
+                    $"规则 {rule.Id} 标为 unobservable 却声明了 finding code「{rule.FindingCode}」；" +
+                    "不可观测条款只能进 Unmodeled");
+            }
+
+            // spec §7.5.1.2：nmsts_transition 必须声明 byte 与 bit，
+            // 否则原语无法定位状态位，会在运行期静默失效。
+            if (string.Equals(rule.When.Kind, "nmsts_transition", StringComparison.Ordinal)
+                && (rule.When.Byte is null || rule.When.Bit is null))
+            {
+                throw new NmProfileValidationException(
+                    $"规则 {rule.Id} 的 nmsts_transition 必须声明 when.byte 与 when.bit");
+            }
+
+            // cycle_tolerance 的配置必须在加载期就能判：周期显式为 0/负数时算不出容差，
+            // expect 也必须是唯一实现的 within_pct（spec §7.2）。否则规则会在运行期
+            // 静默进 Unmodeled，用户会把「没检查」误读成「通过」。
+            if (string.Equals(rule.When.Kind, "cycle_tolerance", StringComparison.Ordinal))
+            {
+                if (rule.When.CycleMs is { } cycleMs && cycleMs <= 0)
+                {
+                    throw new NmProfileValidationException(
+                        $"规则 {rule.Id} 的 cycle_tolerance 的 when.cycle_ms 必须为正数，实际 {cycleMs}");
+                }
+
+                if (!string.Equals(rule.Expect.Kind, "within_pct", StringComparison.Ordinal))
+                {
+                    throw new NmProfileValidationException(
+                        $"规则 {rule.Id} 的 cycle_tolerance 仅支持 expect.kind=within_pct，" +
+                        $"实际为「{rule.Expect.Kind}」");
+                }
+            }
         }
     }
 }

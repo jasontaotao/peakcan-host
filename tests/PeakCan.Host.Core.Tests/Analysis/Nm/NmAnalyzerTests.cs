@@ -289,6 +289,8 @@ BO_ 1280 NM_Message: 8 ECU_A
         {
             Layout = new NmLayout(NidByte: 0, CbvByte: 1),
             Features = new NmFeatures(PnEnabled: false),
+            // PNI 语义只能来自 profile 声明的位角色（plan Global Constraints）。
+            StandardBitRoles = new[] { new NmBitRole(1, 6, "PartialNetworkInfo") },
         };
         var frames = new[]
         {
@@ -303,6 +305,31 @@ BO_ 1280 NM_Message: 8 ECU_A
         Assert.Contains(report.Assumptions,
             a => a.Contains("PNI 按 AUTOSAR CanNm CBV bit6 解读"));
         Assert.Contains(report.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
+    }
+
+    [Fact]
+    public void Analyze_GeelyProfileWithoutPniRole_DoesNotClaimPniInterpretation()
+    {
+        // 吉利 remove 了 (1,6) PNI 位：检查不执行，报告也不得再声称“按 bit6 解读 PNI”。
+        var roles = new[] { new NmBitRole(3, 0, "NmSts") };
+        var profile = Profile() with
+        {
+            StandardLayout = new NmStandardLayout { CbvByte = 1, BitRoles = roles },
+            StandardFeatures = new NmStandardFeatures { PnEnabled = false },
+            StandardBitRoles = roles,
+        };
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0xF4, 0x40, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0xF4, 0x40, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 1));
+
+        Assert.DoesNotContain(report.Assumptions,
+            a => a.Contains("PNI 按", StringComparison.Ordinal));
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
     }
 
     [Fact]
@@ -510,5 +537,65 @@ BO_ 1280 NM_Message: 8 ECU_A
         // 第一段的信号事件仍是 0，佐证编号不是恒 1。
         Assert.Equal(0, Assert.Single(report.Events,
             e => e.Type == "signal_change" && e.T == 0.5).EpisodeIndex);
+    }
+
+    [Fact]
+    public void Analyze_GeelyProfileWithoutProjectLayout_SuppressesSharedIdCycleDeviation()
+    {
+        // I2：项目层没有 Layout 时，规则引擎与 M1 的共享 ID 抑制都必须看到企标声明的
+        // nid_byte。否则共享 ID 的交错发送会被放大成 NM_CYCLE_DEVIATION（warn 级误报）。
+        var flat = LoadGeelyFlattened();
+        var project = Profile();
+        var bound = NmStandardProfileBinding.Bind(project, flat);
+
+        // 前提：项目层确实没有布局，nid_byte 只能来自企标。
+        Assert.Null(bound.Layout);
+        Assert.Equal((byte?)0, bound.StandardLayout?.NidByte);
+
+        var frames = new List<ReplayFrame>(12);
+        for (int i = 0; i < 6; i++)
+        {
+            frames.Add(F(i * 0.56, 0x500, false, 0x11, 0x00, 0, 0, 0, 0, 0, 0));
+            frames.Add(F(i * 0.56 + 0.1, 0x500, false, 0x22, 0x00, 0, 0, 0, 0, 0, 0));
+        }
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, bound, 0, 3.5));
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NM_CYCLE_DEVIATION");
+        // 非空洞性守卫：规则确实求值并因「共享 ID」被抑制，而不是根本没跑。
+        Assert.Contains(report.UnmodeledRules!, u =>
+            u.Reason.Contains("共享 ID", StringComparison.Ordinal));
+    }
+
+    /// <summary>加载仓库真实的 base + 吉利 profile，展平并校验（与生产路径同源）。</summary>
+    private static NmStandardFlattener.Flattened LoadGeelyFlattened()
+    {
+        var geely = NmStandardYaml.LoadFile(
+            RepoPath("profiles/oem/geely-cv@2.0.nmstd.yaml"));
+        var baseProfile = NmStandardYaml.LoadFile(
+            RepoPath("profiles/base/autosar-cannm@4.1.3.nmstd.yaml"));
+        var registry = new Dictionary<string, NmStandardProfile>(StringComparer.Ordinal)
+        {
+            ["autosar-cannm@4.1.3"] = baseProfile,
+            ["geely-cv@2.0"] = geely,
+        };
+
+        var flat = NmStandardFlattener.Flatten(geely, registry);
+        NmStandardValidator.ValidateFlattened(flat);
+        return flat;
+    }
+
+    private static string RepoPath(string relative)
+    {
+        // 本测试项目有同名 namespace PeakCan.Host.Core.Tests.Path，显式指回 System.IO.Path。
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null
+               && !File.Exists(System.IO.Path.Combine(dir.FullName, "PeakCan.Host.slnx")))
+        {
+            dir = dir.Parent;
+        }
+        Assert.NotNull(dir);
+        return System.IO.Path.Combine(dir!.FullName, relative);
     }
 }

@@ -80,4 +80,40 @@ public class NmStandardValidatorTests
 
         Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
     }
+
+    // cycle_tolerance 的周期为 0/负数时算不出容差：必须加载期失败，而不是运行期进 Unmodeled。
+    [Fact]
+    public void Validate_CycleToleranceNonPositiveCycleMs_Throws()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_CYCLE", "周期", "normal",
+                    new NmRuleWhen("cycle_tolerance", CycleMs: 0),
+                    new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION"),
+            ],
+        };
+
+        var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
+        Assert.Contains("cycle_ms", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // within_pct 是 cycle_tolerance 唯一实现的判定口径（spec §7.2）；其他 expect 必须拒绝。
+    [Fact]
+    public void Validate_CycleToleranceUnsupportedExpect_Throws()
+    {
+        var profile = Profile() with
+        {
+            Rules =
+            [
+                new NmRuleDef("R_CYCLE", "周期", "normal",
+                    new NmRuleWhen("cycle_tolerance"),
+                    new NmRuleExpect("equals"), "NM_CYCLE_DEVIATION"),
+            ],
+        };
+
+        var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardValidator.Validate(profile));
+        Assert.Contains("within_pct", ex.Message, StringComparison.Ordinal);
+    }
 }

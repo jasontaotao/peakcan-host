@@ -85,7 +85,9 @@ public static class NmStandardYaml
             Vendor = std.Vendor,
             Version = string.IsNullOrWhiteSpace(std.Version) ? "1.0" : std.Version,
             Extends = std.Extends,
-            Source = std.Source,
+            Source = std.Source is null
+                ? null
+                : new NmStandardSource(std.Source.Doc, std.Source.Revision),
             Overrides = ov is null ? null : new NmStandardOverrides
             {
                 Timings = ov.Timings,
@@ -205,7 +207,17 @@ public static class NmStandardYaml
         public string? Vendor { get; set; }
         public string? Version { get; set; }
         public string? Extends { get; set; }
-        public NmStandardSource? Source { get; set; }
+        public SourceDto? Source { get; set; }
+    }
+
+    /// <summary>
+    /// <see cref="NmStandardSource"/> 是带位置参数的 record，YamlDotNet 无法直接构造
+    /// （没有无参构造器），因此用可变类承接再映射。
+    /// </summary>
+    private sealed class SourceDto
+    {
+        public string? Doc { get; set; }
+        public string? Revision { get; set; }
     }
 
     private sealed class OverridesDto
@@ -261,33 +273,85 @@ public static class NmStandardYaml
         public string? Id { get; set; }
         public string? Requirement { get; set; }
         public string? Phase { get; set; }
-        public RuleClauseDto? When { get; set; }
-        public RuleClauseDto? Expect { get; set; }
+        public RuleWhenDto? When { get; set; }
+        public RuleExpectDto? Expect { get; set; }
         public string? Finding { get; set; }
         public string? SourceRef { get; set; }
         public string? Observability { get; set; }
+    }
+
+    private sealed class RuleWhenDto
+    {
+        public string? Kind { get; set; }
+        public byte? Byte { get; set; }
+        public int? Bit { get; set; }
+        public int? Length { get; set; }
+        public string? Role { get; set; }
+        public string? LatencyKind { get; set; }
+        public int? MinSilenceMs { get; set; }
+        public int? CycleMs { get; set; }
+        public double? Pct { get; set; }
+        public int? MinFrames { get; set; }
+    }
+
+    private sealed class RuleExpectDto
+    {
+        public string? Kind { get; set; }
+        public string? Value { get; set; }
+        public byte? Byte { get; set; }
+        public int? Bit { get; set; }
+        public int? Count { get; set; }
+        public int? IntervalMs { get; set; }
+        public double? Pct { get; set; }
+        public int? MinMs { get; set; }
+        public int? MaxMs { get; set; }
+        public string? Anchor { get; set; }
     }
 
     private static NmRuleDef MapRule(RuleDto r)
     {
         RequireNonEmpty(r.Id, "rules[].id");
         RequireNonEmpty(r.Requirement, $"规则 {r.Id} 的 requirement（条款可追溯性）");
-        // 缺 when/expect/finding 的规则无法执行，也不能被当成「未知原语」静默进 Unmodeled。
+        // 缺 when/expect 的规则无法执行，也不能被当成「未知原语」静默进 Unmodeled。
         RequireNonEmpty(r.When?.Kind, $"规则 {r.Id} 的 when.kind");
         RequireNonEmpty(r.Expect?.Kind, $"规则 {r.Id} 的 expect.kind");
-        RequireNonEmpty(r.Finding, $"规则 {r.Id} 的 finding code");
+
+        var w = r.When!;
+        var e = r.Expect!;
+
+        // 闭集校验：未知原语在加载期报错，不静默进 Unmodeled（spec §7.2）。
+        // 刻意排在 finding 检查之前：同一规则同时拼错原语又缺 finding 时，
+        // 先报闭集错误，用户补完一次即可；反序会让用户修两轮。
+        if (!NmRulePrimitives.WhenKinds.Contains(w.Kind!))
+        {
+            throw new NmProfileValidationException(
+                $"规则 {r.Id} 的 when.kind「{w.Kind}」不在闭集内，合法值：" +
+                string.Join(" | ", NmRulePrimitives.WhenKinds.Order(StringComparer.Ordinal)));
+        }
+        if (!NmRulePrimitives.ExpectKinds.Contains(e.Kind!))
+        {
+            throw new NmProfileValidationException(
+                $"规则 {r.Id} 的 expect.kind「{e.Kind}」不在闭集内，合法值：" +
+                string.Join(" | ", NmRulePrimitives.ExpectKinds.Order(StringComparer.Ordinal)));
+        }
+
+        // observe 规则按定义不产 violation，finding 可省略或为空串——
+        // 逼它编一个 finding code 只会让引擎产出必须再抑制的假告警。
+        var isObserve = string.Equals(e.Kind, "observe", StringComparison.Ordinal);
+        var finding = isObserve && string.IsNullOrWhiteSpace(r.Finding)
+            ? string.Empty
+            : RequireNonEmpty(r.Finding, $"规则 {r.Id} 的 finding code")!;
 
         return new NmRuleDef(
             r.Id!, r.Requirement!, r.Phase ?? "normal",
-            r.When!.Kind!, r.Expect!.Kind!, r.Finding!)
+            new NmRuleWhen(w.Kind!, w.Byte, w.Bit, w.Length, w.Role, w.LatencyKind,
+                w.MinSilenceMs, w.CycleMs, w.Pct, w.MinFrames),
+            new NmRuleExpect(e.Kind!, e.Value, e.Byte, e.Bit, e.Count, e.IntervalMs,
+                e.Pct, e.MinMs, e.MaxMs, e.Anchor),
+            finding)
         {
             SourceRef = r.SourceRef,
             Observability = ParseObservability(r.Observability),
         };
-    }
-
-    private sealed class RuleClauseDto
-    {
-        public string? Kind { get; set; }
     }
 }

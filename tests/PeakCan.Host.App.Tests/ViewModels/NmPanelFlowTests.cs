@@ -39,7 +39,7 @@ public class NmPanelFlowTests
             {
                 new NmMessageReport("0x500", false, "NM", "A", 2, 2, 8,
                     new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
-                    new[] { new NmSegment(2, 8, "active") }, false),
+                    new[] { new NmSegment(2, 8, "active") }),
             },
             Array.Empty<NmNodeReport>(), Array.Empty<NmEvent>(), Array.Empty<NmFinding>(),
             Array.Empty<string>(), Array.Empty<string>(), Array.Empty<NmCapabilityState>(),
@@ -272,7 +272,7 @@ public class NmPanelFlowTests
                     new NmSegment(2, 8, "active"),
                     new NmSegment(8, 9, "released"),
                     new NmSegment(9, 10, "silent"),
-                }, false),
+                }),
         });
 
         var row = Assert.Single(TraceViewerViewModel.BuildTimelineRows(report));
@@ -798,7 +798,7 @@ public class NmPanelFlowTests
             {
                 new NmMessageReport("0x500", false, "NM", "A", 4, 0, 10,
                     new NmCycleStats(500, 500, 500, 500, 0, 0, 3, 500, 100),
-                    new[] { new NmSegment(0, 10, "active") }, false),
+                    new[] { new NmSegment(0, 10, "active") }),
             },
             Array.Empty<NmNodeReport>(),
             new[]
@@ -974,7 +974,7 @@ public class NmPanelFlowTests
                         new NmSegment(1, 6, "active"),
                         new NmSegment(6, 8, "released"),
                         new NmSegment(8, 10, "silent"),
-                    }, false),
+                    }),
             },
             Array.Empty<NmNodeReport>(),
             new[]
@@ -1040,7 +1040,7 @@ public class NmPanelFlowTests
         {
             new NmMessageReport("0x500", false, "NM_A", "A", 4, 0, 10,
                 new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
-                new[] { new NmSegment(0, 10, "active") }, false),
+                new[] { new NmSegment(0, 10, "active") }),
         });
 
         var vm = NewVm();
@@ -1062,7 +1062,7 @@ public class NmPanelFlowTests
         {
             new NmMessageReport("0x500", false, "NM_A", "A", 4, 0, 10,
                 new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
-                new[] { new NmSegment(0, 10, "active") }, false),
+                new[] { new NmSegment(0, 10, "active") }),
         });
 
         var vm = NewVm();
@@ -1080,7 +1080,7 @@ public class NmPanelFlowTests
         {
             new NmMessageReport("0x500", false, "NM", "A", 4, 0, 10,
                 new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
-                new[] { new NmSegment(0, 10, "active") }, false),
+                new[] { new NmSegment(0, 10, "active") }),
         }), MakeProfile()));
 
         vm.NmTimeAxisStart.Should().Be("0.00s");

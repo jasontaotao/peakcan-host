@@ -164,8 +164,8 @@ public class NmStandardProfileYamlTests
             rules:
               - id: r1
                 requirement: "5.5"
-                when: { kind: any_nm_frame }
-                expect: { kind: max_gap_ms }
+                when: { kind: layout_check }
+                expect: { kind: present }
                 finding: NM_X
                 observability: unobservale
             """;
@@ -197,8 +197,8 @@ public class NmStandardProfileYamlTests
             rules:
               - id: r1
                 requirement: "5.5"
-                when: { kind: any_nm_frame }
-                expect: { kind: max_gap_ms }
+                when: { kind: layout_check }
+                expect: { kind: present }
             """;
 
         Assert.Throws<NmProfileValidationException>(() => NmStandardYaml.Load(bad));

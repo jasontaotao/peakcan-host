@@ -57,6 +57,12 @@ public sealed record NmStandardTimings
     public int? ImmediateCycleMs { get; init; }
     public int? ImmediateCount { get; init; }
     public int? StartNmTxMs { get; init; }
+
+    /// <summary>
+    /// T_WakeUp。显式 alias：属性名 <c>WakeUpMs</c> 在 underscoring 约定下会映射成
+    /// <c>wake_up_ms</c>，而规范里的键统一写作 <c>wakeup_ms</c>。
+    /// </summary>
+    [YamlDotNet.Serialization.YamlMember(Alias = "wakeup_ms")]
     public int? WakeUpMs { get; init; }
     public double? ToleranceRatio { get; init; }
     /// <summary>容差下限毫秒；不配时沿用 M1 的 30ms。</summary>
@@ -114,12 +120,66 @@ public sealed record NmRuleDef(
     string Id,
     string Requirement,
     string Phase,
-    string WhenKind,
-    string ExpectKind,
+    NmRuleWhen When,
+    NmRuleExpect Expect,
     string FindingCode)
 {
     public string? SourceRef { get; init; }
     public NmObservability Observability { get; init; } = NmObservability.Observed;
+}
+
+/// <summary>
+/// 规则条件。字段是闭集原语参数的并集——结构化而非字符串字典，
+/// 类型错误在 YAML 加载期暴露（spec §5.3）。
+/// </summary>
+public sealed record NmRuleWhen(
+    string Kind,
+    byte? Byte = null,
+    int? Bit = null,
+    int? Length = null,
+    string? Role = null,
+    /// <summary>first_frame_latency 的前置状态：start_nm_tx | wakeup。</summary>
+    string? LatencyKind = null,
+    int? MinSilenceMs = null,
+    int? CycleMs = null,
+    double? Pct = null,
+    int? MinFrames = null);
+
+/// <summary>规则期望。同上，闭集原语参数的并集。</summary>
+public sealed record NmRuleExpect(
+    string Kind,
+    string? Value = null,
+    byte? Byte = null,
+    int? Bit = null,
+    int? Count = null,
+    int? IntervalMs = null,
+    double? Pct = null,
+    int? MinMs = null,
+    int? MaxMs = null,
+    /// <summary>repeat_message_duration 的锚点：nmsts | burst_end。</summary>
+    string? Anchor = null);
+
+/// <summary>
+/// 原语闭集（spec §7.2）。不在集合内的 kind 在加载期报错——
+/// 静默进 Unmodeled 会让用户以为条款已被校验。
+/// </summary>
+public static class NmRulePrimitives
+{
+    public static readonly IReadOnlySet<string> WhenKinds =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "layout_check", "nid_id_mapping", "bit_rule", "cycle_tolerance",
+            "burst_shape", "first_frame_latency", "repeat_message_duration",
+            "nmsts_transition", "normal_resume_shape", "stop_sending", "max_gap_observe",
+        };
+
+    public static readonly IReadOnlySet<string> ExpectKinds =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "within_pct", "equals", "is_zero", "matches_id_low_byte",
+            "count_equals", "interval_within_pct", "duration_within_ms",
+            "present", "absent", "observe",
+        };
 }
 
 /// <summary>规则的可观测性分级（spec §3）。</summary>

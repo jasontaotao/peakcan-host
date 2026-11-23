@@ -1,6 +1,7 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using PeakCan.Host.App.Services.ChatTools;
 using PeakCan.Host.Core.Analysis.Nm;
 using PeakCan.Host.Core.Replay;
@@ -67,8 +68,23 @@ public sealed partial class TraceViewerViewModel
                 profile = AppendDbcHashConflict(profile, supplement!.DbcHash!, dbcHash);
             }
 
+            // 企标 profile：本版本仅支持「DBC 同目录」一级（spec §10.1）；未找到时
+            // Standard 为 null，走 M1 行为。加载失败/多份候选会抛异常，不静默降级。
+            // resolved.Registry 已含 extends 祖先链，OEM 企标不必与 base 同目录也能展平。
+            var resolved = NmStandardProfileLocator.TryLoad(dbcPath);
+            if (resolved is not null)
+            {
+                var flat = NmStandardFlattener.Flatten(resolved.Selected, resolved.Registry);
+                NmStandardValidator.ValidateFlattened(flat);
+                profile = NmStandardProfileBinding.Bind(profile, flat);
+            }
+
+            // 企标身份与报告 StandardId 同源（id@version）：换只差身份的 profile 也必须失效。
+            var standardId = resolved is null
+                ? null
+                : $"{resolved.Selected.StandardId}@{resolved.Selected.Version}";
             var key = new NmCacheKey(sourceId, query.Channel, frames.Count, dbcHash,
-                NmSupplementHash(profile), start, end, NmAnalyzer.EngineVersion, windowRef);
+                NmSupplementHash(profile, standardId), start, end, NmAnalyzer.EngineVersion, windowRef);
 
             // 缓存读写仍在同一后台临界区内，保证命中/写入不会与 UI 线程交错。
             if (_nmCache.TryGet(key, out var cached))
@@ -77,7 +93,8 @@ public sealed partial class TraceViewerViewModel
                     WithStaleSidecarAssumption(cached, staleSidecar), frames);
 
             var request = new NmAnalysisRequest(
-                sourceId, query.Channel, frames, dbc, profile, start, end, windowRef);
+                sourceId, query.Channel, frames, dbc, profile, start, end, windowRef,
+                Standard: resolved?.Selected);
 
             var report = NmAnalyzer.Analyze(request, ct);
             StoreNmReport(key, report);
@@ -179,7 +196,21 @@ public sealed partial class TraceViewerViewModel
         }
     }
 
-    private static string NmSupplementHash(NmProfile profile)
+    /// <summary>
+    /// profile 的语义摘要，参与报告缓存 key（spec §10.1）。
+    /// <para>
+    /// 企标字段（<see cref="NmProfile.StandardTimings"/> / <see cref="NmProfile.StandardBitRoles"/> /
+    /// <see cref="NmProfile.StandardRules"/> / <see cref="NmProfile.StandardLayout"/> /
+    /// <see cref="NmProfile.StandardFeatures"/>）必须参与：它们只在选中 profile 后非 null，
+    /// 漏掉会导致「切换企标仍命中旧报告」。
+    /// </para>
+    /// </summary>
+    /// <param name="standardId">
+    /// 企标身份（<c>id@version</c>）；报告会把它写进 <c>StandardId</c>，因此也必须是 key 的一部分。
+    /// 通过参数传入而不是加进 <see cref="NmProfile"/>：身份属于分析请求的 Standard 快照，
+    /// <see cref="NmProfile"/> 是项目层模型，绑定阶段拿不到身份串（Flattened 只有 provenance 链）。
+    /// </param>
+    internal static string NmSupplementHash(NmProfile profile, string? standardId = null)
     {
         var layout = profile.Layout;
         var timings = profile.Timings;
@@ -201,6 +232,31 @@ public sealed partial class TraceViewerViewModel
         var conflicts = string.Join(";", profile.Conflicts
             .Select(c => $"{c.Field}:{string.Join(",", c.Values)}:{string.Join(",", c.Sources)}"));
 
+        // 企标 profile：三个 Standard* 字段必须参与 key，否则切换 profile 会命中旧报告
+        // （spec §10.1）。列表先按业务 key 排序，保证同一 profile 的枚举顺序不影响 hash。
+        var standardTimings = profile.StandardTimings is { } standard
+            ? JsonSerializer.Serialize(standard)
+            : string.Empty;
+        var standardBitRoles = string.Join(";",
+            (profile.StandardBitRoles ?? Array.Empty<NmBitRole>())
+                .OrderBy(r => r.Byte).ThenBy(r => r.Bit)
+                .Select(r => $"{r.Byte}.{r.Bit}:{r.Name}:{(int)r.Constraint}"));
+        // 整条规则序列化（含 when/expect 参数）：只比 Id+Kind 会在只改参数时漏失效。
+        var standardRules = string.Join(";",
+            (profile.StandardRules ?? Array.Empty<NmRuleDef>())
+                .OrderBy(r => r.Id, StringComparer.Ordinal)
+                .Select(r => JsonSerializer.Serialize(r)));
+
+        // 企标布局/开关现在经 NmProfilePrecedence 参与每条分析路径（nid/cbv/user_data/pn），
+        // 漏进 key 会让「改 layout/features 块或换只差这些块的 profile」命中旧报告。
+        // 字段按固定顺序拼接，空值用 invariant 文本，保证同一 profile 稳定同 hash。
+        var standardLayout = profile.StandardLayout is { } standardLayoutValue
+            ? FormattableString.Invariant($"{standardLayoutValue.NidByte}.{standardLayoutValue.CbvByte}.{standardLayoutValue.UserDataOffset}.{standardLayoutValue.UserDataLength}")
+            : string.Empty;
+        var standardFeatures = profile.StandardFeatures is { } standardFeaturesValue
+            ? FormattableString.Invariant($"{standardFeaturesValue.ActiveWakeupBitEnabled}.{standardFeaturesValue.RepeatMsgIndEnabled}.{standardFeaturesValue.PnEnabled}")
+            : string.Empty;
+
         var payload = string.Join("|",
             layout?.NidByte, layout?.CbvByte,
             layout?.UserDataOffset, layout?.UserDataLength,
@@ -210,7 +266,10 @@ public sealed partial class TraceViewerViewModel
             features?.PnEnabled, features?.ActiveWakeupBitEnabled,
             features?.RepeatMsgIndEnabled,
             profile.IdMapping,
-            nodes, messages, conflicts);
+            nodes, messages, conflicts,
+            standardId ?? string.Empty,
+            standardLayout, standardFeatures,
+            standardTimings, standardBitRoles, standardRules);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 }

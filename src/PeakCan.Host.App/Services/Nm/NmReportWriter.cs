@@ -37,6 +37,9 @@ public static class NmReportWriter
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"- source: `{snapshot.Profile.Source}`"));
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
             $"- resolved_from: {snapshot.Profile.Provenance.ResolvedFrom}"));
+        // spec §6.1 rule 6：报告必须自述判定依据的企标；无企标时显式留空而不是省略。
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+            $"- standard_id: {r.StandardId ?? "—"}"));
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
             $"- nm_messages: {snapshot.Profile.Messages.Count(m => m.IsNm)}"));
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
@@ -95,8 +98,38 @@ public static class NmReportWriter
         sb.AppendLine("## Findings");
         foreach (var f in r.Findings)
         {
+            // 条款追溯只在有值时追加：无追溯信息的行与旧输出逐字节一致。
+            var trace = TraceSuffix(f, red);
             sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
-                $"- **{f.Code}** ({f.Severity}, inference={f.IsInference}): {Esc(red.Apply(f.Message))}"));
+                $"- **{f.Code}** ({f.Severity}, inference={f.IsInference}): {Esc(red.Apply(f.Message))}{trace}"));
+        }
+        sb.AppendLine();
+        sb.AppendLine("## Observations");
+        if (r.Observations is null || r.Observations.Count == 0)
+        {
+            sb.AppendLine("- （无观测事实）");
+        }
+        else
+        {
+            sb.AppendLine("| kind | can id | start | end | evidence | detail |");
+            sb.AppendLine("|---|---|---|---|---|---|");
+            foreach (var o in r.Observations)
+            {
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"| {o.Kind} | {o.CanIdHex ?? "—"} | {o.Start:F3} | {o.End:F3} | {o.EvidenceKind} | {Esc(red.Apply(o.Detail))} |"));
+            }
+        }
+        sb.AppendLine();
+        sb.AppendLine("## Unmodeled Rules");
+        if (r.UnmodeledRules is null || r.UnmodeledRules.Count == 0)
+        {
+            sb.AppendLine("- （无未建模条款）");
+        }
+        else
+        {
+            foreach (var u in r.UnmodeledRules)
+                sb.AppendLine(CultureInfo.InvariantCulture,
+                    $"- **{u.Clause}**：{Esc(red.Apply(u.Reason))}");
         }
         sb.AppendLine();
         sb.AppendLine("## Events");
@@ -160,6 +193,25 @@ public static class NmReportWriter
 
     /// <summary>Markdown 表格单元格转义：竖线会截断列，反斜杠转义。</summary>
     private static string Esc(string? value) => (value ?? "").Replace("|", "\\|");
+
+    /// <summary>
+    /// findings 行的条款追溯后缀。rule_id / source_ref 是条款标识（不是字节取值），
+    /// 仍走脱敏与转义以防未来文本混入节点名；两者皆空时返回空串，保持旧输出不变。
+    /// </summary>
+    private static string TraceSuffix(NmFinding finding, NmRedactor red)
+    {
+        var rule = !string.IsNullOrEmpty(finding.RuleId)
+            ? "rule=" + Esc(red.Apply(finding.RuleId))
+            : null;
+        var source = !string.IsNullOrEmpty(finding.SourceRef)
+            ? "source=" + Esc(red.Apply(finding.SourceRef))
+            : null;
+
+        if (rule is null && source is null) return "";
+        return " [" + (rule is null ? source
+            : source is null ? rule
+            : rule + ", " + source) + "]";
+    }
 
     /// <summary>
     /// RFC 4180：含逗号/引号/换行的字段用双引号包裹，内部引号翻倍。
