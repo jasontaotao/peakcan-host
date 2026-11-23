@@ -11,7 +11,8 @@ standard:
 overrides:
   timings:
     cycle_ms: 500
-    timeout_ms: 2200
+    # T_NM_TIMEOUT = 2000ms ±10%（spec §2.4 / 吉利 §5.5）。与 base 相同，显式写出便于核对。
+    timeout_ms: 2000
     repeat_message_with_burst_ms: 1700
     repeat_message_without_burst_ms: 1500
     immediate_cycle_ms: 20

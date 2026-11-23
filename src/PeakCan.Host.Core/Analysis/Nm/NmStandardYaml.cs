@@ -319,14 +319,9 @@ public static class NmStandardYaml
         var w = r.When!;
         var e = r.Expect!;
 
-        // observe 规则按定义不产 violation，finding 可省略或为空串——
-        // 逼它编一个 finding code 只会让引擎产出必须再抑制的假告警。
-        var isObserve = string.Equals(e.Kind, "observe", StringComparison.Ordinal);
-        var finding = isObserve && string.IsNullOrWhiteSpace(r.Finding)
-            ? string.Empty
-            : RequireNonEmpty(r.Finding, $"规则 {r.Id} 的 finding code")!;
-
         // 闭集校验：未知原语在加载期报错，不静默进 Unmodeled（spec §7.2）。
+        // 刻意排在 finding 检查之前：同一规则同时拼错原语又缺 finding 时，
+        // 先报闭集错误，用户补完一次即可；反序会让用户修两轮。
         if (!NmRulePrimitives.WhenKinds.Contains(w.Kind!))
         {
             throw new NmProfileValidationException(
@@ -339,6 +334,13 @@ public static class NmStandardYaml
                 $"规则 {r.Id} 的 expect.kind「{e.Kind}」不在闭集内，合法值：" +
                 string.Join(" | ", NmRulePrimitives.ExpectKinds.Order(StringComparer.Ordinal)));
         }
+
+        // observe 规则按定义不产 violation，finding 可省略或为空串——
+        // 逼它编一个 finding code 只会让引擎产出必须再抑制的假告警。
+        var isObserve = string.Equals(e.Kind, "observe", StringComparison.Ordinal);
+        var finding = isObserve && string.IsNullOrWhiteSpace(r.Finding)
+            ? string.Empty
+            : RequireNonEmpty(r.Finding, $"规则 {r.Id} 的 finding code")!;
 
         return new NmRuleDef(
             r.Id!, r.Requirement!, r.Phase ?? "normal",

@@ -1224,7 +1224,7 @@ standard:
 overrides:
   timings:
     cycle_ms: 500
-    timeout_ms: 2200
+    timeout_ms: 2000
     repeat_message_with_burst_ms: 1700
     repeat_message_without_burst_ms: 1500
     immediate_cycle_ms: 20
@@ -1408,7 +1408,7 @@ namespace PeakCan.Host.Core.Tests.Analysis.Nm;
 public class NmBurstDetectorTests
 {
     private static readonly NmEffectiveTiming Geely = new(
-        CycleMs: 500, TimeoutMs: 2200, WaitBusSleepMs: 2000,
+        CycleMs: 500, TimeoutMs: 2000, WaitBusSleepMs: 2000,
         RepeatMessageWithBurstMs: 1700, RepeatMessageWithoutBurstMs: 1500,
         ImmediateCycleMs: 20, ImmediateCount: 10,
         StartNmTxMs: 10, WakeUpMs: 120, ToleranceRatio: 0.1);

@@ -54,6 +54,9 @@ rules:
 
         var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardYaml.Load(bad));
         Assert.Contains("cycle_tolerence", ex.Message, StringComparison.Ordinal);
+        // 报错必须列出合法值：否则用户不知道正确拼写是什么，只能去翻源码。
+        Assert.Contains("合法值：", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("cycle_tolerance", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -64,6 +67,25 @@ rules:
 
         var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardYaml.Load(bad));
         Assert.Contains("within_pctt", ex.Message, StringComparison.Ordinal);
+        // 报错必须列出合法值。这里不能用 "within_pct" 断言——它是拼错的
+        // "within_pctt" 的子串，合法值列表缺失时也会通过；改用不构成子串的成员。
+        Assert.Contains("合法值：", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("duration_within_ms", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Load_UnknownExpectKindWithMissingFinding_ReportsClosedSetFirst()
+    {
+        // 闭集错误必须先于 finding 报出：否则用户补上 finding 后发现原语拼错，
+        // 需要两轮修错。observe 豁免不适用于非法 kind。
+        var bad = WithParams
+            .Replace("kind: within_pct", "kind: within_pctt", StringComparison.Ordinal)
+            .Replace("finding: NM_CYCLE_DEVIATION", "finding: \"\"", StringComparison.Ordinal);
+
+        var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardYaml.Load(bad));
+
+        Assert.Contains("不在闭集内", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("finding", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -137,10 +159,39 @@ rules:
     [Fact]
     public void PrimitiveClosedSet_ContainsSpecKinds()
     {
-        Assert.Contains("layout_check", NmRulePrimitives.WhenKinds);
-        Assert.Contains("nmsts_transition", NmRulePrimitives.WhenKinds);
-        Assert.Contains("normal_resume_shape", NmRulePrimitives.WhenKinds);
-        Assert.DoesNotContain("bit_sequence", NmRulePrimitives.WhenKinds);
+        // 精确集合相等：漏一个原语（规则无法表达）或多一个原语（spec 外扩展）
+        // 都必须让测试红。抽样断言会让集合的增删静默通过。
+        string[] specWhen =
+        [
+            "layout_check", "nid_id_mapping", "bit_rule", "cycle_tolerance", "burst_shape",
+            "first_frame_latency", "repeat_message_duration", "nmsts_transition",
+            "normal_resume_shape", "stop_sending", "max_gap_observe",
+        ];
+        string[] specExpect =
+        [
+            "within_pct", "equals", "is_zero", "matches_id_low_byte", "count_equals",
+            "interval_within_pct", "duration_within_ms", "present", "absent", "observe",
+        ];
+
+        Assert.Equal(
+            specWhen.Order(StringComparer.Ordinal).ToArray(),
+            NmRulePrimitives.WhenKinds.Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal(
+            specExpect.Order(StringComparer.Ordinal).ToArray(),
+            NmRulePrimitives.ExpectKinds.Order(StringComparer.Ordinal).ToArray());
+
+        // spec §7.2 已删除的旧原语不得复活：两个集合里都不许出现。
+        string[] removedPrimitives =
+        [
+            "bit_sequence", "field_sequence", "counter_increment", "timeout_reset",
+            "node_silent", "all_nodes_silent", "frame_present", "frame_absent",
+            "min_gap_ms", "frame_count", "observe_silence_ms",
+        ];
+        foreach (var removed in removedPrimitives)
+        {
+            Assert.DoesNotContain(removed, NmRulePrimitives.WhenKinds);
+            Assert.DoesNotContain(removed, NmRulePrimitives.ExpectKinds);
+        }
     }
 
     [Fact]
@@ -182,7 +233,11 @@ overrides:
 """;
 
         var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardYaml.Load(bad));
-        Assert.Contains("NMSts", ex.Message, StringComparison.Ordinal);
+        // 通用位范围检查的消息也会带上角色名 "NmSts"，只断言 Contains("NMSts")
+        // 无法区分走的是哪条分支。通用消息固定以「位角色」开头，用它的缺失
+        // 来锁定 NMSts 专属分支（对两句具体措辞的改动都有一定容忍度）。
+        Assert.Contains("NMSts 位的 bit", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("位角色", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -190,14 +245,18 @@ overrides:
     {
         var baseYaml = File.ReadAllText(RepoPath("profiles/base/autosar-cannm@4.1.3.nmstd.yaml"));
         var geelyYaml = File.ReadAllText(RepoPath("profiles/oem/geely-cv@2.0.nmstd.yaml"));
+        var baseProfile = NmStandardYaml.Load(baseYaml);
         var registry = new Dictionary<string, NmStandardProfile>(StringComparer.Ordinal)
         {
-            ["autosar-cannm@4.1.3"] = NmStandardYaml.Load(baseYaml),
+            ["autosar-cannm@4.1.3"] = baseProfile,
             ["geely-cv@2.0"] = NmStandardYaml.Load(geelyYaml),
         };
 
         var flat = NmStandardYaml.LoadAndFlatten(geelyYaml, registry);
 
+        // 前置断言：base 本身确实带 PNI 位。否则 base 丢位或 layout 合并失效时，
+        // 下面的 DoesNotContain 会空转通过，看不出 remove 是否真的生效。
+        Assert.Contains(baseProfile.Layout!.BitRoles!, r => r.Name == "PartialNetworkInfo");
         // remove 生效：PNI 位不再存在。
         Assert.DoesNotContain(flat.Layout!.BitRoles!, r => r.Name == "PartialNetworkInfo");
         // NMSts 位被加入。
