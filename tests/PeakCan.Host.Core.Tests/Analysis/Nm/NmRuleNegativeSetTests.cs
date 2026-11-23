@@ -263,6 +263,71 @@ public class NmRuleNegativeSetTests
         Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_06");
     }
 
+    [Fact]
+    public void LegalPassiveWakeup_NormalResumeShape_NoViolation()
+    {
+        // spec §12：合法场景零误报。被动唤醒：静默后以正常周期恢复（不快发），完全合规。
+        // A 的第一段 RMS 0.0→1.5s = 1500ms（在 1440–1760ms 内），之后静默恰好 2.0s
+        // （= when.min_silence_ms，也 = 报文超时：停发边界，不构成「超出超时」的掉线），
+        // 再以 500ms 正常周期恢复。
+        // 恢复段用 NMSts=1（NOS）：本原语只判发送节奏；若继续 NMSts=0，NM_06 会把
+        // 静默前后的两段锚成一条 5.0s 长段而报超差——那是另一条规则的结论，
+        // 会把本用例「新原语零误报」的信号淹掉。
+        var a = new[]
+        {
+            Frame(0.0, awb: 0, nmsts: 0), Frame(0.5, awb: 0, nmsts: 0),
+            Frame(1.0, awb: 0, nmsts: 0), Frame(1.5, awb: 0, nmsts: 0),
+            Frame(3.5, awb: 0, nmsts: 1), Frame(4.0, awb: 0, nmsts: 1),
+            Frame(4.5, awb: 0, nmsts: 1), Frame(5.0, awb: 0, nmsts: 1),
+        };
+        // B 全程发送：桥接 A 的静默，否则单报文 trace 的 2.0s 空档会触发
+        // NM_BUS_WIDE_SILENCE——那是对「总线无帧」的真实结论，不是本原语要验的东西。
+        var b = Enumerable.Range(0, 12)
+            .Select(i => Frame(i * 0.5, awb: 0, nmsts: 1, CanIdB, "B"));
+        var frames = a.Concat(b).OrderBy(f => f.Frame.Timestamp).ToArray();
+
+        var report = Evaluate(frames, windowEnd: 6.0);
+
+        AssertNoViolation(report);
+        Assert.DoesNotContain(report.Findings,
+            f => f.Code == "NM_NORMAL_RESUME_SHAPE_MISMATCH");
+
+        // 非空洞性守卫：规则必须在规则集里，且本场景确有 ≥2s 静默 →
+        // 规则真的求值了，而不是因为「无候选静默」被整体丢进 Unmodeled。
+        Assert.Contains(Rules(), r => r.Id == "NM_RESUME");
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_RESUME");
+    }
+
+    [Fact]
+    public void LegalReleaseToSleep_StopSending_NoViolation()
+    {
+        // spec §4.1：合法释放（节点按 NM_09 停发，其它节点仍在发）不得报任何违规。
+        // A 在 2.0s 按 NM_09 停发（末帧 NMSts=1 表示已进 RSS）；B 全程正常发送。
+        var a = new[]
+        {
+            Frame(0.0, awb: 0, nmsts: 0), Frame(0.5, awb: 0, nmsts: 0),
+            Frame(1.0, awb: 0, nmsts: 0), Frame(1.5, awb: 0, nmsts: 0),
+            Frame(2.0, awb: 0, nmsts: 1),
+        };
+        var b = Enumerable.Range(0, 17)
+            .Select(i => Frame(i * 0.5, awb: 0, nmsts: 1, CanIdB, "B"));
+        // 两个报文的帧必须按时间合并且单调：乱序会触发 NM_TIMESTAMP_REGRESSION。
+        var frames = a.Concat(b).OrderBy(f => f.Frame.Timestamp).ToArray();
+
+        var report = Evaluate(frames, windowEnd: 8.5);
+
+        AssertNoViolation(report);
+
+        // stop_sending 永不产 finding；真正要钉的是「这条规则真的跑了」，
+        // 否则「没有 finding」只是因为它没执行。
+        Assert.DoesNotContain(report.Findings,
+            f => f.Severity == "warn" && f.RuleId == "NM_STOP_SENDING");
+        Assert.Contains(ObservationsOf(report),
+            o => o.Kind == "stop_sending" && o.RuleId == "NM_STOP_SENDING");
+        // 已经有观测就不能同时挂「不可求值」，否则报告自相矛盾。
+        Assert.DoesNotContain(UnmodeledOf(report), u => u.RuleId == "NM_STOP_SENDING");
+    }
+
     /// <summary>
     /// warn 级 finding 是违规；info 级（NM_ALL_NM_SILENT 等）是可复核事实，允许出现。
     /// 生产入口已把规则、内容、空档三条路径的 finding 合并进同一份报告。
@@ -373,6 +438,27 @@ public class NmRuleNegativeSetTests
             new NmRuleExpect("equals"), "NM_DLC_MISMATCH")
         {
             Clauses = ["§5.4.1"],
+        },
+        // spec §7.2：静默后恢复形态（NM_02/NM_15）。P 级，finding 标推断。
+        // 放进共享规则集后，每个合法场景都会顺带覆盖这条新原语——
+        // 「合规不误报」必须在真实场景上成立，而不是在专门的窄用例里成立。
+        new NmRuleDef("NM_RESUME", "静默后恢复为正常周期发送", "wakeup",
+            new NmRuleWhen("normal_resume_shape",
+                MinSilenceMs: 2000, CycleMs: 500, Pct: 0.1, MinFrames: 4),
+            new NmRuleExpect("equals"), "NM_NORMAL_RESUME_SHAPE_MISMATCH")
+        {
+            Clauses = ["NM_02", "NM_15"],
+            Observability = NmObservability.Partial,
+            SourceRef = "§7.2",
+        },
+        // spec §4.1：停发只产观测，永不产 finding。
+        new NmRuleDef("NM_STOP_SENDING", "进入 Ready Sleep State 后停止发送", "sleep",
+            new NmRuleWhen("stop_sending"),
+            new NmRuleExpect("observe"), "")
+        {
+            Clauses = ["NM_09", "NM_12"],
+            Observability = NmObservability.Partial,
+            SourceRef = "§4.1",
         },
     };
 
