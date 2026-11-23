@@ -62,9 +62,10 @@ public static class NmDataQualityAnalyzer
         foreach (var frame in frames)
         {
             var hex = "0x" + frame.Id.ToString("X", CultureInfo.InvariantCulture);
-            // DBC 的 Message 不带扩展帧标志（DBC 格式把扩展位编码在 ID 高 bit），
-            // 因此 DBC 侧只能按 ID 数值比对：标准帧与扩展帧同数值会互相掩护。
-            // 这是 DBC 格式的固有限制，不是本检查的取舍。
+            // DBC 侧按数值比对 Id：MessagesById 的键是解析器剥掉 IDE 位（bit31）后的 29 位原始 ID
+            // （ParseDocumentFlow.cs 的 `m.Id & 0x7FFFFFFF`），与 ReplayFrame.Id 同域。
+            // 注意耦合：Message.Id 本身是带 bit31 的；若解析器改为保留该位，
+            // 这里会静默漏判全部扩展帧。标准帧与扩展帧同数值时也会互相掩护。
             var knownInDbc = dbcIds is not null && dbcIds.Contains(frame.Id);
             var knownInProfile = declaredNm.Contains((hex, frame.IsExtended));
             if (!knownInDbc && !knownInProfile)

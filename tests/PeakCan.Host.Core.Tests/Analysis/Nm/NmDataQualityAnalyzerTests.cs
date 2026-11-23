@@ -137,8 +137,10 @@ public class NmDataQualityAnalyzerTests
 
     private static DbcDocument DbcWith(uint id)
     {
+        // 生产口径：Message.Id 带 IDE 位（bit31），MessagesById 的键是解析器剥掉该位后的原始 ID。
+        // 夹具必须照此构造，否则「按 Messages.Select(m => m.Id) 比对」这类回归会漏网。
         var message = new Message(
-            Id: id, Name: "M", Dlc: 8, Sender: "n",
+            Id: id | 0x80000000u, Name: "M", Dlc: 8, Sender: "n",
             Signals: Array.Empty<Signal>(),
             IsMultiplexed: false, MultiplexorSignalIndex: null);
         return new DbcDocument(
