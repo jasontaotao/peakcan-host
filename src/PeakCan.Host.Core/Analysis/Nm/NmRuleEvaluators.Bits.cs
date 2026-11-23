@@ -14,8 +14,7 @@ public static partial class NmRuleEvaluators
         List<NmFinding> findings, List<NmObservation> observations,
         out string? unmodeledReason)
     {
-        // NOTE (Task 6): 时序原语（cycle_tolerance / burst_shape / nmsts_transition）接入本开关时，
-        // 必须同样填充 unmodeledReason：无法求值的规则进 Unmodeled，不得静默通过。
+        // 所有原语都必须填充 unmodeledReason：无法求值的规则进 Unmodeled，不得静默通过。
         unmodeledReason = null;
         switch (rule.When.Kind)
         {
@@ -25,6 +24,12 @@ public static partial class NmRuleEvaluators
                 return NidIdMapping(rule, ctx, findings, observations, out unmodeledReason);
             case "layout_check":
                 return LayoutCheck(rule, ctx, findings, out unmodeledReason);
+            case "cycle_tolerance":
+                return CycleTolerance(rule, ctx, findings, out unmodeledReason);
+            case "burst_shape":
+                return BurstShape(rule, ctx, findings, out unmodeledReason);
+            case "nmsts_transition":
+                return NmstsTransition(rule, ctx, observations, out unmodeledReason);
             default:
                 return false;
         }
