@@ -96,7 +96,9 @@ public sealed record NmProfile(
     // 企标 profile 的 timing 段（展平后）；null 表示未选企标，走 M1 默认值。
     NmStandardTimings? StandardTimings = null,
     // 展平后的企标位角色；null 表示未选企标（M1 行为）。
-    IReadOnlyList<NmBitRole>? StandardBitRoles = null);
+    IReadOnlyList<NmBitRole>? StandardBitRoles = null,
+    // 展平后的企标规则；null 表示未选企标（不跑规则引擎）。
+    IReadOnlyList<NmRuleDef>? StandardRules = null);
 
 /// <summary>用户在补全对话框里填的内容；序列化为 <c>*.nmprofile.json</c>。</summary>
 public sealed record NmUserSupplement(
