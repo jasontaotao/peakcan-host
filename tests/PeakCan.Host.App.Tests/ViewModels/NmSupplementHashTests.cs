@@ -94,6 +94,88 @@ public class NmSupplementHashTests
         Assert.Equal(Hash(roles: ordered), Hash(roles: reversed));
     }
 
+    [Fact]
+    public void Hash_DifferentStandardLayoutNidByte_Differ()
+    {
+        // StandardLayout 现在经 NmProfilePrecedence 驱动 nid/cbv/user_data 分析路径；
+        // 只差一个字节也必须换 key，否则会命中旧报告。
+        var a = TraceViewerViewModel.NmSupplementHash(Profile() with
+        {
+            StandardLayout = new NmStandardLayout { NidByte = 0, CbvByte = 1 },
+        });
+        var b = TraceViewerViewModel.NmSupplementHash(Profile() with
+        {
+            StandardLayout = new NmStandardLayout { NidByte = 1, CbvByte = 1 },
+        });
+
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void Hash_DifferentStandardLayoutUserData_Differ()
+    {
+        var a = TraceViewerViewModel.NmSupplementHash(Profile() with
+        {
+            StandardLayout = new NmStandardLayout { UserDataOffset = 4, UserDataLength = 4 },
+        });
+        var b = TraceViewerViewModel.NmSupplementHash(Profile() with
+        {
+            StandardLayout = new NmStandardLayout { UserDataOffset = 4, UserDataLength = 2 },
+        });
+
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void Hash_DifferentStandardFeaturesPnEnabled_Differ()
+    {
+        // StandardFeatures 驱动 pn_enabled 判定；只改这一个布尔也必须失效。
+        var a = TraceViewerViewModel.NmSupplementHash(Profile() with
+        {
+            StandardFeatures = new NmStandardFeatures { PnEnabled = false },
+        });
+        var b = TraceViewerViewModel.NmSupplementHash(Profile() with
+        {
+            StandardFeatures = new NmStandardFeatures { PnEnabled = true },
+        });
+
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void Hash_DifferentStandardFeaturesActiveWakeup_Differ()
+    {
+        var a = TraceViewerViewModel.NmSupplementHash(Profile() with
+        {
+            StandardFeatures = new NmStandardFeatures { ActiveWakeupBitEnabled = true },
+        });
+        var b = TraceViewerViewModel.NmSupplementHash(Profile() with
+        {
+            StandardFeatures = new NmStandardFeatures { ActiveWakeupBitEnabled = false },
+        });
+
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void Hash_DifferentStandardId_Differ()
+    {
+        // 展平语义相同但身份不同的两个 profile 不得碰撞：报告 StandardId 会因此陈旧。
+        var a = TraceViewerViewModel.NmSupplementHash(Profile(), "autosar-cannm@4.1.3");
+        var b = TraceViewerViewModel.NmSupplementHash(Profile(), "geely-cv@2.0");
+
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void Hash_StandardIdPresence_ChangesHash()
+    {
+        var without = TraceViewerViewModel.NmSupplementHash(Profile());
+        var with = TraceViewerViewModel.NmSupplementHash(Profile(), "autosar-cannm@4.1.3");
+
+        Assert.NotEqual(without, with);
+    }
+
     private static string Hash(
         IReadOnlyList<NmRuleDef>? rules = null,
         IReadOnlyList<NmBitRole>? roles = null)

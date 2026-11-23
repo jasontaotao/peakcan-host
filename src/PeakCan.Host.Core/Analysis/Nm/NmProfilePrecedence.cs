@@ -30,4 +30,19 @@ internal static class NmProfilePrecedence
     /// <summary>PN 开关：项目层声明优先，否则用企标声明。</summary>
     internal static bool? EffectivePnEnabled(NmProfile profile)
         => profile.Features?.PnEnabled ?? profile.StandardFeatures?.PnEnabled;
+
+    /// <summary>
+    /// 企标声明的 PNI 位角色；未声明（如吉利显式 remove <c>bit_roles[1.6]</c>）时返回 null。
+    /// <para>
+    /// 位语义只能来自 profile 的 bit_roles（plan Global Constraints）：调用方必须据此决定
+    /// 是否解释 (cbv_byte, bit6) 为 PNI，不得回落到硬编码的 bit6。
+    /// </para>
+    /// </summary>
+    internal static NmBitRole? EffectivePniRole(NmProfile profile)
+    {
+        if (EffectiveCbvByte(profile) is not { } cbvByte) return null;
+        return (profile.StandardBitRoles ?? Array.Empty<NmBitRole>())
+            .FirstOrDefault(r => r.Byte == cbvByte && r.Bit == 6
+                && string.Equals(r.Name, "PartialNetworkInfo", StringComparison.Ordinal));
+    }
 }

@@ -65,9 +65,11 @@ public static class NmAnalyzer
         if (request.Profile.Timings.TimeoutMs is null)
             assumptions.Add("未配置 NM 超时，按 2000ms 处理。");
 
-        // PNI 位角色是硬编码的 AUTOSAR 约定（CBV bit6），不是从矩阵读出的，按推断解释。
-        if (NmProfilePrecedence.EffectiveCbvByte(request.Profile) is not null
-            && NmProfilePrecedence.EffectivePnEnabled(request.Profile) == false)
+        // PNI 只在 profile 声明了 (cbv_byte, bit6) 的 PNI 位角色时才会被解释
+        // （与 NmContentAnalyzer.CheckCbv 同源）；未声明却仍写这条假设，
+        // 会让报告声称一个实际不执行的解读（如吉利 remove 了该位）。
+        if (NmProfilePrecedence.EffectivePnEnabled(request.Profile) == false
+            && NmProfilePrecedence.EffectivePniRole(request.Profile) is not null)
         {
             assumptions.Add("PNI 按 AUTOSAR CanNm CBV bit6 解读（M1 已知限制）");
         }

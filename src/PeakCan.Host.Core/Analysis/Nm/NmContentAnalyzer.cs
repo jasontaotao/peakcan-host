@@ -263,11 +263,15 @@ public static class NmContentAnalyzer
         if (NmProfilePrecedence.EffectiveCbvByte(input.Profile) is not { } cbvByte) return;
         if (NmProfilePrecedence.EffectivePnEnabled(input.Profile) != false) return;
 
-        // AUTOSAR CanNm 的 PNI 位于 CBV bit6（0x40），bit4（0x10）是 Active Wakeup，不得混淆。
-        // 只在用户明确配置 CBV 字节时解释；位角色是硬编码的（M1 的 NmLayout 没有位定义），
-        // 所以结论按推断输出。
+        // PNI 只在 profile 真的把 (cbv_byte, bit6) 声明为 PNI 位时才解释；
+        // 吉利 profile 显式 remove 了该位角色，此时 byte1.6 不是 PNI，不得据此报违规。
+        if (NmProfilePrecedence.EffectivePniRole(input.Profile) is not { } pniRole) return;
+
+        // 掩码从命中的位角色推导，不写裸位掩码常量：位语义只能来自 profile 的 bit_roles。
+        var pniMask = (byte)(1 << pniRole.Bit);
+        // 位角色来自 profile 声明，结论仍按推断输出（不假定取值合法性）。
         var hit = ordered.FirstOrDefault(f => f.Frame.Data.Length > cbvByte &&
-                                              (f.Frame.Data[cbvByte] & 0x40) != 0);
+                                              (f.Frame.Data[cbvByte] & pniMask) != 0);
         if (hit is not null)
         {
             findings.Add(new NmFinding("NM_PNI_WHILE_PN_DISABLED", "warn",

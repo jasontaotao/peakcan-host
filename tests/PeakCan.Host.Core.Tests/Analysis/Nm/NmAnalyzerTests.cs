@@ -289,6 +289,8 @@ BO_ 1280 NM_Message: 8 ECU_A
         {
             Layout = new NmLayout(NidByte: 0, CbvByte: 1),
             Features = new NmFeatures(PnEnabled: false),
+            // PNI 语义只能来自 profile 声明的位角色（plan Global Constraints）。
+            StandardBitRoles = new[] { new NmBitRole(1, 6, "PartialNetworkInfo") },
         };
         var frames = new[]
         {
@@ -303,6 +305,31 @@ BO_ 1280 NM_Message: 8 ECU_A
         Assert.Contains(report.Assumptions,
             a => a.Contains("PNI 按 AUTOSAR CanNm CBV bit6 解读"));
         Assert.Contains(report.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
+    }
+
+    [Fact]
+    public void Analyze_GeelyProfileWithoutPniRole_DoesNotClaimPniInterpretation()
+    {
+        // 吉利 remove 了 (1,6) PNI 位：检查不执行，报告也不得再声称“按 bit6 解读 PNI”。
+        var roles = new[] { new NmBitRole(3, 0, "NmSts") };
+        var profile = Profile() with
+        {
+            StandardLayout = new NmStandardLayout { CbvByte = 1, BitRoles = roles },
+            StandardFeatures = new NmStandardFeatures { PnEnabled = false },
+            StandardBitRoles = roles,
+        };
+        var frames = new[]
+        {
+            F(0.0, 0x500, false, 0xF4, 0x40, 0, 0, 0, 0, 0, 0, 0),
+            F(0.5, 0x500, false, 0xF4, 0x40, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 1));
+
+        Assert.DoesNotContain(report.Assumptions,
+            a => a.Contains("PNI 按", StringComparison.Ordinal));
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NM_PNI_WHILE_PN_DISABLED");
     }
 
     [Fact]
