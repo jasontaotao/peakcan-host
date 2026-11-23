@@ -122,7 +122,11 @@ public class NmRuleNegativeSetTests
         // 第二个报文 B 在 A 停发后继续正常发送，唯一目的是让 NmGapAnalyzer 的
         // 逐报文分支（perMessage.Length > 1）真正运行——单报文场景该分支被结构性跳过，
         // 即使 fixture 从未停发也照样「通过」，证明不了任何事。
-        // A 的 RMS：0.0→1.5s = 1500ms（在 1440–1760ms 内）；2.0s 进入 RSS 后停发。
+        // A 的 RMS 观测：0.0→1.5s = 1500ms。注意本场景有两个报文，而
+        // repeat_message_duration 在同一个 episode 内不按报文分组（取 episode 内全部帧），
+        // 交错出现的 B 帧会打断 A 的首个 NMSts=0 段，NM_06 在这里实际进 Unmodeled；
+        // RMS 时长的数值断言放在单报文的 LegalPassiveWakeup_NoViolation 里。
+        // 2.0s 进入 RSS 后停发。
         var a = new[]
         {
             Frame(0.0, awb: 0, nmsts: 0), Frame(0.5, awb: 0, nmsts: 0),
@@ -140,10 +144,15 @@ public class NmRuleNegativeSetTests
         AssertNoViolation(report);
 
         // 显式断言：合法停发的节点不能被归因为掉线。
-        // 走生产入口后本断言会红：NmGapAnalyzer 只看「该报文停了、别的报文还在发、
-        // 静默超过 timeout」，不读 NMSts，于是把 NM_09 允许的 RSS 停发误判成
-        // NM_NODE_DROPOUT。按评审要求不放宽断言——这是待生产修复的真实误报。
+        // 该误报已由 Task 9.5 修复（NmGapAnalyzer 读取停发前末帧的 NMSts），
+        // 本用例现在是绿的真实守卫；若以后回退成「只按停发判定」会重新变红。
         Assert.DoesNotContain(report.Findings, f => f.Code == "NM_NODE_DROPOUT");
+
+        // 同一事实也要反映到逐报文 verdict：AI 读的是 SilenceVerdict，
+        // 它不能与 warn 层矛盾地说成「可疑的单节点静默」。
+        var stopped = Assert.Single(report.Messages, m => m.CanIdHex == CanIdA);
+        Assert.NotEqual(NmSilenceVerdict.SilentWithOtherNmActive, stopped.SilenceVerdict);
+        Assert.False(stopped.SilentBeyondTimeout);
     }
 
     [Fact]
@@ -187,13 +196,35 @@ public class NmRuleNegativeSetTests
 
         // 非空洞性守卫：两条原语都必须真的求值（未进入 Unmodeled）。
         Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_CYCLE_500");
-        Assert.DoesNotContain(UnmodeledOf(report), u => u.Clause == "NM_LAYOUT");
+        // layout_check 在 DLC 一致时不会产 finding；「不在 Unmodeled」是空断言
+        // （LayoutCheck 从不设置 unmodeledReason），真正的阴性证据是 DLC 不一致的
+        // finding 不存在。正向路径由 LayoutDlcMismatch_ReportsDlcMismatch 覆盖。
         Assert.DoesNotContain(report.Findings, f => f.Code == "NM_DLC_MISMATCH");
 
         // M1 周期统计同样必须给出「零偏差、样本充足」的实测值。
         var message = Assert.Single(report.Messages);
         Assert.True(message.Cycle.IntervalCount >= 5, "周期样本不足会掩盖偏差统计");
         Assert.Equal(0, message.Cycle.DeviationCount);
+    }
+
+    [Fact]
+    public void LayoutDlcMismatch_ReportsDlcMismatch()
+    {
+        // 正向用例（不是负例）：实测 DLC=7 与矩阵声明 8 不一致，layout_check 必须
+        // 真的产出 NM_DLC_MISMATCH。负例集里 layout_check 只有「无 finding」的阴性证据，
+        // 本用例是它唯一的阳性路径，防止原语静默失效（比如判据写反）而无人发现。
+        var frames = new[]
+        {
+            Frame(0.0, awb: 0, nmsts: 1, dlc: 7),
+            Frame(0.5, awb: 0, nmsts: 1),
+        };
+
+        var report = Evaluate(frames, windowEnd: 2.0);
+
+        // RuleId 区分规则引擎副本与 M1 的 NM_DLC_MISMATCH，确保规则原语确实执行。
+        var finding = Assert.Single(report.Findings, f => f.RuleId == "NM_LAYOUT");
+        Assert.Equal("NM_DLC_MISMATCH", finding.Code);
+        Assert.Equal("warn", finding.Severity);
     }
 
     [Fact]
@@ -254,20 +285,18 @@ public class NmRuleNegativeSetTests
     /// 而内容分析正是最可能在合法流量上误报的一环。
     /// </summary>
     private static NmReport Evaluate(
-        IReadOnlyList<NmFrame> frames, double windowEnd,
-        IReadOnlyList<NmRuleDef>? rules = null,
-        IReadOnlyList<NmNodeDef>? nodes = null)
+        IReadOnlyList<NmFrame> frames, double windowEnd)
     {
         var defs = frames.Select(f => f.Def).Distinct().ToArray();
 
         // 站地址按标准帧映射自动推导，保证与 NM_01 的 (ID-0x400)&0xFF 同源、不会自相矛盾。
         var profile = new NmProfile(
             NmProfileSource.Dbc, defs, new NmTimings(CycleMs: 500, TimeoutMs: 2000),
-            nodes ?? NodesFor(defs),
+            NodesFor(defs),
             Array.Empty<NmConfigConflict>(), Array.Empty<string>(), new NmProvenance(),
             Layout: new NmLayout(NidByte: 0, CbvByte: 1),
             StandardBitRoles: BitRoles(),
-            StandardRules: rules ?? Rules());
+            StandardRules: Rules());
 
         return NmAnalyzer.Analyze(new NmAnalysisRequest(
             "test", null, frames.Select(f => f.Frame).ToArray(), null, profile, 0, windowEnd));
@@ -339,10 +368,18 @@ public class NmRuleNegativeSetTests
     /// </summary>
     private static NmFrame Frame(
         double t, byte awb, byte nmsts,
-        string canId = CanIdA, string sender = "A")
-        => new(new NmMessageDef(canId, false, "NM", sender, 8, true,
+        string canId = CanIdA, string sender = "A", int dlc = 8)
+    {
+        // 载荷长度与 DLC 保持一致；byte0=NID、byte1.bit4=ActiveWakeup、byte3.bit0=NMSts。
+        // dlc 小于 4 时本 helper 不适用于位断言，调用方需自行保证 >=4。
+        var payload = new byte[dlc];
+        payload[0] = NidFor(canId);
+        payload[1] = (byte)(awb << 4);
+        if (dlc > 3) payload[3] = nmsts;
+
+        return new(new NmMessageDef(canId, false, "NM", sender, 8, true,
                 TestReasons, CycleMs: 500, TimeoutMs: 2000),
-            new ReplayFrame(t, CanIdOf(canId), 8,
-                new byte[] { NidFor(canId), (byte)(awb << 4), 0, nmsts, 0, 0, 0, 0 },
+            new ReplayFrame(t, CanIdOf(canId), (byte)dlc, payload,
                 PeakCan.HIL.Core.FrameFlags.None));
+    }
 }

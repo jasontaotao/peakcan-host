@@ -156,6 +156,9 @@ public class NmGapAnalyzerTests
         Assert.Contains(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
         Assert.Contains(result.Unknowns,
             u => u.Contains("dropout_receiver_side_or_node_internal_state_not_excluded"));
+        // RepeatMessage 是**已知**状态：不得被记成「无法排除 RSS」的未知。
+        // 这条与不可读/缺失角色用例互补，钉住四态不会被折叠成三态。
+        Assert.DoesNotContain(result.Unknowns, u => u.Contains("dropout_cannot_exclude_rss"));
     }
 
     [Fact]
@@ -195,6 +198,10 @@ public class NmGapAnalyzerTests
         var result = NmGapAnalyzer.Analyze(input);
 
         Assert.Contains(result.Findings, f => f.Code == "NM_NODE_DROPOUT");
+        // 「读不出」本身也必须作为未知上报：把 Unreadable 误当成 RepeatMessage
+        // 会丢掉这条 unknown，却仍然产出 dropout，只断言 finding 无法发现这种折叠。
+        Assert.Contains(result.Unknowns,
+            u => u.Contains("dropout_cannot_exclude_rss") && u.Contains("读不出"));
     }
 
     [Fact]

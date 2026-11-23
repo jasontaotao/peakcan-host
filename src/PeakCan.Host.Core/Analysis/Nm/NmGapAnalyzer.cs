@@ -157,9 +157,14 @@ public static class NmGapAnalyzer
                     }
                 }
 
-                // 中间断档（断后又恢复）不做 NMSts 抑制：节点恢复发送说明空档内
-                // 并非一直处于 RSS，仅凭断前最后一帧 NMSts=1 无法把整段超时静默
-                // 解释成一次合规释放；抑制会掩盖真实的发送中断。
+                // 中间断档（断后又恢复）刻意不做 NMSts 抑制。原因不是「恢复发送
+                // 就证明断档期间没在 RSS」——CanNm 在 RSS 收到带 Repeat Message Request
+                // 的 NM 报文后会回到 Repeat Message State 并恢复发送，所以
+                // 「合法 RSS 停留 > 超时、随后又恢复」是真实存在的形态。
+                // 真正的原因是：仅凭断前最后一帧的 NMSts 无法把这种合法形态与
+                // 「真实挂死/复位后恢复」区分开，抑制会掩盖真实的发送中断，因此保留上报。
+                // 残余风险：上述合法形态仍会被误报为 NM_SENDER_SILENT_BEYOND_TIMEOUT，
+                // 要消除它需要轨迹级的多次状态跃迁证据，单帧 NMSts 不够。
 
                 for (int i = 1; i < times.Length; i++)
                 {

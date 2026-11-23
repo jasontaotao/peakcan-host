@@ -33,6 +33,14 @@ public enum NmSilenceVerdict
 
     /// <summary>窗口截断 / 共享 ID 无法拆分 → 不可判明。</summary>
     IndeterminateAtBoundary,
+
+    /// <summary>
+    /// 停发前最后一帧已处于 Ready Sleep State（NMSts=1），其它 NM 仍在发送：
+    /// 这是 CanNm 按 NM_09 完成的合规释放——节点确实不再发送，但不是「可疑的单节点静默」。
+    /// 与 <see cref="SilentWithOtherNmActive"/> 分开，避免 AI 把合规释放读成节点异常。
+    /// 新增在末尾，不改动既有成员的数值（可能有外部序列化依赖）。
+    /// </summary>
+    ReleasedInReadySleep,
 }
 
 /// <summary>观测事实：可量化、可复核，但不声称违规（spec §7.1.1）。</summary>

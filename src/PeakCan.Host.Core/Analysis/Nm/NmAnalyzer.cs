@@ -303,7 +303,12 @@ public static class NmAnalyzer
                     windowEnd: request.End,
                     timeoutSec: effectiveTimeoutMs / 1000.0,
                     nidByte: request.Profile.Layout?.NidByte,
-                    episodeTruncated: messageCutByWindow);
+                    episodeTruncated: messageCutByWindow,
+                    // 与 NmGapAnalyzer 抑制 NM_NODE_DROPOUT 的判据同源：末帧处于 RSS 时，
+                    // 「其它节点还在发、本节点不再发」是合规释放而非可疑静默。
+                    // 读不出/未声明位角色时传 null，分类器必须保守判为可疑。
+                    lastFrameInReadySleep:
+                        ReadLastFrameInReadySleep(frames[^1], request.Profile.StandardBitRoles));
                 messageReports.Add(new NmMessageReport(
                     def.CanIdHex, def.IsExtended, def.Name, def.Sender,
                     frames.Length, timestamps[0], timestamps[^1], cycle, activity,
@@ -401,6 +406,39 @@ public static class NmAnalyzer
             assumptions.Add($"direction=unknown 的帧 {diagnostics.DirectionUnknownFrames} 条；M1 不排除 Tx。");
 
         return Finish(partial: false);
+    }
+
+    /// <summary>
+    /// 读取一帧的 NMSts 并折叠成「是否处于 Ready Sleep State」：
+    /// true = NMSts=1，false = NMSts=0，null = 无法判定
+    /// （profile 未声明 NmSts 位角色，或 DLC 不足读不出该字节）。
+    /// 与 NmGapAnalyzer 的四态读取同口径（spec §7.5.1.2）；此处只需三态，
+    /// 「缺失角色」与「读不出」都归为未知。
+    /// </summary>
+    private static bool? ReadLastFrameInReadySleep(
+        NmFrame frame, IReadOnlyList<NmBitRole>? roles)
+    {
+        var role = FindBitRole(roles, "NmSts");
+        if (role is null) return null;
+
+        var data = frame.Frame.Data;
+        // DLC 不足即该帧不可读，不臆造状态位。
+        if (data.Length <= role.Byte) return null;
+
+        return ((data[role.Byte] >> role.Bit) & 1) != 0;
+    }
+
+    /// <summary>按名称定位位角色；profile 未声明该位时返回 null。</summary>
+    private static NmBitRole? FindBitRole(IReadOnlyList<NmBitRole>? roles, string name)
+    {
+        if (roles is null) return null;
+        // IReadOnlyList 可索引；用循环避开 CA1826（Enumerable.FirstOrDefault）。
+        for (var i = 0; i < roles.Count; i++)
+        {
+            if (string.Equals(roles[i].Name, name, StringComparison.Ordinal)) return roles[i];
+        }
+
+        return null;
     }
 
     private static uint ParseId(string hex)

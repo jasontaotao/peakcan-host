@@ -52,6 +52,33 @@ public class NmSilenceWiringTests
     }
 
     [Fact]
+    public void Analyze_LastFrameInReadySleep_NotSuspiciousSilence()
+    {
+        // 0x500 于 1.0s 后进入 Ready Sleep State（最后一帧 2.0s、NMSts=1）并停发，
+        // 0x510 持续到 5.5s。这是合法释放：AI 不能从 silence_verdict 读出
+        // 「可疑的单节点静默」——warn 层已抑制 dropout，这里必须让 verdict 与之一致。
+        // 用 NMSts 位角色显式声明 byte3.bit0，帧的 byte3 由 nmsts 参数写入。
+        var profile = ProfileWithNmSts(Def("0x500"), Def("0x510"));
+        var frames = new[]
+        {
+            Frame(0.0, 0x500, nmsts: 0), Frame(0.5, 0x500, nmsts: 0),
+            Frame(1.0, 0x500, nmsts: 0), Frame(2.0, 0x500, nmsts: 1),
+            Frame(0.0, 0x510), Frame(0.5, 0x510), Frame(1.0, 0x510),
+            Frame(2.0, 0x510), Frame(3.0, 0x510), Frame(4.0, 0x510),
+            Frame(5.0, 0x510), Frame(5.5, 0x510),
+        };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, frames, null, profile, 0, 6.0));
+
+        var released = Assert.Single(report.Messages, m => m.CanIdHex == "0x500");
+        // 明确给出新状态，而不只是「不是可疑」——合规释放是一个独立、可解释的判定。
+        Assert.Equal(NmSilenceVerdict.ReleasedInReadySleep, released.SilenceVerdict);
+        Assert.NotEqual(NmSilenceVerdict.SilentWithOtherNmActive, released.SilenceVerdict);
+        Assert.False(released.SilentBeyondTimeout);
+    }
+
+    [Fact]
     public void Analyze_AllNmSilent_ObservationsContainAllNmSilentMarkedInferred()
     {
         var profile = Profile(Def("0x500"), Def("0x510"));
@@ -97,10 +124,17 @@ public class NmSilenceWiringTests
             new[] { new NmNodeDef("A", 0xF4, null, true) },
             Array.Empty<NmConfigConflict>(), Array.Empty<string>(), new NmProvenance());
 
+    /// <summary>声明 NMSts 位角色（byte3.bit0），让分类器能读到末帧的 NMSts。</summary>
+    private static NmProfile ProfileWithNmSts(params NmMessageDef[] defs)
+        => Profile(defs) with
+        {
+            StandardBitRoles = new[] { new NmBitRole(3, 0, "NmSts") },
+        };
+
     private static NmMessageDef Def(string id)
         => new(id, false, "NM", "A", 8, true, TestReasons, CycleMs: 500, TimeoutMs: 2000);
 
-    private static ReplayFrame Frame(double t, uint id)
-        => new(t, id, 8, new byte[] { 0xF4, 0, 0, 0, 0, 0, 0, 0 },
+    private static ReplayFrame Frame(double t, uint id, byte nmsts = 0)
+        => new(t, id, 8, new byte[] { 0xF4, 0, 0, nmsts, 0, 0, 0, 0 },
             PeakCan.HIL.Core.FrameFlags.None);
 }

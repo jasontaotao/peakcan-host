@@ -510,8 +510,11 @@ public enum NmSilenceVerdict
     SilentWithOtherNmActive,    // 单节点静默且其它 NM 仍在发 → 可疑
     AllNmSilent,                // 全网 NM 静默 → 原因未知，非单节点违规
     IndeterminateAtBoundary,    // 窗口截断/共享 ID 无法拆分
+    ReleasedInReadySleep,       // 末帧 NMSts=1 后停发，其它 NM 仍在发 → 合规释放（NM_09）
 }
 ```
+
+`ReleasedInReadySleep` 与 `SilentWithOtherNmActive` 必须分开：节点确实不再发送，但这是 NM_09 允许的合规释放，AI 不能把它读成可疑静默。只能在明确读到末帧 `NMSts=1` 时使用；位角色缺失或 DLC 不足（未知）必须保持可疑判定。`silent_beyond_timeout` 仍只对 `SilentWithOtherNmActive` 为 true。
 
 `SilentBeyondTimeout` 字段保留一个版本做兼容，但**语义改为 `Verdict == SilentWithOtherNmActive`**，并加 AI 输出负例测试（全网静默时该字段必须为 false）。
 
