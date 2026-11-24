@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace PeakCan.Host.Core.Analysis.Nm;
 
@@ -66,6 +67,16 @@ public sealed record NmCalibrationRow(
 
     /// <summary>该规则产出的观测条数（用于「未触发」时说清「基于几条观测」）。</summary>
     public int ObservationCount { get; init; }
+
+    /// <summary>
+    /// 规则的**结构身份**：原语种类 + 期望种类 + finding 码。
+    /// <para>
+    /// 用于把同质规则折叠成一组（吉利 13 条预留位检查占掉半屏）。必须是结构事实，
+    /// <b>不能用 RuleId 前缀猜</b>——ID 是自由文本，改个名字就会让折叠行为漂移。
+    /// </para>
+    /// <para>空串 = 未提供（手工构造的行），这类行永不参与折叠。</para>
+    /// </summary>
+    public string StructuralKey { get; init; } = "";
 
     /// <summary>
     /// 行的主标题：规则的中文含义。
@@ -166,6 +177,57 @@ public sealed record NmCalibrationRow(
     };
 }
 
+/// <summary>
+/// 规则表里的一组行：结构相同（同原语 + 同期望 + 同 finding 码 + 同条款）的规则。
+/// <para>
+/// <b>为什么需要分组</b>：吉利 §5.4.3 有 6 条预留位检查、§5.4.4 有 7 条，
+/// 每条一个 byte.bit，在 360px 面板里占掉半屏。它们查的是同一类事，
+/// 逐条平铺让最该看的触发行被淹掉。折叠后一组只占一行，展开才看逐条。
+/// </para>
+/// <para>
+/// <b>条款必须进分组键</b>：13 条预留位规则原语完全相同，但 6 条查 CBV byte1
+/// （§5.4.3）、7 条查 NMSts byte3（§5.4.4）。只按原语分组会把它们并成一组，
+/// 标题只能取首行「CBV byte1.bit1」——把 §5.4.4 的 7 条规则描述成了 byte1.bit1。
+/// 对一个以条款覆盖为卖点的面板，这等于错误陈述覆盖范围。
+/// </para>
+/// <para>
+/// <b>只在结论一致且低信息量时折叠</b>：组内一条触发、一条未触发，折叠成
+/// 「2 条未触发」会把违规藏起来。全「触发」时同样展开——红字标题只说
+/// 「有违规」，具体哪条、finding 原文、证据时刻都在展开之后。
+/// </para>
+/// </summary>
+public sealed record NmCalibrationGroup(
+    IReadOnlyList<NmCalibrationRow> Rows,
+    string Title)
+{
+    /// <summary>
+    /// 是否折叠。三条同时满足才折叠：
+    /// <list type="number">
+    /// <item>组内多于一行；</item>
+    /// <item>结构身份非空；</item>
+    /// <item>结论一致，且**不是**「触发」或「未建模」——这两类都需要用户逐条看。</item>
+    /// </list>
+    /// </summary>
+    public bool IsCollapsed => Rows.Count > 1
+        && Rows.All(r => !string.IsNullOrEmpty(r.StructuralKey))
+        && Rows.Select(r => r.Status).Distinct().Count() == 1
+        && Rows[0].Status is NmRuleStatus.NotTriggered or NmRuleStatus.NotApplicable;
+
+    /// <summary>
+    /// 组的一句话摘要：结论分布（如「13 条 · 全部未触发」或「3 条 · 1 触发 · 2 未触发」）。
+    /// </summary>
+    public string Summary => NmCalibrationTable.Summarize(Rows);
+
+    /// <summary>
+    /// 折叠行是否含违规——UI 据此决定标题配色。
+    /// 用户扫到折叠行就该知道这里有问题，不必展开。
+    /// </summary>
+    public bool HasViolation => Rows.Any(r => r.Status == NmRuleStatus.Triggered);
+
+    /// <summary>组内含「未建模」行：折叠头要用琥珀色，与单行的「未建模」一致。</summary>
+    public bool HasUnmodeled => Rows.Any(r => r.Status == NmRuleStatus.Unmodeled);
+}
+
 /// <summary>观测 vs 期望的对比指标（spec §10.2）。</summary>
 public enum NmCalibrationMetric
 {
@@ -218,7 +280,7 @@ public sealed record NmUnmodeledClauseRow(
 /// <see cref="NmReport.RuleEvaluations"/> 为准，verdict 缺失才回退反推。
 /// </para>
 /// </summary>
-public static class NmCalibrationTable
+public static partial class NmCalibrationTable
 {
     /// <summary>
     /// 构建规则表。<paramref name="rules"/> 来自展平 profile，顺序不参与输出——
@@ -266,6 +328,15 @@ public static class NmCalibrationTable
             {
                 Verdict = evaluation?.Status,
                 ObservationCount = observations.Length,
+                // 结构身份：同原语 + 同期望 + 同 finding 码 + 同条款 = 查的是同一类事。
+                // 只有 byte/bit 这类参数不同，正是适合折叠的情形。
+                //
+                // 条款必须进键：13 条预留位规则原语完全相同，但 6 条查 CBV byte1
+                // （§5.4.3）、7 条查 NMSts byte3（§5.4.4）。不按条款拆，一组会横跨
+                // 两个条款，折叠标题只能描述其中之一——等于错误陈述覆盖范围。
+                StructuralKey = $"{rule.When.Kind}|{rule.Expect.Kind}|{rule.FindingCode}|"
+                    + string.Join(",", (rule.Clauses ?? Array.Empty<string>())
+                        .Order(StringComparer.Ordinal)),
             });
         }
 
@@ -367,6 +438,96 @@ public static class NmCalibrationTable
 
         return unmodeled?.ReasonCode ?? evaluation?.ReasonCode;
     }
+
+    /// <summary>
+    /// 把已排好序的行按结构身份分组。
+    /// <para>
+    /// 输入顺序决定输出顺序（行已按结论强度排好）：组按**首行**的位置出现，
+    /// 组内保持原顺序。这样「触发」永远在最前面，不会被折叠挪到后面。
+    /// </para>
+    /// <para>
+    /// 结构身份为空的行（手工构造）各自成组，永不折叠。
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<NmCalibrationGroup> Group(IReadOnlyList<NmCalibrationRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+
+        var groups = new List<NmCalibrationGroup>();
+        // 「身份 → 已建组下标」的原地累加：组要按首行出现的位置排（结论强度序），
+        // 组内保持原序。用 Dictionary 记下标是为了保留这个位置语义。
+        var index = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrEmpty(row.StructuralKey))
+            {
+                groups.Add(new NmCalibrationGroup([row], row.Title));
+                continue;
+            }
+
+            if (index.TryGetValue(row.StructuralKey, out var at))
+            {
+                IReadOnlyList<NmCalibrationRow> merged = [.. groups[at].Rows, row];
+                groups[at] = groups[at] with { Rows = merged, Title = GroupTitle(merged) };
+            }
+            else
+            {
+                index[row.StructuralKey] = groups.Count;
+                groups.Add(new NmCalibrationGroup([row], GroupTitle([row])));
+            }
+        }
+
+        return groups;
+    }
+
+    /// <summary>
+    /// 组标题：从**结构**派生，不复用某一行 Requirement。
+    /// <para>
+    /// <b>为什么不能取首行</b>：13 条预留位规则的 Requirement 是
+    /// 「CBV byte1.bit1 为预留位」这种带具体 byte.bit 的句子。取首行会让
+    /// 整组（含 §5.4.4 的 7 条 byte3 规则）被描述成 byte1.bit1——
+    /// 对一个以条款覆盖为卖点的面板，这是错误陈述覆盖范围。
+    /// </para>
+    /// <para>
+    /// 单行组直接用该行的 Title（那时它是准确的）；多行组去掉参数，
+    /// 只留「查什么」这一类语义，参数差异由展开后的逐条行提供。
+    /// </para>
+    /// </summary>
+    private static string GroupTitle(IReadOnlyList<NmCalibrationRow> rows)
+    {
+        if (rows.Count == 1) return rows[0].Title;
+
+        // 去掉开头的「<前缀> byteN.bitM 」参数片段，只留共同语义。
+        // 例：「CBV byte1.bit1 为预留位，必须填 0」→「为预留位，必须填 0」。
+        // 只剥这一小段而不是按逗号切：逗号后面也可能有语义，按逗号切会把
+        // 「预留位」这种关键信息一起丢掉。
+        var first = rows[0].Title;
+        var semantic = ParamPrefix().Replace(first, "").Trim();
+        if (string.IsNullOrWhiteSpace(semantic)) semantic = first;
+
+        // 条款去重后列出：跨条款的组必须让用户看到它覆盖了哪些条款。
+        var clauses = rows
+            .SelectMany(r => r.Clauses)
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        return clauses.Length > 0
+            ? $"{semantic}（{string.Join(" / ", clauses)}）"
+            : semantic;
+    }
+
+    /// <summary>
+    /// 匹配 requirement 开头的「<可选前缀> byteN.bitM 」参数片段。
+    /// <para>
+    /// 只用于多行组的标题去参数化：单行组的 Title 是准确的，不需要处理。
+    /// 匹配不到时原样保留，不会误删。
+    /// </para>
+    /// </summary>
+    [GeneratedRegex(@"^\s*\S*\s*byte\d+\.bit\d+\s+", RegexOptions.CultureInvariant)]
+    private static partial Regex ParamPrefix();
 
     /// <summary>
     /// 面板顶部的一句话汇总（如「4 条 · 1 触发 · 1 未建模 · 2 未触发」）。

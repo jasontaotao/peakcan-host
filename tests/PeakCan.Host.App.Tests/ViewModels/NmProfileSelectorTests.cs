@@ -29,7 +29,8 @@ public class NmProfileSelectorTests
         IReadOnlyList<NmFinding>? findings = null,
         IReadOnlyList<NmObservation>? observations = null,
         IReadOnlyList<NmUnmodeledRule>? unmodeled = null,
-        IReadOnlyList<NmDataQualityCheck>? checks = null)
+        IReadOnlyList<NmDataQualityCheck>? checks = null,
+        IReadOnlyList<NmRuleEvaluation>? evaluations = null)
         => new(
             new NmWindow(0, 10, "full"), "src", null,
             Array.Empty<NmEpisode>(), Array.Empty<NmMessageReport>(), Array.Empty<NmNodeReport>(),
@@ -40,7 +41,10 @@ public class NmProfileSelectorTests
             StandardId: standardId,
             Observations: observations,
             UnmodeledRules: unmodeled,
-            DataQualityChecks: checks);
+            DataQualityChecks: checks)
+        {
+            RuleEvaluations = evaluations ?? Array.Empty<NmRuleEvaluation>(),
+        };
 
     private static NmProfile Profile(IReadOnlyList<NmRuleDef>? rules = null)
         => new(
@@ -457,6 +461,173 @@ public class NmProfileSelectorTests
 
         vm.NmCalibrationSummary.Should().NotBeNullOrWhiteSpace();
         vm.NmCalibrationSummary.Should().Contain("2 条");
+    }
+
+    /// <summary>
+    /// 13 条同质规则（预留位检查）必须折叠成一组，否则占掉半屏。
+    /// </summary>
+    [Fact]
+    public void ApplyNmReport_CollapsesHomogeneousRules()
+    {
+        var vm = NewVm();
+        var rules = Enumerable.Range(1, 6)
+            .Select(i => new NmRuleDef($"NM_RESERVED_B1_{i}",
+                $"CBV byte1.bit{i} 为预留位，必须填 0", "normal",
+                new NmRuleWhen("bit_rule", Byte: 1, Bit: i),
+                new NmRuleExpect("is_zero"), "NM_RESERVED_BIT_SET")
+            {
+                Clauses = ["§5.4.3"],
+            })
+            .ToArray();
+
+        vm.ApplyNmReport(Snapshot(Report(), Profile(rules: rules)));
+
+        // 平铺行仍保留（导出/统计用），展示层折叠成一组。
+        vm.NmCalibrationRows.Should().HaveCount(6);
+        var group = vm.NmCalibrationGroups.Should().ContainSingle().Subject;
+        group.Rows.Should().HaveCount(6);
+        group.IsCollapsed.Should().BeTrue("结构相同且结论一致，应折叠成一行");
+        group.IsExpanded.Should().BeFalse("折叠组默认收起，只显示摘要行");
+    }
+
+    /// <summary>展开/收起命令必须真的切换状态。</summary>
+    [Fact]
+    public void ToggleNmCalibrationGroup_FlipsExpandedState()
+    {
+        var vm = NewVm();
+        var rules = Enumerable.Range(1, 3)
+            .Select(i => new NmRuleDef($"NM_R{i}", $"byte1.bit{i} 预留位", "normal",
+                new NmRuleWhen("bit_rule", Byte: 1, Bit: i),
+                new NmRuleExpect("is_zero"), "NM_RESERVED_BIT_SET")
+            {
+                Clauses = ["§5.4.3"],
+            })
+            .ToArray();
+        vm.ApplyNmReport(Snapshot(Report(), Profile(rules: rules)));
+
+        var group = vm.NmCalibrationGroups.Single();
+        group.IsExpanded.Should().BeFalse();
+
+        vm.ToggleNmCalibrationGroupCommand.Execute(group);
+        group.IsExpanded.Should().BeTrue("点展开后逐条可见");
+        group.ToggleText.Should().Be("收起");
+
+        vm.ToggleNmCalibrationGroupCommand.Execute(group);
+        group.IsExpanded.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// 组内有违规时不能默认收起——那等于把违规藏起来。
+    /// </summary>
+    [Fact]
+    public void ApplyNmReport_GroupWithViolation_StillReportsViolationInHeader()
+    {
+        var vm = NewVm();
+        var rules = Enumerable.Range(1, 3)
+            .Select(i => new NmRuleDef($"NM_R{i}", $"byte1.bit{i} 预留位", "normal",
+                new NmRuleWhen("bit_rule", Byte: 1, Bit: i),
+                new NmRuleExpect("is_zero"), "NM_RESERVED_BIT_SET")
+            {
+                Clauses = ["§5.4.3"],
+            })
+            .ToArray();
+
+        var report = Report(
+            findings:
+            [
+                new NmFinding("NM_RESERVED_BIT_SET", "warn", "byte1.bit2 被置位",
+                    [1.0], false, null, RuleId: "NM_R2"),
+            ],
+            evaluations:
+            [
+                new NmRuleEvaluation("NM_R1", NmRuleVerdict.EvaluatedNoFinding, null, []),
+                new NmRuleEvaluation("NM_R2", NmRuleVerdict.EvaluatedWithFinding, null, []),
+                new NmRuleEvaluation("NM_R3", NmRuleVerdict.EvaluatedNoFinding, null, []),
+            ]);
+
+        vm.ApplyNmReport(Snapshot(report, Profile(rules: rules)));
+
+        var group = vm.NmCalibrationGroups.Single();
+        group.HasViolation.Should().BeTrue("组内有触发，折叠头必须变红提示");
+        group.IsCollapsed.Should().BeFalse("结论不一致时展开，不能把违规藏进折叠行");
+        group.IsExpanded.Should().BeTrue("不折叠的组直接显示全部行");
+    }
+
+    /// <summary>
+    /// 全「未建模」的组不折叠：面板特意把未建模排在未触发之前，
+    /// 默认收成一行等于抵消「先看没查成的」这个意图。
+    /// </summary>
+    [Fact]
+    public void ApplyNmReport_AllUnmodeledGroup_ExpandsByDefault()
+    {
+        var vm = NewVm();
+        var rules = Enumerable.Range(1, 3)
+            .Select(i => new NmRuleDef($"NM_R{i}", $"byte1.bit{i} 预留位", "normal",
+                new NmRuleWhen("bit_rule", Byte: 1, Bit: i),
+                new NmRuleExpect("is_zero"), "NM_RESERVED_BIT_SET") { Clauses = ["§5.4.3"] })
+            .ToArray();
+
+        var report = Report(
+            unmodeled: rules.Select(r => new NmUnmodeledRule("§5.4.3", "缺 bit_roles")
+            {
+                RuleId = r.Id,
+                ReasonCode = NmUnmodeledCodes.MissingProfileData,
+            }).ToArray());
+
+        vm.ApplyNmReport(Snapshot(report, Profile(rules: rules)));
+
+        var group = vm.NmCalibrationGroups.Single();
+        group.HasUnmodeled.Should().BeTrue("折叠头要变琥珀色，与单行「未建模」一致");
+        group.IsCollapsed.Should().BeFalse("全未建模的组要展开");
+        group.IsExpanded.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// <b>换报告时分组必须清空</b>：删掉 <c>NmCalibrationGroups.Clear()</c> 会让
+    /// 旧组追加到新组后面，面板同时显示两份数据的折叠结论。
+    /// <para>
+    /// 这是上一轮刚修过的同类缺陷（换 trace 后面板残留上一份结论），
+    /// 新集合不能重蹈覆辙。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ApplyNmReport_ReplacesGroupsFromPreviousReport()
+    {
+        var vm = NewVm();
+        var ruleA = new NmRuleDef("NM_A", "byte1.bit1 预留位", "normal",
+            new NmRuleWhen("bit_rule", Byte: 1, Bit: 1),
+            new NmRuleExpect("is_zero"), "NM_RESERVED_BIT_SET") { Clauses = ["§5.4.3"] };
+        var ruleB = new NmRuleDef("NM_B", "byte1.bit2 预留位", "normal",
+            new NmRuleWhen("bit_rule", Byte: 1, Bit: 2),
+            new NmRuleExpect("is_zero"), "NM_RESERVED_BIT_SET") { Clauses = ["§5.4.3"] };
+
+        vm.ApplyNmReport(Snapshot(Report(), Profile(rules: [ruleA, ruleB])));
+        vm.NmCalibrationGroups.Should().ContainSingle();
+
+        // 换成另一份报告：只有一条规则。
+        vm.ApplyNmReport(Snapshot(Report(), Profile(rules: [ruleA])));
+
+        vm.NmCalibrationGroups.Should().ContainSingle(
+            "旧组必须被清掉，不能追加到新报告后面");
+        vm.NmCalibrationGroups[0].Rows.Should().ContainSingle();
+    }
+
+    /// <summary>清空报告时分组也必须清掉。</summary>
+    [Fact]
+    public void ClearNmReport_ResetsCalibrationGroups()
+    {
+        var vm = NewVm();
+        var rules = Enumerable.Range(1, 3)
+            .Select(i => new NmRuleDef($"NM_R{i}", $"byte1.bit{i} 预留位", "normal",
+                new NmRuleWhen("bit_rule", Byte: 1, Bit: i),
+                new NmRuleExpect("is_zero"), "NM_RESERVED_BIT_SET") { Clauses = ["§5.4.3"] })
+            .ToArray();
+        vm.ApplyNmReport(Snapshot(Report(), Profile(rules: rules)));
+        vm.NmCalibrationGroups.Should().NotBeEmpty();
+
+        vm.ClearNmReportPublic();
+
+        vm.NmCalibrationGroups.Should().BeEmpty();
     }
 
     /// <summary>清空报告时汇总也必须清掉，否则会残留上一份 trace 的计数。</summary>

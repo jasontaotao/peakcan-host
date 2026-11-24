@@ -115,6 +115,54 @@ public sealed record NmEventRowVm(double T, string TimeText, string Type, string
 }
 
 /// <summary>
+/// 规则表的一组（UI 用）：包装 <see cref="NmCalibrationGroup"/> 并携带展开状态。
+/// <para>
+/// 展开状态必须可观察且属于 VM 层——放 Core 会让「用户点没点开」这种纯 UI
+/// 状态污染分析模型。
+/// </para>
+/// </summary>
+public sealed partial class NmCalibrationGroupVm : ObservableObject
+{
+    public NmCalibrationGroupVm(NmCalibrationGroup group)
+    {
+        Rows = group.Rows;
+        Title = group.Title;
+        Summary = group.Summary;
+        HasViolation = group.HasViolation;
+        HasUnmodeled = group.HasUnmodeled;
+        IsCollapsed = group.IsCollapsed;
+        // 可折叠的组默认收起（只显示一行摘要），不可折叠的组直接显示全部行。
+        // 收起是为了省空间，不是藏信息：标题行已带结论摘要与状态配色。
+        _isExpanded = !group.IsCollapsed;
+    }
+
+    public IReadOnlyList<NmCalibrationRow> Rows { get; }
+    public string Title { get; }
+    public string Summary { get; }
+    /// <summary>组内含违规：折叠行标题据此变色，用户不必展开就知道有问题。</summary>
+    public bool HasViolation { get; }
+    /// <summary>组内含「未建模」：折叠头要用琥珀色，与单行状态一致。</summary>
+    public bool HasUnmodeled { get; }
+    /// <summary>是否折叠成一行（结构相同、结论一致、且是低信息量结论）。</summary>
+    public bool IsCollapsed { get; }
+
+    /// <summary>折叠组的逐条行是否展开。</summary>
+    [ObservableProperty] private bool _isExpanded;
+
+    /// <summary>展开按钮文案随状态切换。</summary>
+    public string ToggleText => IsExpanded ? "收起" : "展开";
+
+    partial void OnIsExpandedChanged(bool value) => OnPropertyChanged(nameof(ToggleText));
+
+    /// <summary>折叠行标题文案：「13 条 预留位（§5.4.3）」这种一眼可读的形式。</summary>
+    public string CollapsedHeader => string.Create(
+        CultureInfo.InvariantCulture, $"{Rows.Count} 条 {Title}");
+
+    /// <summary>折叠行右侧的结论摘要（如「全部未触发」）。</summary>
+    public string CollapsedSummary => Summary;
+}
+
+/// <summary>
 /// 时间条/事件表的中文文案。引擎契约仍是 snake_case，只在展示层翻译，
 /// 不把 UI 文案写进分析引擎。
 /// </summary>
@@ -341,6 +389,11 @@ public sealed partial class TraceViewerViewModel
 
     // —— 标定面板（spec §10.2）——
     public ObservableCollection<NmCalibrationRow> NmCalibrationRows { get; } = new();
+    /// <summary>
+    /// 规则表的展示单位：同质规则（13 条预留位检查等）折叠成一组。
+    /// <see cref="NmCalibrationRows"/> 保留平铺全部行，供导出与统计使用。
+    /// </summary>
+    public ObservableCollection<NmCalibrationGroupVm> NmCalibrationGroups { get; } = new();
     public ObservableCollection<NmCalibrationComparison> NmCalibrationComparisons { get; } = new();
     public ObservableCollection<NmDataQualityCheck> NmDataQualityChecks { get; } = new();
     public ObservableCollection<NmUnmodeledClauseRow> NmUnmodeledClauses { get; } = new();
@@ -910,6 +963,7 @@ public sealed partial class TraceViewerViewModel
         NmSelectedEvent = null;
         // 标定面板与选择器同样属于「上一份报告」：不清会留着上一份 trace 的规则结论。
         NmCalibrationRows.Clear();
+        NmCalibrationGroups.Clear();
         NmCalibrationComparisons.Clear();
         NmDataQualityChecks.Clear();
         NmUnmodeledClauses.Clear();
@@ -1238,6 +1292,7 @@ public sealed partial class TraceViewerViewModel
     private void ApplyNmCalibration(NmReport report, NmProfile profile)
     {
         NmCalibrationRows.Clear();
+        NmCalibrationGroups.Clear();
         NmCalibrationComparisons.Clear();
         NmDataQualityChecks.Clear();
         NmUnmodeledClauses.Clear();
@@ -1249,6 +1304,9 @@ public sealed partial class TraceViewerViewModel
             foreach (var row in NmCalibrationTable.Build(rules, report))
                 NmCalibrationRows.Add(row);
         }
+        // 展示用分组：13 条预留位检查折叠成一行，触发行不会被淹掉。
+        foreach (var group in NmCalibrationTable.Group(NmCalibrationRows))
+            NmCalibrationGroups.Add(new NmCalibrationGroupVm(group));
         NmCalibrationSummary = NmCalibrationTable.Summarize(NmCalibrationRows);
 
         foreach (var comparison in NmCalibrationTable.BuildComparisons(report))
@@ -1396,6 +1454,14 @@ public sealed partial class TraceViewerViewModel
 
     [RelayCommand]
     private Task AnalyzeNmFullAsync() => RunNmAnalysisAsync(null);
+
+    /// <summary>展开/收起一个规则组（同质规则折叠后逐条查看）。</summary>
+    [RelayCommand]
+    private static void ToggleNmCalibrationGroup(NmCalibrationGroupVm? group)
+    {
+        if (group is null) return;
+        group.IsExpanded = !group.IsExpanded;
+    }
 
     [RelayCommand]
     private Task AnalyzeNmWindowAsync()

@@ -56,6 +56,10 @@ public sealed class NmViewLayoutTests
 
         // 证据级别并入详情列：省掉 52px 固定列，详情列用模板列承载图标 + 文本。
         var detail = columns.Single(c => (string?)c.Attribute("Width") == "*");
+        // 面板可拖到 MinWidth=280（TraceViewerView.xaml:226），360 只是默认值。
+        // 固定列 234px，280px 下 * 列只剩约 46px——必须有 MinWidth 兜底。
+        ((string?)detail.Attribute("MinWidth")).Should().NotBeNullOrEmpty(
+            "面板可拖到 280px，详情列没有 MinWidth 时会被压成不可读宽度");
         detail.Name.Should().Be(P + "DataGridTemplateColumn",
             "详情列要在文本前放证据图标，必须是模板列");
         detail.Descendants(P + "TextBlock")
@@ -256,7 +260,7 @@ public sealed class NmViewLayoutTests
         var itemsSources = scroller.Descendants(P + "ItemsControl")
             .Select(i => (string?)i.Attribute("ItemsSource"))
             .ToList();
-        itemsSources.Should().Contain("{Binding NmCalibrationRows}");
+        itemsSources.Should().Contain("{Binding NmCalibrationGroups}");
         itemsSources.Should().Contain("{Binding NmCalibrationComparisons}");
         itemsSources.Should().Contain("{Binding NmDataQualityChecks}");
         itemsSources.Should().Contain("{Binding NmUnmodeledClauses}");
@@ -273,7 +277,7 @@ public sealed class NmViewLayoutTests
             .Select(i => (string?)i.Attribute("ItemsSource"))
             .ToList();
 
-        itemsSources.Should().Contain("{Binding NmCalibrationRows}");
+        itemsSources.Should().Contain("{Binding NmCalibrationGroups}");
         itemsSources.Should().Contain("{Binding NmCalibrationComparisons}");
         itemsSources.Should().Contain("{Binding NmDataQualityChecks}");
         itemsSources.Should().Contain("{Binding NmUnmodeledClauses}");
@@ -349,6 +353,60 @@ public sealed class NmViewLayoutTests
         ForegroundOf(statusTriggers, "触发").Should().Be("#C0392B");
         ForegroundOf(statusTriggers, "未建模").Should().Be("#B26A00");
         ForegroundOf(statusTriggers, "不适用").Should().Be("#4A6C8C");
+    }
+
+    /// <summary>
+    /// 规则表按结构分组渲染：13 条预留位检查折叠成一行，否则占掉半屏
+    /// 把触发行淹掉。折叠头必须带结论摘要与展开按钮。
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationRules_GroupedWithCollapsibleHeader()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        // 顶层绑定分组集合，而不是平铺行。
+        calibration.Descendants(P + "ItemsControl")
+            .Select(i => (string?)i.Attribute("ItemsSource"))
+            .Should().Contain("{Binding NmCalibrationGroups}",
+                "规则表要按结构分组渲染，才能折叠同质规则");
+
+        // 折叠头：标题 + 摘要 + 展开按钮。
+        calibration.Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Should().Contain("{Binding CollapsedHeader}");
+        calibration.Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Should().Contain("{Binding CollapsedSummary}");
+        calibration.Descendants(P + "Button")
+            .Select(b => (string?)b.Attribute("Command"))
+            .Should().Contain(c => (c ?? "").Contains("ToggleNmCalibrationGroup", StringComparison.Ordinal),
+                "折叠组必须有展开/收起按钮");
+    }
+
+    /// <summary>
+    /// 折叠头必须按组内结论变色：违规用红（与单行「触发」一致）、
+    /// 未建模用琥珀（与单行「未建模」一致）。两者共用中性色会让
+    /// 「有 13 条没查成」在折叠状态下看不出来。
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationGroupHeader_ColorsByGroupStatus()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        var violation = calibration.Descendants(P + "DataTrigger")
+            .FirstOrDefault(t => (string?)t.Attribute("Binding") == "{Binding HasViolation}");
+        var unmodeled = calibration.Descendants(P + "DataTrigger")
+            .FirstOrDefault(t => (string?)t.Attribute("Binding") == "{Binding HasUnmodeled}");
+
+        violation.Should().NotBeNull("折叠头要按 HasViolation 变色，否则违规被折叠藏起来");
+        ForegroundOf([violation!], "True").Should().Be("#C0392B",
+            "违规用与「触发」一致的红色");
+
+        unmodeled.Should().NotBeNull("未建模的组也要变色，否则折叠后看不出没查成");
+        ForegroundOf([unmodeled!], "True").Should().Be("#B26A00",
+            "未建模用与单行一致的琥珀色");
     }
 
     /// <summary>

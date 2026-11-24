@@ -25,6 +25,21 @@ public class NmCalibrationTableTests
             Clauses = when == "nid_id_mapping" ? Clauses54 : Clauses55,
         };
 
+    /// <summary>
+    /// 预留位检查规则（吉利 §5.4.3 / §5.4.4 的同质规则形态）：
+    /// 同为 <c>bit_rule</c> + <c>is_zero</c> + <c>NM_RESERVED_BIT_SET</c>，
+    /// 只有 byte/bit、ID 与条款不同。
+    /// </summary>
+    private static NmRuleDef ReservedRule(
+        string id, byte byteNum, int bit, string clause = "§5.4.3")
+        => new(id, $"CBV byte{byteNum}.bit{bit} 为预留位，必须填 0", "normal",
+            new NmRuleWhen("bit_rule", Byte: byteNum, Bit: bit),
+            new NmRuleExpect("is_zero"),
+            "NM_RESERVED_BIT_SET")
+        {
+            Clauses = [clause],
+        };
+
     private static NmReport Report(
         IReadOnlyList<NmFinding>? findings = null,
         IReadOnlyList<NmObservation>? observations = null,
@@ -494,6 +509,312 @@ public class NmCalibrationTableTests
     [Fact]
     public void Summarize_EmptyRows_ReturnsEmpty()
         => Assert.Equal("", NmCalibrationTable.Summarize(Array.Empty<NmCalibrationRow>()));
+
+    // —— 同质规则折叠（13 条 NM_RESERVED_* 占掉一半屏幕）——
+
+    /// <summary>
+    /// 判据必须来自**结构事实**（原语种类 + 期望种类 + finding 码 + 结论），
+    /// 不能靠 ID 前缀猜——ID 是自由文本，改个名字就会让折叠行为漂移。
+    /// <para>
+    /// 这里用两条**ID 完全不同、但结构相同**的规则验证：它们应被折叠进同一组。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Group_SameStructureSameStatus_Collapses()
+    {
+        var rows = NmCalibrationTable.Build(
+            [ReservedRule("NM_A", byteNum: 1, bit: 1), ReservedRule("NM_B", byteNum: 1, bit: 2)],
+            Report(evaluations:
+            [
+                Evaluation("NM_A", NmRuleVerdict.EvaluatedNoFinding),
+                Evaluation("NM_B", NmRuleVerdict.EvaluatedNoFinding),
+            ]));
+
+        var groups = NmCalibrationTable.Group(rows);
+
+        var g = Assert.Single(groups);
+        Assert.Equal(2, g.Rows.Count);
+        Assert.True(g.IsCollapsed, "结构相同且结论一致时应折叠成一行");
+        // 折叠行标题要说明这一组在查什么，而不是罗列 ID。
+        Assert.Contains("预留位", g.Title, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <b>结论不一致时必须展开</b>：一条触发、一条未触发，折叠成「2 条未触发」
+    /// 会把违规藏起来——这是折叠最危险的方向。
+    /// </summary>
+    [Fact]
+    public void Group_MixedStatus_StaysExpanded()
+    {
+        var rows = NmCalibrationTable.Build(
+            [ReservedRule("NM_A", 1, 1), ReservedRule("NM_B", 1, 2)],
+            Report(
+                findings:
+                [
+                    new NmFinding("NM_RESERVED_BIT_SET", "warn", "byte1.bit2 被置位",
+                        [1.0], false, null, RuleId: "NM_B"),
+                ],
+                evaluations:
+                [
+                    Evaluation("NM_A", NmRuleVerdict.EvaluatedNoFinding),
+                    Evaluation("NM_B", NmRuleVerdict.EvaluatedWithFinding),
+                ]));
+
+        var groups = NmCalibrationTable.Group(rows);
+
+        var g = Assert.Single(groups);
+        Assert.False(g.IsCollapsed, "组内结论不一致时必须展开，否则违规被藏起来");
+        Assert.Equal(2, g.Rows.Count);
+    }
+
+    /// <summary>
+    /// <b>组内任一触发就必须整组可见</b>，且组标题要提示有违规。
+    /// 用户扫到折叠行就该知道这里有问题，不必展开。
+    /// </summary>
+    [Fact]
+    public void Group_WithTriggeredRow_SurfacesInTitle()
+    {
+        var rows = NmCalibrationTable.Build(
+            [ReservedRule("NM_A", 1, 1), ReservedRule("NM_B", 1, 2), ReservedRule("NM_C", 1, 3)],
+            Report(
+                findings:
+                [
+                    new NmFinding("NM_RESERVED_BIT_SET", "warn", "byte1.bit2 被置位",
+                        [1.0], false, null, RuleId: "NM_B"),
+                ],
+                evaluations:
+                [
+                    Evaluation("NM_A", NmRuleVerdict.EvaluatedNoFinding),
+                    Evaluation("NM_B", NmRuleVerdict.EvaluatedWithFinding),
+                    Evaluation("NM_C", NmRuleVerdict.EvaluatedNoFinding),
+                ]));
+
+        var g = Assert.Single(NmCalibrationTable.Group(rows));
+
+        Assert.False(g.IsCollapsed);
+        Assert.Contains("1", g.Summary, StringComparison.Ordinal);
+        Assert.Contains("触发", g.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 结构不同（原语或期望不同）的规则不能合并——它们查的不是一回事。
+    /// <para>
+    /// <b>用同 finding 码、不同原语</b>构造：这是判据的窄边界。
+    /// 若结构身份退化成只看 finding 码，这两条会被错误合并。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Group_DifferentPrimitive_NotMerged()
+    {
+        var rows = NmCalibrationTable.Build(
+            [
+                ReservedRule("NM_A", 1, 1),
+                // 同 finding 码，但原语是 cycle_tolerance、期望是 within_pct。
+                new NmRuleDef("NM_B", "周期检查", "normal",
+                    new NmRuleWhen("cycle_tolerance", CycleMs: 500),
+                    new NmRuleExpect("within_pct", Pct: 0.1),
+                    "NM_RESERVED_BIT_SET")
+                {
+                    Clauses = ["§5.5"],
+                },
+            ],
+            Report());
+
+        var groups = NmCalibrationTable.Group(rows);
+
+        Assert.Equal(2, groups.Count);
+        Assert.All(groups, g => Assert.False(g.IsCollapsed));
+    }
+
+    /// <summary>
+    /// 同原语同期望但 finding 码不同，也不能合并——报出来的是不同的码，
+    /// 用户据此去查不同的东西。
+    /// </summary>
+    [Fact]
+    public void Group_DifferentFindingCode_NotMerged()
+    {
+        var rows = NmCalibrationTable.Build(
+            [
+                ReservedRule("NM_A", 1, 1),
+                new NmRuleDef("NM_B", "另一个检查", "normal",
+                    new NmRuleWhen("bit_rule", Byte: 1, Bit: 2),
+                    new NmRuleExpect("is_zero"),
+                    "SOME_OTHER_CODE")
+                {
+                    Clauses = ["§5.4.3"],
+                },
+            ],
+            Report());
+
+        Assert.Equal(2, NmCalibrationTable.Group(rows).Count);
+    }
+
+    /// <summary>
+    /// 同原语同期望但**期望种类不同**，不能合并。
+    /// <para>
+    /// 覆盖 <c>Expect.Kind</c> 这一维：把结构键退化成只含
+    /// <c>When.Kind + FindingCode</c> 时，这条会红。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Group_DifferentExpectKind_NotMerged()
+    {
+        var rows = NmCalibrationTable.Build(
+            [
+                ReservedRule("NM_A", 1, 1),
+                new NmRuleDef("NM_B", "CBV byte1.bit2 必须为 1", "normal",
+                    new NmRuleWhen("bit_rule", Byte: 1, Bit: 2),
+                    new NmRuleExpect("is_one"),
+                    "NM_RESERVED_BIT_SET")
+                {
+                    Clauses = ["§5.4.3"],
+                },
+            ],
+            Report());
+
+        Assert.Equal(2, NmCalibrationTable.Group(rows).Count);
+    }
+
+    /// <summary>
+    /// <b>真实 profile 的形态</b>：13 条预留位规则原语完全相同，但 6 条查
+    /// CBV byte1（§5.4.3）、7 条查 NMSts byte3（§5.4.4）。
+    /// <para>
+    /// 条款必须进分组键，否则它们并成一组，折叠标题只能描述其中一个条款——
+    /// 对一个以条款覆盖为卖点的面板，等于错误陈述覆盖范围。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Group_SamePrimitiveDifferentClause_NotMerged()
+    {
+        var rows = NmCalibrationTable.Build(
+            [
+                ReservedRule("NM_RESERVED_B1_1", 1, 1, "§5.4.3"),
+                ReservedRule("NM_RESERVED_B1_2", 1, 2, "§5.4.3"),
+                ReservedRule("NM_RESERVED_B3_1", 3, 1, "§5.4.4"),
+                ReservedRule("NM_RESERVED_B3_2", 3, 2, "§5.4.4"),
+            ],
+            Report());
+
+        var groups = NmCalibrationTable.Group(rows);
+
+        Assert.Equal(2, groups.Count);
+        // 两个组各自描述自己的条款，不能都写 §5.4.3。
+        Assert.Contains(groups, g => g.Title.Contains("§5.4.3", StringComparison.Ordinal));
+        Assert.Contains(groups, g => g.Title.Contains("§5.4.4", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 组标题不能带具体 byte.bit 参数——那会把整组描述成首行的那个 bit。
+    /// </summary>
+    [Fact]
+    public void GroupTitle_DoesNotCarrySpecificBitParameter()
+    {
+        var rows = NmCalibrationTable.Build(
+            [
+                ReservedRule("NM_RESERVED_B1_1", 1, 1),
+                ReservedRule("NM_RESERVED_B1_2", 1, 2),
+            ],
+            Report());
+
+        var g = Assert.Single(NmCalibrationTable.Group(rows));
+
+        Assert.DoesNotContain("bit1", g.Title, StringComparison.Ordinal);
+        Assert.DoesNotContain("bit2", g.Title, StringComparison.Ordinal);
+        // 但仍要说清查什么。
+        Assert.Contains("预留位", g.Title, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <b>全「触发」的组也必须展开</b>：红字标题只说「有违规」，
+    /// 具体哪条、finding 原文、证据时刻都在展开之后。
+    /// </summary>
+    [Fact]
+    public void Group_AllTriggered_StaysExpanded()
+    {
+        var rows = NmCalibrationTable.Build(
+            [ReservedRule("NM_A", 1, 1), ReservedRule("NM_B", 1, 2)],
+            Report(
+                findings:
+                [
+                    new NmFinding("NM_RESERVED_BIT_SET", "warn", "byte1.bit1 被置位",
+                        [1.0], false, null, RuleId: "NM_A"),
+                    new NmFinding("NM_RESERVED_BIT_SET", "warn", "byte1.bit2 被置位",
+                        [2.0], false, null, RuleId: "NM_B"),
+                ],
+                evaluations:
+                [
+                    Evaluation("NM_A", NmRuleVerdict.EvaluatedWithFinding),
+                    Evaluation("NM_B", NmRuleVerdict.EvaluatedWithFinding),
+                ]));
+
+        var g = Assert.Single(NmCalibrationTable.Group(rows));
+
+        Assert.False(g.IsCollapsed, "全触发的组不能折叠——具体哪条挂了要能直接看到");
+        Assert.True(g.HasViolation);
+    }
+
+    /// <summary>
+    /// 全「未建模」的组同样展开：面板特意把未建模排在未触发之前，
+    /// 就是让用户先看「没查成的」；默认收成一行等于抵消这个意图。
+    /// </summary>
+    [Fact]
+    public void Group_AllUnmodeled_StaysExpanded()
+    {
+        var rows = NmCalibrationTable.Build(
+            [ReservedRule("NM_A", 1, 1), ReservedRule("NM_B", 1, 2)],
+            Report(unmodeled:
+            [
+                new NmUnmodeledRule("§5.4.3", "缺 bit_roles")
+                {
+                    RuleId = "NM_A",
+                    ReasonCode = NmUnmodeledCodes.MissingProfileData,
+                },
+                new NmUnmodeledRule("§5.4.3", "缺 bit_roles")
+                {
+                    RuleId = "NM_B",
+                    ReasonCode = NmUnmodeledCodes.MissingProfileData,
+                },
+            ]));
+
+        var g = Assert.Single(NmCalibrationTable.Group(rows));
+
+        Assert.False(g.IsCollapsed, "全未建模的组要展开——「没查成」需要用户处理");
+        Assert.True(g.HasUnmodeled);
+    }
+
+    /// <summary>单条规则不折叠——折叠一个只有一项的组只会多一层展开操作。</summary>
+    [Fact]
+    public void Group_SingleRow_NotCollapsed()
+    {
+        var rows = NmCalibrationTable.Build([ReservedRule("NM_A", 1, 1)], Report());
+
+        var g = Assert.Single(NmCalibrationTable.Group(rows));
+        Assert.False(g.IsCollapsed);
+    }
+
+    /// <summary>分组顺序沿用行顺序（结论强度），组内也是。</summary>
+    [Fact]
+    public void Group_PreservesSeverityOrder()
+    {
+        var rows = NmCalibrationTable.Build(
+            [ReservedRule("NM_A", 1, 1), ReservedRule("NM_B", 1, 2), Rule("NM_CYCLE", "cycle_tolerance")],
+            Report(
+                findings:
+                [
+                    new NmFinding("NM_CYCLE_DEVIATION", "warn", "周期偏差",
+                        [1.0], false, null, RuleId: "NM_CYCLE"),
+                ],
+                evaluations:
+                [
+                    Evaluation("NM_A", NmRuleVerdict.EvaluatedNoFinding),
+                    Evaluation("NM_B", NmRuleVerdict.EvaluatedNoFinding),
+                    Evaluation("NM_CYCLE", NmRuleVerdict.EvaluatedWithFinding),
+                ]));
+
+        var groups = NmCalibrationTable.Group(rows);
+
+        Assert.Equal("NM_CYCLE", groups[0].Rows[0].RuleId);
+    }
 
     // —— 身份与归因 ——
 
