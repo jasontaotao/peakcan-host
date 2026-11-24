@@ -80,6 +80,21 @@ public sealed record NmTimelineRowVm(
 public sealed record NmEventRowVm(double T, string TimeText, string Type, string Subject,
     string Detail, string EvidenceKind, int EpisodeIndex, string? CanIdHex = null)
 {
+    /// <summary>
+    /// 「对象」列的实际显示文本。
+    /// <para>
+    /// <b>修的是列语义混乱</b>：原实现用 <c>Node ?? CanIdHex</c>，于是
+    /// <c>burst_observed</c> 行显示发送节点（<c>ECU_A</c>），<c>byte_change</c> 行
+    /// 显示报文 ID（<c>0x18FFFA27</c>）——同一列里两种东西，用户无法横向比较。
+    /// </para>
+    /// <para>
+    /// 现在：有报文定义就用「名字 (ID)」；没有报文 ID 的事件（全网静默等）
+    /// 退回节点名或空串。原始 <see cref="Subject"/> 保留不动，导出仍按它匹配；
+    /// 筛选同时匹配两者（<see cref="NmEventFilters.Filter"/>）。
+    /// </para>
+    /// </summary>
+    public string SubjectLabel { get; init; } = "";
+
     /// <summary>事件表展示用的中文类型名；筛选仍按原始 snake_case 契约。</summary>
     public string TypeLabel => NmTimelineText.EventType(Type);
 
@@ -228,7 +243,14 @@ public static class NmEventFilters
         };
     }
 
-    /// <summary>过滤事件行：类型分类 + 对象/详情关键字（大小写不敏感）。</summary>
+    /// <summary>
+    /// 过滤事件行：类型分类 + 对象/详情关键字（大小写不敏感）。
+    /// <para>
+    /// 必须同时匹配 <see cref="NmEventRowVm.SubjectLabel"/>：那是「对象」列**实际显示**的
+    /// 文本（「名字 (ID)」）。只匹配 <see cref="NmEventRowVm.Subject"/> 会让用户
+    /// 「看得见却搜不到」——输入界面上出现的报文名反而筛不出该行。
+    /// </para>
+    /// </summary>
     public static IReadOnlyList<NmEventRowVm> Filter(
         IEnumerable<NmEventRowVm> rows, string? category, string? keyword)
     {
@@ -236,6 +258,7 @@ public static class NmEventFilters
         return rows
             .Where(r => MatchesCategory(r.Type, category))
             .Where(r => string.IsNullOrEmpty(term)
+                || r.SubjectLabel.Contains(term, StringComparison.OrdinalIgnoreCase)
                 || r.Subject.Contains(term, StringComparison.OrdinalIgnoreCase)
                 || r.Detail.Contains(term, StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -323,6 +346,11 @@ public sealed partial class TraceViewerViewModel
     public ObservableCollection<NmUnmodeledClauseRow> NmUnmodeledClauses { get; } = new();
     /// <summary>标定面板是否有内容；无企标且无体检结果时整块隐藏。</summary>
     [ObservableProperty] private bool _nmHasCalibration;
+    /// <summary>
+    /// 规则表的一句话汇总（如「21 条 · 1 触发 · 2 未建模 · 18 未触发」）。
+    /// 21 行平铺时用户得自己数哪几条挂了，汇总让「有没有问题」一眼可见。
+    /// </summary>
+    [ObservableProperty] private string _nmCalibrationSummary = "";
 
     public ObservableCollection<NmCapabilityChipVm> NmCapabilityChips { get; } = new();
     public ObservableCollection<NmTimelineRowVm> NmTimelineRows { get; } = new();
@@ -886,6 +914,7 @@ public sealed partial class TraceViewerViewModel
         NmDataQualityChecks.Clear();
         NmUnmodeledClauses.Clear();
         NmHasCalibration = false;
+        NmCalibrationSummary = "";
         NmProfileChoices.Clear();
         NmProfileSelectorHint = "未选择企标：仅做观测，不做企标判定";
         NmProfileCandidatesSummary = "";
@@ -965,11 +994,28 @@ public sealed partial class TraceViewerViewModel
         NmTimelineRows.Clear();
         foreach (var row in BuildTimelineRows(report)) NmTimelineRows.Add(row);
 
+        // 报文 ID → 显示名。事件本身只带 CanIdHex（NmEvent 不含报文名），
+        // 在这里按报告里的报文表反查一次，避免每行重复查找。
+        var displayByCanId = (report.Messages ?? Array.Empty<NmMessageReport>())
+            .GroupBy(m => (m.CanIdHex, m.IsExtended))
+            .ToDictionary(g => g.Key, g => NmDisplayName.Of(g.Key.CanIdHex, g.First().Name));
+
         _allNmEventRows.Clear();
         foreach (var e in report.Events)
         {
+            var subject = e.Node ?? e.CanIdHex ?? "";
+            // 「对象」列：有报文定义就显示「名字 (ID)」。
+            // 查不到时以 CAN ID 为锚（而不是退回发送节点）——列语义要稳定，
+            // 否则同一个 burst 事件有时显示节点名、有时显示 ID，正是本次要修的旧问题。
+            var label = e.CanIdHex is not null
+                        && displayByCanId.TryGetValue((e.CanIdHex, e.IsExtended), out var display)
+                ? display
+                : e.CanIdHex ?? e.Node ?? "";
             _allNmEventRows.Add(new NmEventRowVm(e.T, TraceTimeFormatter.Format(e.T, null), e.Type,
-                e.Node ?? e.CanIdHex ?? "", e.Detail, e.EvidenceKind, e.EpisodeIndex, e.CanIdHex));
+                subject, e.Detail, e.EvidenceKind, e.EpisodeIndex, e.CanIdHex)
+            {
+                SubjectLabel = label,
+            });
         }
         RefreshNmEventRows();
 
@@ -1203,6 +1249,7 @@ public sealed partial class TraceViewerViewModel
             foreach (var row in NmCalibrationTable.Build(rules, report))
                 NmCalibrationRows.Add(row);
         }
+        NmCalibrationSummary = NmCalibrationTable.Summarize(NmCalibrationRows);
 
         foreach (var comparison in NmCalibrationTable.BuildComparisons(report))
             NmCalibrationComparisons.Add(comparison);

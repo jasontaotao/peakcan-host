@@ -29,7 +29,8 @@ public class NmCalibrationTableTests
         IReadOnlyList<NmFinding>? findings = null,
         IReadOnlyList<NmObservation>? observations = null,
         IReadOnlyList<NmUnmodeledRule>? unmodeled = null,
-        IReadOnlyList<NmDataQualityCheck>? checks = null)
+        IReadOnlyList<NmDataQualityCheck>? checks = null,
+        IReadOnlyList<NmRuleEvaluation>? evaluations = null)
         => new(
             new NmWindow(0, 10, "full"), "src", null,
             Array.Empty<NmEpisode>(), Array.Empty<NmMessageReport>(), Array.Empty<NmNodeReport>(),
@@ -40,7 +41,10 @@ public class NmCalibrationTableTests
             Array.Empty<NmTruncation>(),
             Observations: observations,
             UnmodeledRules: unmodeled,
-            DataQualityChecks: checks);
+            DataQualityChecks: checks)
+        {
+            RuleEvaluations = evaluations ?? Array.Empty<NmRuleEvaluation>(),
+        };
 
     private static NmFinding Finding(string? ruleId, double at = 1.5)
         => new("NM_CYCLE_DEVIATION", "warn", "周期偏差", [at], false, null, RuleId: ruleId);
@@ -51,6 +55,9 @@ public class NmCalibrationTableTests
 
     private static NmUnmodeledRule Unmodeled(string? ruleId, string code = NmUnmodeledCodes.NotApplicable)
         => new("§5.5", "trace 里没有该事件") { RuleId = ruleId, ReasonCode = code };
+
+    private static NmRuleEvaluation Evaluation(string ruleId, NmRuleVerdict verdict, string? code = null)
+        => new(ruleId, verdict, code, Array.Empty<string>());
 
     // —— 三态 ——
 
@@ -176,6 +183,317 @@ public class NmCalibrationTableTests
         Assert.Equal(NmRuleStatus.Unmodeled, row.Status);
         Assert.Equal(NmUnmodeledCodes.Unobservable, row.ReasonCode);
     }
+
+    // —— 引擎五态（spec §7.1.1）：面板不得把「本次不适用」显示成「未触发」——
+
+    /// <summary>
+    /// <b>这是实测发现的显示错误</b>：<see cref="NmRuleVerdict.NotApplicable"/> 在
+    /// 引擎里明确「既不是合规也不是未建模——是这次碰不到」，并特意注明
+    /// 「判成 EvaluatedNoFinding 会让条款覆盖把该条款算成 Covered」
+    /// （<c>NmRuleEngine.cs:280-289</c>）。
+    /// <para>
+    /// 面板原先自己反推三态，把 NotApplicable 显示成「未触发」，用户读作
+    /// 「查过了没问题」——引擎作者特意防的坑在展示层又踩回去了。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EngineNotApplicable_IsNotShownAsNotTriggered()
+    {
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_BURST_SHAPE", "burst_shape")],
+            Report(evaluations:
+            [
+                Evaluation("NM_BURST_SHAPE", NmRuleVerdict.NotApplicable,
+                    NmUnmodeledCodes.NotApplicable),
+            ]));
+
+        var row = Assert.Single(rows);
+        Assert.Equal(NmRuleStatus.NotApplicable, row.Status);
+        Assert.Equal("不适用", row.StatusText);
+        // 引擎结论必须能落到行上，供 UI 显示依据。
+        Assert.Equal(NmRuleVerdict.NotApplicable, row.Verdict);
+        // 文案是这次修复的核心：删掉 Summary 的 NotApplicable 分支后，
+        // 它会落进「未触发」兜底，说出「已检查，未发现违规」——正是要消灭的那句。
+        Assert.False(string.IsNullOrWhiteSpace(row.Summary));
+        Assert.DoesNotContain("未发现违规", row.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 「不适用」可能仍有观测：<c>repeat_message_duration</c> 的 <c>with_burst</c>
+    /// 把每一段都跳过时，evaluator 仍为每段产一条 <c>_not_applicable</c> 观测。
+    /// <para>
+    /// 此时文案不能说「未出现」——同一份报告的观测表里明明有 N 条。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void NotApplicable_WithObservations_DoesNotClaimNoEventSeen()
+    {
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_RMS", "repeat_message_duration")],
+            Report(
+                observations: [Observation("NM_RMS"), Observation("NM_RMS", 2, 4)],
+                evaluations:
+                [
+                    Evaluation("NM_RMS", NmRuleVerdict.NotApplicable, NmUnmodeledCodes.NotApplicable),
+                ]));
+
+        var row = Assert.Single(rows);
+        Assert.Equal(NmRuleStatus.NotApplicable, row.Status);
+        Assert.DoesNotContain("未出现", row.Summary, StringComparison.Ordinal);
+        Assert.Contains("2", row.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 引擎声称有违规却没给 finding = 内部不一致，必须显式标原因码，
+    /// 不能伪装成普通「未建模」（否则 AI 会指引用户去改一份没问题的 profile）。
+    /// </summary>
+    [Fact]
+    public void EngineClaimsFindingWithoutFinding_FlagsInternalInconsistent()
+    {
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_05")],
+            Report(evaluations: [Evaluation("NM_05", NmRuleVerdict.EvaluatedWithFinding)]));
+
+        var row = Assert.Single(rows);
+        Assert.Equal(NmRuleStatus.Unmodeled, row.Status);
+        Assert.Equal(NmUnmodeledCodes.InternalInconsistent, row.ReasonCode);
+    }
+
+    /// <summary>
+    /// 一条规则逐报文产多条 finding 时，行内说明不能把它们全拼出来——
+    /// 360px 面板里会占满整屏，把其余规则挤出视野。
+    /// </summary>
+    [Fact]
+    public void TriggeredRow_WithManyFindings_SummarizesInsteadOfDumpingAll()
+    {
+        var findings = Enumerable.Range(0, 12)
+            .Select(i => new NmFinding("NM_CYCLE_DEVIATION", "warn",
+                $"0x5{i:X2} 周期偏差", [i], false, null, RuleId: "NM_05"))
+            .ToArray();
+
+        var row = Assert.Single(NmCalibrationTable.Build([Rule("NM_05")], Report(findings: findings)));
+
+        Assert.Contains("另有 11 条", row.Summary, StringComparison.Ordinal);
+        // 只显示首条：不能把 12 条全塞进一行。
+        Assert.DoesNotContain("0x5B", row.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <see cref="NmRuleVerdict.Partial"/>：一部分判成了、一部分没判成。
+    /// 不能显示成「未触发」——那会让用户以为整条规则都查过了。
+    /// </summary>
+    [Fact]
+    public void EnginePartial_KeepsReasonCode()
+    {
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_NMSTS", "nmsts_transition")],
+            Report(
+                observations: [Observation("NM_NMSTS")],
+                unmodeled: [Unmodeled("NM_NMSTS", NmUnmodeledCodes.PartialEvidence)],
+                evaluations:
+                [
+                    Evaluation("NM_NMSTS", NmRuleVerdict.Partial, NmUnmodeledCodes.PartialEvidence),
+                ]));
+
+        var row = Assert.Single(rows);
+        Assert.Equal(NmRuleStatus.Unmodeled, row.Status);
+        Assert.Equal(NmUnmodeledCodes.PartialEvidence, row.ReasonCode);
+        Assert.Equal(NmRuleVerdict.Partial, row.Verdict);
+    }
+
+    /// <summary>
+    /// <b>安全优先</b>：有 finding 就是违规，即使引擎 verdict 写着别的。
+    /// 展示层宁可多报一条违规，也不能因为 verdict 异常把真实违规藏起来。
+    /// </summary>
+    [Fact]
+    public void FindingWins_OverEngineVerdict()
+    {
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_05")],
+            Report(
+                findings: [Finding("NM_05")],
+                evaluations: [Evaluation("NM_05", NmRuleVerdict.EvaluatedNoFinding)]));
+
+        var row = Assert.Single(rows);
+        Assert.Equal(NmRuleStatus.Triggered, row.Status);
+    }
+
+    /// <summary>
+    /// 没有 <see cref="NmReport.RuleEvaluations"/> 时（旧报告、未选中企标）必须
+    /// 回退到原有的反推逻辑——否则所有旧快照会一起变样。
+    /// </summary>
+    [Fact]
+    public void MissingEvaluations_FallsBackToInference()
+    {
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_LAYOUT", "layout_check")], Report());
+
+        var row = Assert.Single(rows);
+        Assert.Equal(NmRuleStatus.NotTriggered, row.Status);
+        Assert.Null(row.Verdict);
+    }
+
+    // —— 每行必须说清「是什么」与「凭什么」 ——
+
+    /// <summary>
+    /// <b>实测发现的空白行</b>：<see cref="NmCalibrationRow.Messages"/> 里有 finding
+    /// 原文，但 XAML 只绑了 <c>Reason</c>（仅未建模时非 null），触发行在界面上
+    /// 一个字都不显示——采集了、存下来了、没有渲染。
+    /// <para>
+    /// 本测试钉住「一行一定有可读文本」，不管它是什么状态。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EveryRow_HasReadableSummary()
+    {
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_05"), Rule("NM_06"), Rule("NM_07")],
+            Report(
+                findings: [Finding("NM_05")],
+                unmodeled: [Unmodeled("NM_06")],
+                evaluations:
+                [
+                    Evaluation("NM_05", NmRuleVerdict.EvaluatedWithFinding),
+                    Evaluation("NM_06", NmRuleVerdict.Unmodeled, NmUnmodeledCodes.NotApplicable),
+                    Evaluation("NM_07", NmRuleVerdict.EvaluatedNoFinding),
+                ]));
+
+        Assert.All(rows, r => Assert.False(
+            string.IsNullOrWhiteSpace(r.Summary),
+            $"规则 {r.RuleId}（{r.StatusText}）没有任何可读说明"));
+    }
+
+    /// <summary>
+    /// 触发行必须显示 finding 原文，不能只有一个规则 ID。
+    /// </summary>
+    [Fact]
+    public void TriggeredRow_SummaryShowsFindingMessage()
+    {
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_NID", "nid_id_mapping")],
+            Report(findings:
+            [
+                new NmFinding("NM_NID_MISMATCH", "warn",
+                    "0x18FFFA27 NID 0x27 ≠ 站地址 0x00", [1.5], false, null, RuleId: "NM_NID"),
+            ]));
+
+        var row = Assert.Single(rows);
+        Assert.Contains("NID 0x27", row.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 「未触发」必须交代依据：基于几条观测。没有观测的零输出规则
+    /// （<c>layout_check</c> 等通过时静默）也要说清「已检查、无违规」，
+    /// 而不是留白让用户以为没查。
+    /// </summary>
+    [Fact]
+    public void NotTriggeredRow_SummaryStatesBasis()
+    {
+        var withObservations = NmCalibrationTable.Build(
+            [Rule("NM_05")],
+            Report(
+                observations: [Observation("NM_05"), Observation("NM_05", 2, 4)],
+                evaluations: [Evaluation("NM_05", NmRuleVerdict.EvaluatedNoFinding)]));
+
+        var row = Assert.Single(withObservations);
+        Assert.Contains("2", row.Summary, StringComparison.Ordinal);
+        Assert.Contains("观测", row.Summary, StringComparison.Ordinal);
+
+        // 零输出规则：没有观测可数，但结论仍是「查过没问题」。
+        var silent = Assert.Single(NmCalibrationTable.Build(
+            [Rule("NM_LAYOUT", "layout_check")],
+            Report(evaluations: [Evaluation("NM_LAYOUT", NmRuleVerdict.EvaluatedNoFinding)])));
+        Assert.False(string.IsNullOrWhiteSpace(silent.Summary),
+            "零输出规则也必须说明「已检查、未发现违规」");
+    }
+
+    /// <summary>
+    /// 规则的中文含义必须可见，不能只藏在 ToolTip 里——用户扫一遍表就要
+    /// 知道「NM_RESERVED_B1_1 到底是查什么」。
+    /// </summary>
+    [Fact]
+    public void Row_ExposesRequirementAsVisibleTitle()
+    {
+        var rule = Rule("NM_RESERVED_B1_1") with { Requirement = "byte1.bit1 预留位必须为 0" };
+        var row = Assert.Single(NmCalibrationTable.Build([rule], Report()));
+
+        Assert.Equal("byte1.bit1 预留位必须为 0", row.Title);
+    }
+
+    /// <summary>
+    /// 排序按结论强度：触发 → 未建模/不适用 → 未触发。
+    /// 用户往下扫，看到「未触发」就可以停。
+    /// <para>
+    /// 同一强度内仍按 RuleId ordinal，保证刷新后行序稳定。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Rows_SortedByConclusionSeverity()
+    {
+        // 四类同场：触发 > 未建模 > 不适用 > 未触发。
+        // 「不适用」必须排在「未触发」之前——没碰到的要先看。
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_A"), Rule("NM_B"), Rule("NM_C"), Rule("NM_D"), Rule("NM_E")],
+            Report(
+                findings: [Finding("NM_C")],
+                unmodeled: [Unmodeled("NM_D")],
+                evaluations:
+                [
+                    Evaluation("NM_A", NmRuleVerdict.EvaluatedNoFinding),
+                    Evaluation("NM_B", NmRuleVerdict.EvaluatedNoFinding),
+                    Evaluation("NM_C", NmRuleVerdict.EvaluatedWithFinding),
+                    Evaluation("NM_D", NmRuleVerdict.Unmodeled, NmUnmodeledCodes.NotApplicable),
+                    Evaluation("NM_E", NmRuleVerdict.NotApplicable, NmUnmodeledCodes.NotApplicable),
+                ]));
+
+        Assert.Equal(["NM_C", "NM_D", "NM_E", "NM_A", "NM_B"], rows.Select(r => r.RuleId));
+    }
+
+    /// <summary>
+    /// 面板顶部要给一句话汇总：几条触发、几条未建模、几条未触发。
+    /// 现在 21 行平铺，用户得自己数。
+    /// </summary>
+    [Fact]
+    public void Summary_CountsByStatus()
+    {
+        // 四类同场，断言完整字符串：只 Assert.Contains("触发") 会被「未触发」蒙混过关，
+        // 把触发计数写成 0 也照样通过。
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_A"), Rule("NM_B"), Rule("NM_C"), Rule("NM_D")],
+            Report(
+                findings: [Finding("NM_A")],
+                unmodeled: [Unmodeled("NM_B")],
+                evaluations:
+                [
+                    Evaluation("NM_A", NmRuleVerdict.EvaluatedWithFinding),
+                    Evaluation("NM_B", NmRuleVerdict.Unmodeled, NmUnmodeledCodes.NotApplicable),
+                    Evaluation("NM_C", NmRuleVerdict.NotApplicable, NmUnmodeledCodes.NotApplicable),
+                    Evaluation("NM_D", NmRuleVerdict.EvaluatedNoFinding),
+                ]));
+
+        var summary = NmCalibrationTable.Summarize(rows);
+
+        Assert.Equal("4 条 · 1 触发 · 1 未建模 · 1 不适用 · 1 未触发", summary);
+    }
+
+    /// <summary>全为「未触发」时不出现「0 触发」这类噪声。</summary>
+    [Fact]
+    public void Summary_OmitsZeroCategories()
+    {
+        var rows = NmCalibrationTable.Build(
+            [Rule("NM_A"), Rule("NM_B")],
+            Report(evaluations:
+            [
+                Evaluation("NM_A", NmRuleVerdict.EvaluatedNoFinding),
+                Evaluation("NM_B", NmRuleVerdict.EvaluatedNoFinding),
+            ]));
+
+        Assert.Equal("2 条 · 2 未触发", NmCalibrationTable.Summarize(rows));
+    }
+
+    [Fact]
+    public void Summarize_EmptyRows_ReturnsEmpty()
+        => Assert.Equal("", NmCalibrationTable.Summarize(Array.Empty<NmCalibrationRow>()));
 
     // —— 身份与归因 ——
 

@@ -44,9 +44,13 @@ public sealed record NmRuleResult(
 /// <summary>
 /// 一条规则的求值结论（spec §7.1.1）。
 /// <para>
-/// <b>与 <see cref="NmRuleStatus"/> 的区别</b>：那个是标定面板的**呈现**三态
-/// （触发/未触发/未建模），由报告反推；本枚举是引擎的**求值**结论，
-/// 由求值过程直接产出。两者名称相近但语义不同，故分开命名。
+/// <b>与 <see cref="NmRuleStatus"/> 的区别</b>：那个是标定面板的**呈现**结论
+/// （触发/未触发/未建模/不适用），由本枚举映射而来（verdict 缺失时才由报告反推）；
+/// 本枚举是引擎的**求值**结论，由求值过程直接产出。两者名称相近但语义不同，故分开命名。
+/// <para>
+/// <b>本枚举是权威源</b>：<see cref="NotApplicable"/> 只能从这里识别，
+/// 展示层若自己从 finding/observation 反推会把它误报成「未触发」。
+/// </para>
 /// </para>
 /// </summary>
 public enum NmRuleVerdict

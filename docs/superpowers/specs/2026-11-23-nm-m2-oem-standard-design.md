@@ -1443,10 +1443,26 @@ public sealed record NmCacheKey(
 
 ### 10.2 标定面板
 
-- **规则表**：每条规则 → 触发 / 未触发 / `Unmodeled`，点击 seek 到证据时刻
+- **规则表**：每条规则 → 触发 / 未触发 / 未建模 / 不适用，点击 seek 到证据时刻
+  - 顶部一句话汇总（「21 条 · 1 触发 · 2 未建模 · 18 未触发」），不让用户自己数
+  - 每行两行布局：标题（状态 + 规则中文含义）+ 说明（finding 原文 / 观测依据 / 未建模原因）
+  - 排序按结论强度：触发 → 未建模 → 不适用 → 未触发，同强度内按 RuleId
 - **观测 vs 期望**：周期、快发、超时等数值对比
 - **数据体检**：§9 结果
 - **未建模条款**：显式列出，附条款号
+
+**状态映射（2026-11-24 修正）**：原实现自己从 finding/observation 反推三态，把引擎的
+`NotApplicable`（本次 trace 碰不到该规则要判的事件）显示成「未触发」，用户读作
+「查过了没问题」。现改为**以 `NmReport.RuleEvaluations` 的 verdict 为准**，verdict
+缺失（旧报告 / 未选中企标）才回退反推。有 finding 时一律算触发，不看 verdict。
+
+| 引擎 verdict | 面板状态 | 说明 |
+|---|---|---|
+| `EvaluatedWithFinding` | 触发 | 有 finding 即触发 |
+| `EvaluatedNoFinding` | 未触发 | 查过、无违规 |
+| `Partial` | 未建模 | 部分判成；原因码取 evaluation |
+| `Unmodeled` | 未建模 | 没给出可判定结论 |
+| `NotApplicable` | 不适用 | **本次碰不到，既非合规也非未建模** |
 
 不做：规则编辑、profile 新建、导入导出向导。
 
@@ -1550,12 +1566,13 @@ public sealed record NmCacheKey(
 
 | 方法 | 内容 |
 |---|---|
-| `Build(rules, report)` | 规则三态表：触发 / 未触发 / 未建模 |
+| `Build(rules, report)` | 规则结论表：触发 / 未触发 / 未建模 / 不适用（按结论强度排序） |
 | `BuildComparisons(report)` | 观测 vs 期望（周期中位数/P95 vs `NmCycleStats.ExpectedMs` ± `ToleranceMs`） |
 | `BuildDataQuality(report)` | §9 三态体检表 |
 | `BuildUnmodeledClauses(report)` | 未建模条款（用 `Clauses` 全列表，不用单值 `Clause`） |
+| `Summarize(rows)` | 规则表顶部的一句话汇总 |
 
-**三态映射只看 `RuleId`，不看文案**：finding 的 message 会随措辞调整变化，用它判断会让「触发」在改一句话后静默变成「未触发」。
+**结论映射以 `RuleId` 关联、以引擎 verdict 定性，不看文案**：finding 的 message 会随措辞调整变化，用它判断会让「触发」在改一句话后静默变成「未触发」。有 finding 一律算触发（安全优先）；无 finding 时读 `RuleEvaluations` 的 verdict，见 §10.2 的状态映射表。
 
 **「三者皆无」的判定取决于报告是否 partial**（这里修正了首版的一个真缺陷）：
 

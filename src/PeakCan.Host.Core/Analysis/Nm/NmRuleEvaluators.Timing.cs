@@ -48,7 +48,7 @@ public static partial class NmRuleEvaluators
             var pct = rule.When.Pct ?? effective.ToleranceRatio;
             if (cycleMs <= 0)
             {
-                reasons.Add($"{def.CanIdHex} 无有效周期（{cycleMs}ms），无法判定周期偏差");
+                reasons.Add($"{def.DisplayName} 无有效周期（{cycleMs}ms），无法判定周期偏差");
                 missingProfileData = true;
                 continue;
             }
@@ -56,7 +56,7 @@ public static partial class NmRuleEvaluators
             // 共享 ID 下多节点交错发送会把间隔放大成假偏差；与 M1 同口径抑制。
             if (nidByte is { } nb && HasMultipleNids(group, nb))
             {
-                reasons.Add($"{def.CanIdHex} 为共享 ID（NID 不唯一），无法按节点拆分周期");
+                reasons.Add($"{def.DisplayName} 为共享 ID（NID 不唯一），无法按节点拆分周期");
                 continue;
             }
 
@@ -72,7 +72,7 @@ public static partial class NmRuleEvaluators
             if (stats.InsufficientSamples)
             {
                 reasons.Add(
-                    $"{def.CanIdHex} 有效周期间隔 {stats.IntervalCount} 个（< 5），未判定周期偏差");
+                    $"{def.DisplayName} 有效周期间隔 {stats.IntervalCount} 个（< 5），未判定周期偏差");
                 continue;
             }
 
@@ -80,14 +80,14 @@ public static partial class NmRuleEvaluators
 
             if (string.IsNullOrEmpty(rule.FindingCode))
             {
-                reasons.Add($"{def.CanIdHex} 周期偏差显著，但规则未声明 finding code");
+                reasons.Add($"{def.DisplayName} 周期偏差显著，但规则未声明 finding code");
                 missingProfileData = true;
                 continue;
             }
 
             findings.Add(new NmFinding(
                 rule.FindingCode, "warn",
-                $"{def.CanIdHex} 周期偏差 {stats.DeviationCount}/{stats.IntervalCount} 次" +
+                $"{def.DisplayName} 周期偏差 {stats.DeviationCount}/{stats.IntervalCount} 次" +
                 $"（期望 {cycleMs}ms ±{toleranceMs}ms）",
                 times.Take(5).ToArray(),
                 IsInference: rule.Observability == NmObservability.Partial,
@@ -160,7 +160,7 @@ public static partial class NmRuleEvaluators
                     if (burst.IsIndeterminate)
                     {
                         reasons.Add(
-                            $"{def.CanIdHex} 快发判据缺失（ImmediateCycleMs 与 CycleMs 均未配置）");
+                            $"{def.DisplayName} 快发判据缺失（ImmediateCycleMs 与 CycleMs 均未配置）");
                         missingProfileData = true;
                     }
                     continue;
@@ -172,7 +172,7 @@ public static partial class NmRuleEvaluators
                 if (burst.IsIndeterminate)
                 {
                     reasons.Add(
-                        $"{def.CanIdHex} 快发段 {burst.Start:F3}s–{burst.End:F3}s 触到分析边界，" +
+                        $"{def.DisplayName} 快发段 {burst.Start:F3}s–{burst.End:F3}s 触到分析边界，" +
                         "可能被截断，未判定形态");
                     continue;
                 }
@@ -180,7 +180,7 @@ public static partial class NmRuleEvaluators
                 // 回退检测器证明不了帧数语义（N_ImmediateNM_TIMES），不能据此判不合规。
                 if (!string.Equals(burst.Detector, "immediate", StringComparison.Ordinal))
                 {
-                    reasons.Add($"{def.CanIdHex} 未配置 ImmediateCycleMs，快发形态无法判定");
+                    reasons.Add($"{def.DisplayName} 未配置 ImmediateCycleMs，快发形态无法判定");
                     missingProfileData = true;
                     continue;
                 }
@@ -189,14 +189,14 @@ public static partial class NmRuleEvaluators
 
                 if (string.IsNullOrEmpty(rule.FindingCode))
                 {
-                    reasons.Add($"{def.CanIdHex} 快发形态不合规，但规则未声明 finding code");
+                    reasons.Add($"{def.DisplayName} 快发形态不合规，但规则未声明 finding code");
                     missingProfileData = true;
                     continue;
                 }
 
                 findings.Add(new NmFinding(
                     rule.FindingCode, "warn",
-                    $"{def.CanIdHex} 快发段 {burst.FrameCount} 帧 / {burst.IntervalCount} 个间隔，" +
+                    $"{def.DisplayName} 快发段 {burst.FrameCount} 帧 / {burst.IntervalCount} 个间隔，" +
                     $"期望 {timing.ImmediateCount} 帧",
                     new[] { burst.Start },
                     IsInference: rule.Observability == NmObservability.Partial,
@@ -207,12 +207,12 @@ public static partial class NmRuleEvaluators
             // 该报文的帧全部落在所有 episode 之外：没有可判定的段（生产不可达，但显式可见）。
             if (!sawSegment)
             {
-                reasons.Add($"{def.CanIdHex} 的帧全部落在所有 episode 之外，未判定快发形态");
+                reasons.Add($"{def.DisplayName} 的帧全部落在所有 episode 之外，未判定快发形态");
             }
             // 规则意图是「验证快发段存在」时，整段没有候选不能算通过：报告必须显示未断言。
             else if (!sawCandidate)
             {
-                reasons.Add($"{def.CanIdHex} 未观察到快发段（无候选段），规则未实际断言快发形态");
+                reasons.Add($"{def.DisplayName} 未观察到快发段（无候选段），规则未实际断言快发形态");
             }
         }
 
@@ -303,7 +303,10 @@ public static partial class NmRuleEvaluators
         foreach (var group in ctx.NmFrames.GroupBy(f => (f.Def.CanIdHex, f.Def.IsExtended)))
         {
             var ordered = group.OrderBy(f => f.Frame.Timestamp).ToArray();
+            // 报文标识用 DisplayName（名字 + CAN ID）：reason 是给人读的解释，
+            // 纯十六进制要脑内查表。观测记录里仍保留原始 CanIdHex 供机器消费。
             var canId = ordered[0].Def.CanIdHex;
+            var display = ordered[0].Def.DisplayName;
             var sender = ordered[0].Def.Sender;
 
             // 逐帧读 NID：同 ID 下多个 NID 交替即共享 ID，按报文切段会切碎状态机。
@@ -318,12 +321,12 @@ public static partial class NmRuleEvaluators
             }
             if (nidUnreadable)
             {
-                reasons.Add($"{canId} 有帧 DLC 不足，无法读取 NID，无法判断是否共享 ID");
+                reasons.Add($"{display} 有帧 DLC 不足，无法读取 NID，无法判断是否共享 ID");
                 continue;
             }
             if (nids.Count > 1)
             {
-                reasons.Add($"{canId} 为共享 ID（NID 不唯一），NMSts 跃迁已抑制");
+                reasons.Add($"{display} 为共享 ID（NID 不唯一），NMSts 跃迁已抑制");
                 continue;
             }
 
@@ -372,7 +375,7 @@ public static partial class NmRuleEvaluators
             if (readableFrames == 0)
             {
                 reasons.Add(
-                    $"{canId} 的所有帧都无法读取 NMSts 位（byte{byteIndex} 越界）");
+                    $"{display} 的所有帧都无法读取 NMSts 位（byte{byteIndex} 越界）");
             }
         }
 

@@ -103,7 +103,8 @@ public static partial class NmRuleEvaluators
                 // 恢复后帧数不足：无法证明「以正常周期持续发送」，不得判通过。
                 if (after.Length < minFrames)
                 {
-                    violations.Add(new ResumeViolation(def.CanIdHex, resumeAt));
+                    violations.Add(new ResumeViolation(def.CanIdHex, resumeAt)
+                    { DisplayName = def.DisplayName });
                     continue;
                 }
 
@@ -121,7 +122,8 @@ public static partial class NmRuleEvaluators
 
                 if (bad)
                 {
-                    violations.Add(new ResumeViolation(def.CanIdHex, resumeAt));
+                    violations.Add(new ResumeViolation(def.CanIdHex, resumeAt)
+                    { DisplayName = def.DisplayName });
                     continue;
                 }
 
@@ -149,7 +151,8 @@ public static partial class NmRuleEvaluators
                     if (actual != (expectedNmsts == 1))
                     {
                         violations.Add(new ResumeViolation(
-                            def.CanIdHex, resumeAt, NmstsMismatch: true));
+                            def.CanIdHex, resumeAt, NmstsMismatch: true)
+                        { DisplayName = def.DisplayName });
                     }
                 }
             }
@@ -206,7 +209,7 @@ public static partial class NmRuleEvaluators
 
             // 多报文时点名本 finding 覆盖了哪些节点，否则用户无法定位。
             var ids = string.Join(", ",
-                violations.Select(v => v.CanIdHex).Distinct(StringComparer.Ordinal));
+                violations.Select(v => v.DisplayName).Distinct(StringComparer.Ordinal));
             // 两类违规的判据不同，混在一句话里会让人分不清该查什么：
             // 周期不符查调度，目标状态不符查状态机迁移。
             var cycleBad = violations.Count(v => !v.NmstsMismatch);
@@ -262,7 +265,17 @@ public static partial class NmRuleEvaluators
     /// 两者判据不同，报告需要给出不同的排查方向。
     /// </summary>
     private readonly record struct ResumeViolation(
-        string CanIdHex, double At, bool NmstsMismatch = false);
+        string CanIdHex, double At, bool NmstsMismatch = false)
+    {
+        /// <summary>
+        /// 用户可见的报文标识（「名字 (CAN ID)」）。
+        /// <para>
+        /// 与 <see cref="CanIdHex"/> 并存：finding 正文给人读，要带名字；
+        /// 而 <c>CanIdHex</c> 是稳定的机器锚点（报告导出、去重、AI 消费）。
+        /// </para>
+        /// </summary>
+        public string DisplayName { get; init; } = "";
+    }
 
     /// <summary>
     /// 读一帧的 NMSts 原始值：true = NMSts=1，false = NMSts=0，null = 读不出。
@@ -357,7 +370,7 @@ public static partial class NmRuleEvaluators
             observations.Add(new NmObservation(
                 "stop_sending", def.Sender, def.CanIdHex,
                 lastSeen, episode.End,
-                $"{def.CanIdHex} 在 {lastSeen:F3}s 后停止发送（归因 {verdict}）",
+                $"{def.DisplayName} 在 {lastSeen:F3}s 后停止发送（归因 {verdict}）",
                 // 停发是实测的；归因（合规释放 vs 可疑静默）是推断。
                 verdict == NmSilenceVerdict.IndeterminateAtBoundary ? "boundary" : "measured",
                 IsInference: verdict != NmSilenceVerdict.ReleasedInReadySleep,

@@ -147,16 +147,23 @@
             <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="0,2,0,0">
-                <!-- 规则表：每条规则 → 触发 / 未触发 / 未建模，点击 seek 到证据时刻 -->
-                <TextBlock Text="规则" FontSize="10" FontWeight="SemiBold" Foreground="#666666"
-                           Margin="0,4,0,2" />
+                <!-- 规则表：每条规则 → 触发 / 未触发 / 未建模 / 不适用，点击 seek 到证据时刻 -->
+                <DockPanel Margin="0,4,0,2">
+                    <TextBlock DockPanel.Dock="Left" Text="规则" FontSize="10" FontWeight="SemiBold"
+                               Foreground="#666666" />
+                    <!-- 一句话汇总：21 行平铺时用户得自己数哪几条挂了。 -->
+                    <TextBlock Text="{Binding NmCalibrationSummary}" FontSize="10"
+                               Foreground="#666666" HorizontalAlignment="Right" />
+                </DockPanel>
                 <ItemsControl ItemsSource="{Binding NmCalibrationRows}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <!-- spec §10.2「点击 seek 到证据时刻」：有证据时刻的行才可点。
-                                 无证据（未触发/未建模）时 Cursor 保持默认，避免「看起来能点但没反应」。 -->
+                                 无证据（未触发/未建模）时 Cursor 保持默认，避免「看起来能点但没反应」。
+                                 ToolTip 给完整含义 + 条款号：正文 Title 被省略号截断后，
+                                 截掉的尾部常常正是条款号，必须有个地方能看全文。 -->
                             <Border Padding="4,2" Margin="0,1" Background="#F7F9FB" CornerRadius="3"
-                                    ToolTip="{Binding Requirement}">
+                                    ToolTip="{Binding ToolTipText}">
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Setter Property="Cursor" Value="Arrow" />
@@ -173,30 +180,42 @@
                                                             RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                   CommandParameter="{Binding FirstEvidenceTime}" />
                                 </Border.InputBindings>
-                                <DockPanel>
-                                    <TextBlock DockPanel.Dock="Left" Text="{Binding StatusText}"
-                                               FontSize="10" FontWeight="SemiBold" Width="44">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="#666666" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding StatusText}" Value="触发">
-                                                        <Setter Property="Foreground" Value="#C0392B" />
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding StatusText}" Value="未建模">
-                                                        <Setter Property="Foreground" Value="#B26A00" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                    <TextBlock DockPanel.Dock="Left" Text="{Binding RuleId}"
-                                               FontSize="10" Width="120"
-                                               TextTrimming="CharacterEllipsis" />
-                                    <TextBlock FontSize="10" Foreground="#555555"
-                                               TextTrimming="CharacterEllipsis"
-                                               Text="{Binding Reason, TargetNullValue=''}" />
-                                </DockPanel>
+                                <!-- 两行布局：标题行（状态 + 规则含义），说明行（是什么 / 凭什么）。
+                                     单行时 360px 面板里 Reason 被挤成 0 宽，等于没显示。 -->
+                                <StackPanel>
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Left" Text="{Binding StatusText}"
+                                                   FontSize="10" FontWeight="SemiBold" Width="44">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="#666666" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding StatusText}" Value="触发">
+                                                            <Setter Property="Foreground" Value="#C0392B" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding StatusText}" Value="未建模">
+                                                            <Setter Property="Foreground" Value="#B26A00" />
+                                                        </DataTrigger>
+                                                        <!-- 「不适用」不是问题也不是通过：用冷色，避免与触发/未建模混淆。 -->
+                                                        <DataTrigger Binding="{Binding StatusText}" Value="不适用">
+                                                            <Setter Property="Foreground" Value="#4A6C8C" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <!-- 规则的中文含义：用户扫一眼就知道这条在查什么，
+                                             不必逐行 hover。 -->
+                                        <TextBlock Text="{Binding Title}" FontSize="10"
+                                                   FontWeight="SemiBold" Foreground="#33475B"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </DockPanel>
+                                    <!-- 说明行：触发→finding 原文；未触发→基于几条观测；
+                                         未建模/不适用→原因与原因码。 -->
+                                    <TextBlock Text="{Binding Summary}" FontSize="10"
+                                               Foreground="#555555" Margin="44,1,0,0"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -578,11 +597,21 @@
                   MouseDoubleClick="OnEventRowDoubleClick"
                   Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
             <DataGrid.Columns>
-                <!-- 360px 面板下 80+110+90+70 会把“详情”挤成 0 宽：
-                     固定列收窄，详情保留 * 并加省略号 + ToolTip。 -->
+                <!-- 360px 面板下固定列会把“详情”挤成 0 宽：
+                     时间/类型收窄，「对象」略放宽（要放「名字 (ID)」），详情保留 * 。
+                     对象列用模板列：显示 SubjectLabel（名字 (ID)），ToolTip 给全文，
+                     因为 96px 放不下「NM_Message (0x18FFFA27)」。 -->
                 <DataGridTextColumn Header="时间" Binding="{Binding TimeText}" Width="64" />
-                <DataGridTextColumn Header="类型" Binding="{Binding TypeLabel}" Width="82" />
-                <DataGridTextColumn Header="对象" Binding="{Binding Subject}" Width="70" />
+                <DataGridTextColumn Header="类型" Binding="{Binding TypeLabel}" Width="74" />
+                <DataGridTemplateColumn Header="对象" Width="96">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding SubjectLabel}"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding SubjectLabel}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <!-- 证据级别并入详情列：单字图标 + 颜色，省下独立「证据」列的 52px；
                      完整级别仍由 ToolTip/AutomationProperties 提供。 -->
                 <DataGridTemplateColumn Header="详情" Width="*">

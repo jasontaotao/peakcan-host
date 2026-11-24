@@ -53,6 +53,27 @@ public class NmRuleEvaluatorsTimingTests
             u.RuleId == "NM_CYCLE" && u.Reason.Contains("共享 ID", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// 给用户读的 reason 必须带报文名，不能只有十六进制 ID：
+    /// 排查时人想的是「NM_Message 的周期」，不是「0x500」。
+    /// <para>
+    /// 同时保留 CAN ID——DBC 没给名字时会退化成纯 ID，不同网段也可能重名。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void UnmodeledReason_ShowsMessageNameWithCanId()
+    {
+        var frames = Enumerable.Range(0, 12)
+            .Select(i => Frame(i * 0.56, 0x500, i % 2 == 0 ? (byte)0x11 : (byte)0x22, 0))
+            .ToArray();
+
+        var result = Evaluate(frames, CycleRule(500, 0.1));
+
+        var u = Assert.Single(result.Unmodeled, x => x.RuleId == "NM_CYCLE");
+        // fixture 的报文名是 "NM"。
+        Assert.Contains("NM (0x500)", u.Reason, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CycleTolerance_ProfileTolerance_IsNotOverriddenByBaseRule()
     {

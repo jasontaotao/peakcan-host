@@ -309,6 +309,101 @@ public sealed class NmViewLayoutTests
     }
 
     /// <summary>
+    /// <b>实测发现的空白行</b>：规则行原先只绑 <c>Reason</c>，而它仅「未建模」时非 null，
+    /// 触发行在界面上除规则 ID 外一个字都没有——finding 原文一直躺在
+    /// <see cref="Core.Analysis.Nm.NmCalibrationRow.Messages"/> 里没人渲染。
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationRuleRow_RendersSummaryNotJustReason()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        var texts = calibration.Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .ToList();
+
+        texts.Should().Contain("{Binding Summary}",
+            "每行必须有说明：触发显示 finding 原文、未触发显示观测依据");
+        texts.Should().Contain("{Binding Title}",
+            "规则的中文含义要直接可见，不能只藏在 ToolTip 里");
+        texts.Should().NotContain("{Binding Reason, TargetNullValue=''}",
+            "只绑 Reason 会让触发/未触发行整行为空");
+    }
+
+    /// <summary>
+    /// 「不适用」必须有自己的配色，不能与触发/未建模混用——
+    /// 三者是不同结论：出问题 / 没查成 / 这次碰不到。
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationRuleRow_StylesNotApplicableStatus()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        var statusTriggers = calibration.Descendants(P + "DataTrigger")
+            .Where(t => (string?)t.Attribute("Binding") == "{Binding StatusText}")
+            .ToList();
+
+        // 断言具体色值而不只是「互不相同」：三个色一起改错也能通过后者。
+        ForegroundOf(statusTriggers, "触发").Should().Be("#C0392B");
+        ForegroundOf(statusTriggers, "未建模").Should().Be("#B26A00");
+        ForegroundOf(statusTriggers, "不适用").Should().Be("#4A6C8C");
+    }
+
+    /// <summary>
+    /// 事件表「对象」列要显示「名字 (ID)」而不是只显示 ID，且宽度放不下时
+    /// 靠 ToolTip 给全文——96px 装不下 <c>NM_Message (0x18FFFA27)</c>。
+    /// </summary>
+    [Fact]
+    public void Panel_EventTable_SubjectColumn_ShowsMessageLabel()
+    {
+        var grid = Panel().Descendants(P + "DataGrid").Single();
+        var subject = grid.Element(P + "DataGrid.Columns")!.Elements()
+            .Single(c => (string?)c.Attribute("Header") == "对象");
+
+        subject.Name.Should().Be(P + "DataGridTemplateColumn",
+            "对象列要显示「名字 (ID)」并加省略号，纯文本列做不到");
+
+        var text = subject.Descendants(P + "TextBlock")
+            .Single(t => (string?)t.Attribute("Text") == "{Binding SubjectLabel}");
+        text.Attribute("ToolTip").Should().NotBeNull(
+            "列宽放不下完整标识，必须靠 ToolTip 给全文");
+        text.Attribute("TextTrimming")?.Value.Should().Be("CharacterEllipsis");
+    }
+
+    /// <summary>
+    /// 规则行的 ToolTip 必须能给出全文：正文 <c>Title</c> 用省略号截断，
+    /// 截掉的尾部常常正是条款号，没有 ToolTip 就无处可看。
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationRuleRow_ToolTipCarriesFullText()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        calibration.Descendants(P + "Border")
+            .Select(b => (string?)b.Attribute("ToolTip"))
+            .Should().Contain("{Binding ToolTipText}",
+                "ToolTip 要带规则 ID + 完整含义 + 条款号，不能只有 ID");
+    }
+
+    /// <summary>
+    /// 规则表顶部必须有汇总（如「21 条 · 1 触发 · 18 未触发」）：
+    /// 平铺时用户要自己数哪几条挂了。
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationRuleSection_ShowsSummary()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        calibration.Descendants(P + "TextBlock").Select(t => (string?)t.Attribute("Text"))
+            .Should().Contain("{Binding NmCalibrationSummary}",
+                "规则表要有一句话汇总，让「有没有问题」一眼可见");
+    }
+
+    /// <summary>
     /// spec §10.2「未建模条款：显式列出，附条款号」。
     /// <para>
     /// 多条款规则（<c>NM_STOP_SENDING → NM_09/NM_12</c>）只显示第一个会丢条款。

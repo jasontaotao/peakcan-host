@@ -137,8 +137,8 @@ public static partial class NmRuleEvaluators
                     if (!burst.IsCandidate)
                     {
                         reasons.Add(burst.IsIndeterminate
-                            ? $"{def.CanIdHex} 快发判据缺失，无法按 burst_end 锚定 RMS 起点"
-                            : $"{def.CanIdHex} anchor=burst_end，但未观察到快发段，无法按规则口径测量 RMS");
+                            ? $"{def.DisplayName} 快发判据缺失，无法按 burst_end 锚定 RMS 起点"
+                            : $"{def.DisplayName} anchor=burst_end，但未观察到快发段，无法按规则口径测量 RMS");
                         // 判据缺失是 profile 问题；「没观察到快发段」是 trace 性质。
                         if (burst.IsIndeterminate) missingProfileData = true;
                         continue;
@@ -148,7 +148,7 @@ public static partial class NmRuleEvaluators
                     if (burst.IsIndeterminate)
                     {
                         reasons.Add(
-                            $"{def.CanIdHex} 快发段 {burst.Start:F3}s–{burst.End:F3}s 触到分析边界，" +
+                            $"{def.DisplayName} 快发段 {burst.Start:F3}s–{burst.End:F3}s 触到分析边界，" +
                             "终点只是下限，无法按 burst_end 锚定 RMS 起点");
                         continue;
                     }
@@ -168,7 +168,7 @@ public static partial class NmRuleEvaluators
                 if (durationMs <= 0)
                 {
                     reasons.Add(
-                        $"{def.CanIdHex} RMS 观测区间非正（{start:F3}s→{end:F3}s），无法度量时长");
+                        $"{def.DisplayName} RMS 观测区间非正（{start:F3}s→{end:F3}s），无法度量时长");
                     continue;
                 }
 
@@ -249,7 +249,7 @@ public static partial class NmRuleEvaluators
                     // P 级原语：finding 恒标推断（未直接读内部 T_REPEAT_MESSAGE 定时器）。
                     findings.Add(new NmFinding(
                         rule.FindingCode, "warn",
-                        $"{def.CanIdHex} Repeat Message State 持续 {durationMs:F0}ms，" +
+                        $"{def.DisplayName} Repeat Message State 持续 {durationMs:F0}ms，" +
                         $"超出上限 {maxMs}ms（+{durationMs - maxMs:F0}ms）",
                         new[] { start, end }, IsInference: true,
                         SuggestedNextCheck: "核对 T_REPEAT_MESSAGE 与 NOS 进入条件",
@@ -279,7 +279,7 @@ public static partial class NmRuleEvaluators
 
                 findings.Add(new NmFinding(
                     rule.FindingCode, "warn",
-                    $"{def.CanIdHex} Repeat Message State 过短：仅持续 {durationMs:F0}ms，" +
+                    $"{def.DisplayName} Repeat Message State 过短：仅持续 {durationMs:F0}ms，" +
                     $"低于下限 {minMs}ms（-{minMs - durationMs:F0}ms）",
                     new[] { start, end }, IsInference: true,
                     SuggestedNextCheck: "核对 RMS 提前结束的原因（是否被 RMR 或睡眠条件打断）",

@@ -80,7 +80,22 @@ public sealed record NmMessageDef(
     string[] Reasons,
     int? CycleMs = null,
     int? TimeoutMs = null,
-    bool MarkerAuthoritative = false);
+    bool MarkerAuthoritative = false)
+{
+    /// <summary>
+    /// 面向用户的报文标识：有名字时是「名字 (CAN ID)」，没名字时退化成纯 CAN ID。
+    /// <para>
+    /// <b>为什么两样都要</b>：排查现场时人脑子里想的是「BodyCan 的 NM 报文」，
+    /// 不是「0x18FFFA27」；但只显示名字又会丢信息——DBC 可能没给名字
+    /// （<see cref="Name"/> 为 null），不同网段也可能重名，而 ID 是稳定的唯一锚点。
+    /// </para>
+    /// <para>
+    /// <b>为什么是计算属性而不是构造参数</b>：它不携带新事实，只是展示格式；
+    /// 加进 record 主构造器会改变 JSON 形状与 canonical hash 的输入面。
+    /// </para>
+    /// </summary>
+    public string DisplayName => NmDisplayName.Of(CanIdHex, Name);
+}
 
 public sealed record NmProfile(
     NmProfileSource Source,

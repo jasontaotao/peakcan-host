@@ -40,6 +40,22 @@ public class NmRuleEvaluatorsResumeTests
         Assert.True(f.IsInference, "P 级原语必须标推断");
     }
 
+    /// <summary>
+    /// finding 正文必须带报文名：这条 finding 会进标定面板的规则行说明，
+    /// 同一张表里其它行都是「名字 (ID)」，这里只有裸 ID 会显得像另一种东西。
+    /// </summary>
+    [Fact]
+    public void Resume_FindingMessage_ShowsMessageName()
+    {
+        var frames = Frames([0.0, 0.5, 1.0], [5.0, 5.5]);
+
+        var result = Evaluate(frames, minSilenceMs: 2000, cycleMs: 500, pct: 0.1, minFrames: 4);
+
+        var f = Assert.Single(result.Findings);
+        // fixture：扩展帧 0x18FFFAF4、报文名 "NM"。
+        Assert.Contains("NM (0x18FFFAF4)", f.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Resume_WrongCycleAfterSilence_ProducesFinding()
     {

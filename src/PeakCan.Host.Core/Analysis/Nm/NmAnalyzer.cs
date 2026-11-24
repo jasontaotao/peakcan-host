@@ -272,8 +272,10 @@ public static class NmAnalyzer
                 if (frames.Length == 0)
                 {
                     // 结论是"整个窗口内未出现"，证据时间覆盖整窗。
+                    // DisplayName 已经含名字（无名字时退化成纯 ID），不再手工拼括号，
+                    // 否则会出现「0x500（NM_Message）（NM_Message）」这种重复。
                     findings.Add(new NmFinding("NM_MESSAGE_ABSENT", "warn",
-                        $"{def.CanIdHex}（{def.Name}）在窗口内从未出现",
+                        $"{def.DisplayName} 在窗口内从未出现",
                         new[] { window.Start, window.End }, false, "核对 DBC/矩阵/记录范围"));
                     continue;
                 }
@@ -293,7 +295,7 @@ public static class NmAnalyzer
                 if (cycle.InsufficientSamples)
                 {
                     assumptions.Add(
-                        $"{def.CanIdHex} 周期有效间隔 {cycle.IntervalCount} 个（< 5），未评估偏差");
+                        $"{def.DisplayName} 周期有效间隔 {cycle.IntervalCount} 个（< 5），未评估偏差");
                 }
 
                 // 共享 ID（同一报文组内 NID 不唯一）无法按节点拆周期，偏差结论会被多节点
@@ -310,7 +312,7 @@ public static class NmAnalyzer
                 }
                 if (sharedId)
                 {
-                    assumptions.Add($"{def.CanIdHex} 为共享 ID（NID 不唯一），已抑制周期偏差结论");
+                    assumptions.Add($"{def.DisplayName} 为共享 ID（NID 不唯一），已抑制周期偏差结论");
                 }
 
                 // spec §7.4: 偏差占比 > 5% 或连续 3 帧超容差才算 finding；
@@ -320,14 +322,14 @@ public static class NmAnalyzer
                 if (!sharedId && NmCycleAnalyzer.IsDeviationSignificant(cycle))
                 {
                     findings.Add(new NmFinding("NM_CYCLE_DEVIATION", "warn",
-                        $"{def.CanIdHex} 周期偏差 {cycle.DeviationCount}/{cycle.IntervalCount} 次（期望 {def.CycleMs}ms）",
+                        $"{def.DisplayName} 周期偏差 {cycle.DeviationCount}/{cycle.IntervalCount} 次（期望 {def.CycleMs}ms）",
                         timestamps.Take(5).ToArray(), true, "检查调度/负载/时钟"));
                 }
 
                 if (frames.Any(f => f.Frame.Dlc != def.Dlc))
                 {
                     findings.Add(new NmFinding("NM_DLC_MISMATCH", "warn",
-                        $"{def.CanIdHex} 实测 DLC 与 DBC（{def.Dlc}）不一致",
+                        $"{def.DisplayName} 实测 DLC 与 DBC（{def.Dlc}）不一致",
                         timestamps.Take(5).ToArray(), false, "核对帧格式/配置"));
                 }
 
@@ -340,7 +342,7 @@ public static class NmAnalyzer
                 if (stsUnavailableReason is not null)
                 {
                     stsFallbackUnknowns.Add(
-                        $"{def.CanIdHex} 的 NMSts 位不可用（{stsUnavailableReason}），" +
+                        $"{def.DisplayName} 的 NMSts 位不可用（{stsUnavailableReason}），" +
                         "时间条已退回时间推断");
                 }
                 var activity = NmActivityBuilder.Build(
