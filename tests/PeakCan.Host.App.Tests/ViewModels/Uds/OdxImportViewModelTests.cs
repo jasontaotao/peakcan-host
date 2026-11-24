@@ -82,7 +82,7 @@ public class OdxImportViewModelTests
             "v3.8.8 F3 fix: CancelImport must reset IsBusy so a re-shown window can re-import");
         vm.ImportCommand.CanExecute(null).Should().BeTrue(
             "v3.8.8 F3 fix: CancelImport must re-enable the Import button for the next attempt");
-        vm.LastStatus.Should().Contain("cancel",
+        vm.LastStatus.Should().Contain("取消",
             "v3.8.8 F3 fix: CancelImport must surface a 'cancelled' status so the user knows what happened");
 
         // Cleanup: complete the in-flight TCS so the orphaned import task

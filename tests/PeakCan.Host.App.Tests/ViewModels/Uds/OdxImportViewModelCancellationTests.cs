@@ -86,7 +86,7 @@ public class OdxImportViewModelCancellationTests
         // The OCE catch arm in ImportAsync absorbs the exception; the
         // CT catch arm does NOT overwrite LastStatus (the "Cancelled"
         // status set by CancelImport is preserved).
-        vm.LastStatus.Should().Contain("cancel",
+        vm.LastStatus.Should().Contain("取消",
             "v3.9.0 P6: the 'Cancelled' status set by CancelImport must be preserved when OCE propagates from the service");
         vm.IsBusy.Should().BeFalse("postcondition: IsBusy must be false after CancelImport + OCE propagation");
     }

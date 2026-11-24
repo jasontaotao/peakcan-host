@@ -44,7 +44,7 @@ public sealed partial class OdxImportViewModel : ObservableObject, IDisposable
     public async Task ImportAsync(string? odxPath)
     {
         IsBusy = true;
-        LastStatus = $"Loading ODX: {odxPath}…";
+        LastStatus = $"正在加载 ODX：{odxPath}…";
         // v3.9.0 MINOR P6: own the per-import CTS. Linked to none
         // (no external cancel); CancelImport() calls Cancel() on
         // _importCts directly. The CTS is disposed in the finally
@@ -65,11 +65,11 @@ public sealed partial class OdxImportViewModel : ObservableObject, IDisposable
             if (!_importCts.IsCancellationRequested)
             {
                 LastStatus = result.HasError
-                    ? $"ODX load FAILED: {result.ErrorCode} — {result.ErrorMessage}"
-                    : $"ODX loaded: {result.DidCount} DIDs / {result.RoutineCount} Routines / {result.DtcCount} DTCs from {odxPath}";
+                    ? $"ODX 加载失败：{result.ErrorCode} — {result.ErrorMessage}"
+                    : $"ODX 加载完成：{result.DidCount} 个 DID / {result.RoutineCount} 个例程 / {result.DtcCount} 个 DTC（{odxPath}）";
 
                 if (result.Warnings.Count > 0)
-                    LastStatus += $" (with {result.Warnings.Count} warning(s))";
+                    LastStatus += $"（{result.Warnings.Count} 条警告）";
             }
         }
         catch (OperationCanceledException)
@@ -119,7 +119,7 @@ public sealed partial class OdxImportViewModel : ObservableObject, IDisposable
         // post-cancel result from overwriting the "Cancelled" status.
         _importCts?.Cancel();
         IsBusy = false;
-        LastStatus = "ODX import cancelled by user (window closed mid-import).";
+        LastStatus = "用户已取消 ODX 导入（导入过程中窗口被关闭）。";
         ImportCommand.NotifyCanExecuteChanged();
     }
 

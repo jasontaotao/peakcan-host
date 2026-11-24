@@ -56,10 +56,10 @@ public sealed class DtcPanelViewModelTests
         vm.Dtcs.Should().HaveCount(2);
         vm.Dtcs[0].Code.Should().Be(0x0100ABu);
         vm.Dtcs[0].Status.Should().Be((byte)0x08);
-        vm.Dtcs[0].Description.Should().Be("Chassis"); // 0x010000..0x01FFFF
+        vm.Dtcs[0].Description.Should().Be("底盘"); // 0x010000..0x01FFFF
         vm.Dtcs[1].Code.Should().Be(0x0200CDu);
         vm.Dtcs[1].Status.Should().Be((byte)0x04);
-        vm.Dtcs[1].Description.Should().Be("Body"); // 0x020000..0x02FFFF
+        vm.Dtcs[1].Description.Should().Be("车身"); // 0x020000..0x02FFFF
     }
 
     [Fact]
@@ -104,6 +104,6 @@ public sealed class DtcPanelViewModelTests
 
         fake.ClearCalled.Should().BeTrue();
         vm.Dtcs.Should().BeEmpty();
-        log.Should().Contain(l => l.Level == "Info" && l.Message.Contains("cleared", StringComparison.OrdinalIgnoreCase));
+        log.Should().Contain(l => l.Level == "Info" && l.Message.Contains("已全部清除", StringComparison.OrdinalIgnoreCase));
     }
 }

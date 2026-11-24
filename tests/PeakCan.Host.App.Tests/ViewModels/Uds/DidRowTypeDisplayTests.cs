@@ -20,8 +20,8 @@ public class DidRowTypeDisplayTests
             Id = 0xF190, Name = "VIN", LengthBytes = 0, Writable = false,
         };
 
-        // 无字段类型表 → "(no type)" 标识,与既有 length=0 行为兼容。
-        row.TypeDisplay.Should().Be("(no type)");
+        // 无字段类型表 → "（无类型）" 标识,与既有 length=0 行为兼容。
+        row.TypeDisplay.Should().Be("（无类型）");
     }
 
     [Fact]

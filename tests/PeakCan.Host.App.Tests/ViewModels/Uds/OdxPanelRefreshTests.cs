@@ -145,8 +145,8 @@ public sealed class OdxPanelRefreshTests
             var db = new DidDatabase(userJsonPath: null, logger: NullLogger<DidDatabase>.Instance);
             var vm = new DidPanelViewModel(new NoopUdsClient(), db);
 
-            // 构造期 VIN 无字段表 → TypeDisplay = "(no type)"
-            vm.Dids.Single(d => d.Id == 0xF190).TypeDisplay.Should().Be("(no type)");
+            // 构造期 VIN 无字段表 → TypeDisplay = "（无类型）"
+            vm.Dids.Single(d => d.Id == 0xF190).TypeDisplay.Should().Be("（无类型）");
 
             // 模拟 ODX import 重写 VIN 为带 ASCII[17B] 字段表
             db.AddRange(new[]

@@ -76,7 +76,7 @@ public sealed class UdsViewModelOrchestratorTests
 
         await session.SetDefaultSessionCommand.ExecuteAsync(null);
 
-        vm.OutputLog.Should().Contain(l => l.Level == "Info" && l.Message == "Session → Default");
+        vm.OutputLog.Should().Contain(l => l.Level == "Info" && l.Message == "会话 → 默认");
     }
 
     [Fact]

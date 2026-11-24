@@ -49,7 +49,7 @@ public sealed partial class DtcPanelViewModel : ObservableObject, IUdsPanel
     {
         try
         {
-            AppendLog("Info", "Reading DTCs (reportByStatusMask=0xFF)...");
+            AppendLog("Info", "正在读取 DTC（reportByStatusMask=0xFF）…");
             // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — the catch / no-NRC
             // branch mutates the bound ObservableCollection<DtcRow>.
             var data = await _udsClient.ReadDtcInformationAsync(0x02, 0xFF);
@@ -67,15 +67,15 @@ public sealed partial class DtcPanelViewModel : ObservableObject, IUdsPanel
                 });
             }
 
-            AppendLog("Info", $"Found {Dtcs.Count} DTCs");
+            AppendLog("Info", $"共读取 {Dtcs.Count} 个 DTC");
         }
         catch (UdsNegativeResponseException ex)
         {
-            AppendLog("Warn", $"Read DTCs failed: NRC 0x{(byte)ex.ResponseCode:X2}");
+            AppendLog("Warn", $"读取 DTC 失败：NRC 0x{(byte)ex.ResponseCode:X2}");
         }
         catch (Exception ex)
         {
-            AppendLog("Error", $"Read DTCs error: {ex.Message}");
+            AppendLog("Error", $"读取 DTC 出错：{ex.Message}");
         }
     }
 
@@ -84,20 +84,20 @@ public sealed partial class DtcPanelViewModel : ObservableObject, IUdsPanel
     {
         try
         {
-            AppendLog("Info", "Clearing all DTCs...");
+            AppendLog("Info", "正在清除全部 DTC…");
             // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — clears the bound
             // ObservableCollection in the catch-free path.
             await _udsClient.ClearDiagnosticInformationAsync();
             Dtcs.Clear();
-            AppendLog("Info", "All DTCs cleared");
+            AppendLog("Info", "DTC 已全部清除");
         }
         catch (UdsNegativeResponseException ex)
         {
-            AppendLog("Warn", $"Clear DTCs failed: NRC 0x{(byte)ex.ResponseCode:X2}");
+            AppendLog("Warn", $"清除 DTC 失败：NRC 0x{(byte)ex.ResponseCode:X2}");
         }
         catch (Exception ex)
         {
-            AppendLog("Error", $"Clear DTCs error: {ex.Message}");
+            AppendLog("Error", $"清除 DTC 出错：{ex.Message}");
         }
     }
 
@@ -133,11 +133,11 @@ public sealed partial class DtcPanelViewModel : ObservableObject, IUdsPanel
             return def.Value.Description;
         return code switch
         {
-            <= 0x00FFFF => "Powertrain",
-            <= 0x01FFFF => "Chassis",
-            <= 0x02FFFF => "Body",
-            <= 0x03FFFF => "Network",
-            _           => "Unknown",
+            <= 0x00FFFF => "动力总成",
+            <= 0x01FFFF => "底盘",
+            <= 0x02FFFF => "车身",
+            <= 0x03FFFF => "网络",
+            _           => "未知",
         };
     }
 

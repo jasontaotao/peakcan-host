@@ -10,4 +10,12 @@ public sealed partial class RoutineRow : ObservableObject
 
     [ObservableProperty] private string  _status     = "Idle";
     [ObservableProperty] private string? _lastResult;
+
+    /// <summary>
+    /// 表格显示用中文状态。内部 <see cref="Status"/> 保持英文（CanRun 判据依赖它），
+    /// 只有显示层经过 <see cref="UdsDisplayText.RoutineStatus"/> 翻译。
+    /// </summary>
+    public string StatusDisplay => UdsDisplayText.RoutineStatus(Status);
+
+    partial void OnStatusChanged(string value) => OnPropertyChanged(nameof(StatusDisplay));
 }

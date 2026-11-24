@@ -149,7 +149,7 @@ public sealed class DidPanelViewModelTests
 
         await vm.WriteDidCommand.ExecuteAsync(null);
 
-        log.Should().Contain(l => l.Level == "Error" && l.Message.Contains("invalid hex", StringComparison.OrdinalIgnoreCase));
+        log.Should().Contain(l => l.Level == "Error" && l.Message.Contains("hex 输入无效", StringComparison.OrdinalIgnoreCase));
         fake.Writes.Should().BeEmpty();
     }
 

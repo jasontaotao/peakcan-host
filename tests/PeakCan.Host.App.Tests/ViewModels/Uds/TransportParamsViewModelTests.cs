@@ -77,11 +77,11 @@ public sealed class TransportParamsViewModelTests
         vm.Poll();
 
         vm.DiagTransport.Should().Be("0x7E0 → 0x7E8");
-        vm.DiagSession.Should().Be("Default");
-        vm.DiagP2.Should().Be("50 ms (本地默认)");
-        vm.DiagP2Star.Should().Be("5000 ms (本地默认)");
-        vm.DiagStMin.Should().Be("— (未收到 FC)");
-        vm.DiagBlockSize.Should().Be("— (未收到 FC)");
+        vm.DiagSession.Should().Be("默认");
+        vm.DiagP2.Should().Be("50 ms（本地默认）");
+        vm.DiagP2Star.Should().Be("5000 ms（本地默认）");
+        vm.DiagStMin.Should().Be("—（未收到 FC）");
+        vm.DiagBlockSize.Should().Be("—（未收到 FC）");
         vm.DiagNBs.Should().Be("1000 ms");
         vm.DiagNCr.Should().Be("1000 ms");
         vm.DiagS3Failures.Should().Be("0");
@@ -96,9 +96,9 @@ public sealed class TransportParamsViewModelTests
         await client.DiagnosticSessionControlAsync(0x03);
         vm.Poll();
 
-        vm.DiagSession.Should().Be("Programming");
-        vm.DiagP2.Should().Be("25 ms (ECU 0x10 协商)");
-        vm.DiagP2Star.Should().Be("5000 ms (ECU 0x10 协商)");
+        vm.DiagSession.Should().Be("编程");
+        vm.DiagP2.Should().Be("25 ms（ECU 0x10 协商）");
+        vm.DiagP2Star.Should().Be("5000 ms（ECU 0x10 协商）");
     }
 
     // ---- Flash column ------------------------------------------------------
@@ -128,10 +128,10 @@ public sealed class TransportParamsViewModelTests
 
         vm.FlashRunState.Should().Be("运行中");
         vm.FlashTransport.Should().Be("0x7E2 → 0x7EA");
-        vm.FlashSession.Should().Be("Programming");
-        vm.FlashP2.Should().Be("25 ms (ECU 0x10 协商)");
+        vm.FlashSession.Should().Be("编程");
+        vm.FlashP2.Should().Be("25 ms（ECU 0x10 协商）");
         vm.FlashNBs.Should().Be("1000 ms");
-        vm.FlashStMin.Should().Be("— (未收到 FC)", "the fake transport never received a Flow Control");
+        vm.FlashStMin.Should().Be("—（未收到 FC）", "the fake transport never received a Flow Control");
     }
 
     [Fact]

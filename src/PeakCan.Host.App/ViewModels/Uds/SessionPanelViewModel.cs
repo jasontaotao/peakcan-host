@@ -19,7 +19,7 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     private CancellationTokenSource? _testerPresentCts;
     private ObservableCollection<UdsLogLine>? _log;
 
-    [ObservableProperty] private string _currentSession     = "Default";
+    [ObservableProperty] private string _currentSession     = UdsDisplayText.Session(0x01);
     [ObservableProperty] private byte?  _securityLevel;
     [ObservableProperty] private bool   _testerPresentActive;
 
@@ -63,11 +63,11 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     }
 
     [RelayCommand]
-    private Task SetDefaultSessionAsync()    => SetSessionAsync(0x01, "Default");
+    private Task SetDefaultSessionAsync()    => SetSessionAsync(0x01, UdsDisplayText.Session(0x01));
     [RelayCommand]
-    private Task SetExtendedSessionAsync()   => SetSessionAsync(0x02, "Extended");
+    private Task SetExtendedSessionAsync()   => SetSessionAsync(0x02, UdsDisplayText.Session(0x02));
     [RelayCommand]
-    private Task SetProgrammingSessionAsync() => SetSessionAsync(0x03, "Programming");
+    private Task SetProgrammingSessionAsync() => SetSessionAsync(0x03, UdsDisplayText.Session(0x03));
 
     [RelayCommand]
     private void ToggleTesterPresent()
@@ -75,13 +75,13 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
         if (TesterPresentActive)
         {
             StopTesterPresentLoop();
-            AppendLog("Info", "TesterPresent stopped");
+            AppendLog("Info", "TesterPresent 已停止");
             return;
         }
         _testerPresentCts = new CancellationTokenSource();
         var ct = _testerPresentCts.Token;
         TesterPresentActive = true;
-        AppendLog("Info", "TesterPresent started (2s interval)");
+        AppendLog("Info", "TesterPresent 已启动（2 秒周期）");
         _ = Task.Run(async () =>
         {
             try
@@ -104,13 +104,13 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
                 {
                     _syncContext.Post(_ =>
                     {
-                        AppendLog("Error", $"TesterPresent loop error: {ex.Message}");
+                        AppendLog("Error", $"TesterPresent 循环出错：{ex.Message}");
                         TesterPresentActive = false;
                     }, null);
                 }
                 else
                 {
-                    AppendLog("Error", $"TesterPresent loop error: {ex.Message}");
+                    AppendLog("Error", $"TesterPresent 循环出错：{ex.Message}");
                     TesterPresentActive = false;
                 }
             }
@@ -122,7 +122,7 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     {
         try
         {
-            AppendLog("Info", $"Requesting security access (level 0x{SecurityLevel:X2})...");
+            AppendLog("Info", $"请求 SecurityAccess（等级 0x{SecurityLevel:X2}）…");
             // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — catch handlers set
             // SecurityLevel and call AppendLog, both of which need the UI
             // dispatcher.
@@ -131,32 +131,32 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
             var response = await _udsClient.SecurityAccessAsync(level, CancellationToken.None);
             SecurityLevel = level;  // reflect the level that was actually used
             GrantedSecurityLevel = level;   // 只有这里写"已授予"
-            AppendLog("Info", $"SecurityAccess 0x{level:X2} succeeded ({response.Length} bytes).");
+            AppendLog("Info", $"SecurityAccess 0x{level:X2} 成功（{response.Length} 字节）。");
         }
         catch (KeyAlgorithmNotConfiguredException ex)
         {
             LogKeyAlgorithmNotConfigured(_logger, ex, ex.SecurityLevel);
             AppendLog("Warn", ex.Message);
-            AppendLog("Info", "Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.");
+            AppendLog("Info", "提示：调用 SecurityAccess 前需在 DI 中注册 IKeyDerivationAlgorithm 实现。");
             SecurityLevel = null;
             GrantedSecurityLevel = null;
         }
         catch (UdsNegativeResponseException ex)
         {
-            AppendLog("Warn", $"Security access failed: NRC 0x{(byte)ex.ResponseCode:X2}");
+            AppendLog("Warn", $"SecurityAccess 失败：NRC 0x{(byte)ex.ResponseCode:X2}");
             SecurityLevel = null;
             GrantedSecurityLevel = null;
         }
         catch (InvalidOperationException ex)
         {
             AppendLog("Warn", ex.Message);
-            AppendLog("Info", "Hint: register an IKeyDerivationAlgorithm implementation in DI before invoking SecurityAccess.");
+            AppendLog("Info", "提示：调用 SecurityAccess 前需在 DI 中注册 IKeyDerivationAlgorithm 实现。");
             SecurityLevel = null;
             GrantedSecurityLevel = null;
         }
         catch (Exception ex)
         {
-            AppendLog("Error", $"Security access error: {ex.Message}");
+            AppendLog("Error", $"SecurityAccess 出错：{ex.Message}");
             SecurityLevel = null;
             GrantedSecurityLevel = null;
         }
@@ -172,11 +172,11 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
             CurrentSession = label;
             // ISO 14229：任何会话切换都会终止已授予的安全访问。
             GrantedSecurityLevel = null;
-            AppendLog("Info", $"Session → {label}");
+            AppendLog("Info", $"会话 → {label}");
         }
         catch (Exception ex)
         {
-            AppendLog("Error", $"Set session {label} failed: {ex.Message}");
+            AppendLog("Error", $"切换会话 {label} 失败：{ex.Message}");
         }
     }
 

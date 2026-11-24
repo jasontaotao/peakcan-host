@@ -17,8 +17,8 @@ public sealed partial class DidRow : ObservableObject
     public int    LengthBytes { get; init; }
     public bool   Writable    { get; init; }
 
-    /// <summary>"R/W" if writable, "R/O" if read-only.</summary>
-    public string WritableDisplay => Writable ? "R/W" : "R/O";
+    /// <summary>可写显示"读/写"，只读显示"只读"。</summary>
+    public string WritableDisplay => Writable ? "读/写" : "只读";
 
     [ObservableProperty] private string? _readValue;
     [ObservableProperty] private bool    _isReading;
@@ -29,7 +29,7 @@ public sealed partial class DidRow : ObservableObject
 
     /// <summary>
     /// ODX 解析得到的字段类型表(复合 DID 含多个)。空表示无元数据
-    /// (LengthBytes-only 行),TypeDisplay 显示 "(no type)"。
+    /// (LengthBytes-only 行),TypeDisplay 显示 "（无类型）"。
     /// </summary>
     [ObservableProperty] private IReadOnlyList<DidField> _fields = Array.Empty<DidField>();
 
@@ -41,7 +41,7 @@ public sealed partial class DidRow : ObservableObject
 
     /// <summary>
     /// 数据类型展示列:单字段 "TypeName[bits]"/"TypeName[NB]",
-    /// 复合 DID "TypeName ×N",无字段 "(no type)"。
+    /// 复合 DID "TypeName ×N",无字段 "（无类型）"。
     /// </summary>
     public string TypeDisplay => ComputeTypeDisplay();
 
@@ -73,7 +73,7 @@ public sealed partial class DidRow : ObservableObject
 
     private string ComputeTypeDisplay()
     {
-        if (Fields is null || Fields.Count == 0) return "(no type)";
+        if (Fields is null || Fields.Count == 0) return "（无类型）";
         if (Fields.Count == 1)
         {
             var f = Fields[0];

@@ -20,6 +20,8 @@
         <conv:HexConverter x:Key="HexConverter"/>
         <!-- 同上：刷写横幅要用布尔→可见性，测试环境没有 App.xaml 的 BoolToVis。 -->
         <conv:BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <!-- 刷写步骤/协议枚举的中文显示；绑定值仍是原枚举，JSON profile 契约不变。 -->
+        <conv:UdsEnumDisplayConverter x:Key="UdsEnumDisplay"/>
     </Window.Resources>
 
     <DockPanel>
@@ -41,16 +43,16 @@
                           VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Separator/>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="等级:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBlock Text="等级：" VerticalAlignment="Center" Margin="0,0,4,0"/>
                     <TextBox Text="{Binding Session.SecurityLevel, Converter={StaticResource HexConverter}, ConverterParameter=2, UpdateSourceTrigger=PropertyChanged}" Width="40" Margin="0,0,4,0"/>
                     <Button Content="SecurityAccess"
                             Command="{Binding Session.SecurityAccessCommand}"
                             Padding="6,2" Margin="0,0,12,0"/>
                 </StackPanel>
-                <TextBlock Text="{Binding Session.CurrentSession, StringFormat='会话: {0}'}"
+                <TextBlock Text="{Binding Session.CurrentSession, StringFormat='会话：{0}'}"
                            VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <!-- 与主窗口徽章同一个口径：显示**已授予**的等级，不是输入框里的请求值。 -->
-                <TextBlock Text="{Binding Session.SecurityLevelText, StringFormat='安全: {0}'}"
+                <TextBlock Text="{Binding Session.SecurityLevelText, StringFormat='安全：{0}'}"
                            VerticalAlignment="Center"/>
             </StackPanel>
         </Border>
@@ -61,12 +63,12 @@
                 BorderBrush="{StaticResource WarnBorder}" BorderThickness="0,0,0,1"
                 Visibility="{Binding Flash.IsFlashing, Converter={StaticResource BoolToVis}}">
             <TextBlock Foreground="{StaticResource WarnText}" TextWrapping="Wrap"
-                       Text="⚠ 刷写进行中 — 诊断面板（会话 / DIDs / Routines / DTCs）已锁定，刷写结束后自动恢复。" />
+                       Text="⚠ 刷写进行中 — 诊断面板（会话 / DID / 例程 / DTC）已锁定，刷写结束后自动恢复。" />
         </Border>
 
         <!-- 通信参数 (只读): 诊断栈 + Flash 副栈当前生效的时序参数及其来源.
              Params 面板 500ms 轮询; 向后兼容 ctor 下为 Disabled 实例 (全部显示 —). -->
-        <Expander DockPanel.Dock="Top" Header="通信参数 (Communication Parameters)"
+        <Expander DockPanel.Dock="Top" Header="通信参数"
                   IsExpanded="False" Padding="8,4" Background="{StaticResource SurfaceSubtle}">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -74,28 +76,28 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                    <TextBlock Text="诊断栈 (Diagnostic)" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBlock Text="{Binding Params.DiagTransport, StringFormat='传输: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagSession, StringFormat='会话: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagP2, StringFormat='P2: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagP2Star, StringFormat='P2*: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagStMin, StringFormat='STmin: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagBlockSize, StringFormat='BS: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagNBs, StringFormat='N_Bs (等FC超时): {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagNCr, StringFormat='N_Cr (等CF超时): {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagS3Failures, StringFormat='S3 保活失败: {0}'}" Margin="0,1"/>
+                    <TextBlock Text="诊断栈" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="{Binding Params.DiagTransport, StringFormat='传输：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagSession, StringFormat='会话：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagP2, StringFormat='P2：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagP2Star, StringFormat='P2*：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagStMin, StringFormat='STmin：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagBlockSize, StringFormat='BS：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagNBs, StringFormat='N_Bs（等 FC 超时）：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagNCr, StringFormat='N_Cr（等 CF 超时）：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.DiagS3Failures, StringFormat='S3 保活失败：{0}'}" Margin="0,1"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="16,0,0,0">
-                    <TextBlock Text="Flash 副栈 (Programming)" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBlock Text="{Binding Params.FlashRunState, StringFormat='状态: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashTransport, StringFormat='传输: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashSession, StringFormat='会话: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashP2, StringFormat='P2: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashP2Star, StringFormat='P2*: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashStMin, StringFormat='STmin: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashBlockSize, StringFormat='BS: {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashNBs, StringFormat='N_Bs (等FC超时): {0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashNCr, StringFormat='N_Cr (等CF超时): {0}'}" Margin="0,1"/>
+                    <TextBlock Text="刷写副栈" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="{Binding Params.FlashRunState, StringFormat='状态：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashTransport, StringFormat='传输：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashSession, StringFormat='会话：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashP2, StringFormat='P2：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashP2Star, StringFormat='P2*：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashStMin, StringFormat='STmin：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashBlockSize, StringFormat='BS：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashNBs, StringFormat='N_Bs（等 FC 超时）：{0}'}" Margin="0,1"/>
+                    <TextBlock Text="{Binding Params.FlashNCr, StringFormat='N_Cr（等 CF 超时）：{0}'}" Margin="0,1"/>
                 </StackPanel>
             </Grid>
         </Expander>
@@ -118,7 +120,7 @@
 
         <!-- Middle: TabControl (DIDs / Routines / DTCs) -->
         <TabControl>
-            <TabItem Header="DIDs"
+            <TabItem Header="DID"
                      IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -137,11 +139,11 @@
                         </DataGrid.Columns>
                     </DataGrid>
                     <StackPanel Grid.Column="1" Margin="12">
-                        <TextBlock Text="{Binding Did.SelectedDid.Name, StringFormat='Selected DID: {0}', TargetNullValue='(none selected)'}"
+                        <TextBlock Text="{Binding Did.SelectedDid.Name, StringFormat='选中 DID：{0}', TargetNullValue='（未选中）'}"
                                    FontWeight="Bold"/>
-                        <TextBlock Text="{Binding Did.SelectedDid.LengthBytes, StringFormat='Length: {0} bytes', TargetNullValue=''}"
+                        <TextBlock Text="{Binding Did.SelectedDid.LengthBytes, StringFormat='长度：{0} 字节', TargetNullValue=''}"
                                    Margin="0,4,0,0"/>
-                        <TextBlock Text="{Binding Did.SelectedDid.TypeDisplay, StringFormat='Type: {0}', TargetNullValue=''}"
+                        <TextBlock Text="{Binding Did.SelectedDid.TypeDisplay, StringFormat='类型：{0}', TargetNullValue=''}"
                                    Margin="0,4,0,0"/>
                         <!-- v3.49.0 MINOR T5.1: 解码字段表 (Read 命中后 DidValueDecoder 产出 DecodedField[]) -->
                         <TextBlock Text="解码字段" Margin="0,8,0,2" FontWeight="Bold"/>
@@ -164,20 +166,20 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock Text="写入值 (hex)" Margin="0,8,0,0"/>
+                        <TextBlock Text="写入值（hex）" Margin="0,8,0,0"/>
                         <TextBox  Text="{Binding Did.WriteValue, UpdateSourceTrigger=PropertyChanged}"
                                   IsEnabled="{Binding Did.SelectedDid.Writable}"/>
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                             <Button Content="读取"  Command="{Binding Did.ReadDidCommand}"  Padding="6,2" Margin="0,0,8,0"/>
                             <Button Content="写入" Command="{Binding Did.WriteDidCommand}" Padding="6,2"/>
                         </StackPanel>
-                        <TextBlock Text="{Binding Did.LastResult, StringFormat='Last: {0}'}"
+                        <TextBlock Text="{Binding Did.LastResult, StringFormat='最近结果：{0}'}"
                                    Margin="0,8,0,0" FontFamily="Consolas" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Routines"
+            <TabItem Header="例程"
                      IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <DockPanel>
                     <!-- v2.0.6 PATCH Bug-4: see UdsView.xaml history. Reorder: button row docks to Top. -->
@@ -185,7 +187,7 @@
                         <Button Content="启动" Command="{Binding Routine.StartRoutineCommand}" Padding="8,3" MinWidth="72" Margin="0,0,6,0"/>
                         <Button Content="停止"  Command="{Binding Routine.StopRoutineCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,6,0"/>
                         <Button Content="查询" Command="{Binding Routine.QueryRoutineCommand}" Padding="8,3" MinWidth="72" Margin="0,0,12,0"/>
-                        <TextBlock Text="{Binding Routine.SelectedRoutine.LastResult, StringFormat='Last: {0}'}"
+                        <TextBlock Text="{Binding Routine.SelectedRoutine.LastResult, StringFormat='最近结果：{0}'}"
                                    Margin="4,0,0,0" VerticalAlignment="Center" FontFamily="Consolas"/>
                     </StackPanel>
                     <DataGrid ItemsSource="{Binding Routine.Routines}" SelectedItem="{Binding Routine.SelectedRoutine}"
@@ -193,14 +195,14 @@
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="ID"     Binding="{Binding Id, StringFormat=0x{0:X4}}"/>
                             <DataGridTextColumn Header="名称"   Binding="{Binding Name}"/>
-                            <DataGridTextColumn Header="状态" Binding="{Binding Status}"/>
+                            <DataGridTextColumn Header="状态" Binding="{Binding StatusDisplay}"/>
                             <DataGridTextColumn Header="结果" Binding="{Binding LastResult}"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
             </TabItem>
 
-            <TabItem Header="DTCs"
+            <TabItem Header="DTC"
                      IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8">
@@ -244,20 +246,20 @@
                             <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.ResponseId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="0,0,4,0"/>
                             <TextBlock Text="功能 0x" VerticalAlignment="Center"/>
                             <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.FunctionalId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50"/>
-                            <CheckBox Content="扩展帧 (29 位)"
+                            <CheckBox Content="扩展帧（29 位）"
                                       IsChecked="{Binding Flash.CurrentProfile.ProgrammingCanId.IsExtendedFrame}"
                                       VerticalAlignment="Center" Margin="12,0,0,0"
-                                      ToolTip="标准帧：11 位 CAN ID (0x000-0x7FF)。扩展帧：29 位 CAN ID。"/>
+                                      ToolTip="标准帧：11 位 CAN ID（0x000-0x7FF）。扩展帧：29 位 CAN ID。"/>
                         </StackPanel>
-                        <CheckBox Content="出错时自动重启 ECU (Fail-Safe Reset)" IsChecked="{Binding Flash.CurrentProfile.AutoResetOnFailure}"
-                                  Margin="0,0,0,8" ToolTip="刷写失败时自动发 EcuReset(0x01) 防止 ECU 半刷状态"/>
+                        <CheckBox Content="出错时自动重启 ECU（Fail-Safe Reset）" IsChecked="{Binding Flash.CurrentProfile.AutoResetOnFailure}"
+                                  Margin="0,0,0,8" ToolTip="刷写失败时自动发 ECUReset（0x01）防止 ECU 半刷状态"/>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <Button Content="启动"  Command="{Binding Flash.StartCommand}" Padding="8,3" MinWidth="72" Margin="0,0,8,0"/>
                             <Button Content="停止"   Command="{Binding Flash.StopCommand}"  Padding="8,3" MinWidth="72" Margin="0,0,8,0"/>
                             <Button Content="保存配置" Command="{Binding Flash.SaveProfileCommand}" Padding="8,3" MinWidth="80" Margin="0,0,4,0"/>
                             <Button Content="加载配置" Command="{Binding Flash.LoadProfileCommand}" Padding="8,3" MinWidth="80" Margin="0,0,12,0"/>
                             <TextBlock VerticalAlignment="Center" FontFamily="Consolas">
-                                <Run Text="状态: "/><Run Text="{Binding Flash.StatusMessage, Mode=OneWay}"/>
+                                <Run Text="状态："/><Run Text="{Binding Flash.StatusMessage, Mode=OneWay}"/>
                             </TextBlock>
                         </StackPanel>
                         <!-- Phase 2: Firmware Files + Flash Driver loading areas -->
@@ -268,12 +270,12 @@
                             </Grid.ColumnDefinitions>
                             <!-- Firmware Files -->
                             <DockPanel Grid.Column="0" Margin="0,0,8,0">
-                                <TextBlock DockPanel.Dock="Top" Text="固件文件:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock DockPanel.Dock="Top" Text="固件文件：" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,4,0,0">
-                                    <Button Content="+ Add Firmware File" Padding="4,2" Margin="0,0,4,0"
+                                    <Button Content="添加固件文件" Padding="4,2" Margin="0,0,4,0"
                                             Command="{Binding Flash.AddFirmwareFileCommand}"
                                             ToolTip="加载 .hex / .s19 / .bin 固件文件"/>
-                                    <Button Content="- Remove" Padding="4,2"
+                                    <Button Content="移除" Padding="4,2"
                                             Command="{Binding Flash.RemoveFirmwareFileCommand}"
                                             ToolTip="移除选中的固件文件"/>
                                 </StackPanel>
@@ -283,17 +285,17 @@
                             </DockPanel>
                             <!-- Flash Driver -->
                             <DockPanel Grid.Column="1">
-                                <TextBlock DockPanel.Dock="Top" Text="刷写驱动:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock DockPanel.Dock="Top" Text="刷写驱动：" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,4,0,0">
-                                    <Button Content="+ Add Flash Driver" Padding="4,2" Margin="0,0,4,0"
+                                    <Button Content="添加刷写驱动" Padding="4,2" Margin="0,0,4,0"
                                             Command="{Binding Flash.AddFlashDriverCommand}"
                                             ToolTip="加载刷写驱动 DLL 或二进制文件"/>
-                                    <Button Content="- Remove" Padding="4,2"
+                                    <Button Content="移除" Padding="4,2"
                                             Command="{Binding Flash.RemoveFlashDriverCommand}"
                                             ToolTip="移除刷写驱动"/>
                                 </StackPanel>
                                 <Border Height="80" BorderBrush="{StaticResource Border}" BorderThickness="1" Padding="4">
-                                    <TextBlock Text="{Binding Flash.CurrentProfile.FlashDriver.Path, TargetNullValue='(no driver loaded)'}"
+                                    <TextBlock Text="{Binding Flash.CurrentProfile.FlashDriver.Path, TargetNullValue='（未加载驱动）'}"
                                                TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                 </Border>
                             </DockPanel>
@@ -302,7 +304,13 @@
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <ComboBox x:Name="KindPicker" ItemsSource="{Binding Flash.AddableKinds}"
                                       SelectedIndex="0" Width="140" Margin="0,0,4,0"
-                                      ToolTip="要添加的步骤类型"/>
+                                      ToolTip="要添加的步骤类型">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource UdsEnumDisplay}}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
                             <Button Content="添加步骤" Padding="8,3" MinWidth="72" Margin="0,0,4,0"
                                     Command="{Binding Flash.AddStepCommand}"
                                     CommandParameter="{Binding SelectedItem, ElementName=KindPicker}"
@@ -312,10 +320,10 @@
                                     ToolTip="移除选中的步骤"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <Button Content="▲ Up" Padding="8,3" MinWidth="48" Margin="0,0,4,0"
+                            <Button Content="▲ 上移" Padding="8,3" MinWidth="48" Margin="0,0,4,0"
                                     Command="{Binding Flash.MoveUpCommand}"
                                     ToolTip="上移选中的步骤"/>
-                            <Button Content="▼ Down" Padding="8,3" MinWidth="48"
+                            <Button Content="▼ 下移" Padding="8,3" MinWidth="48"
                                     Command="{Binding Flash.MoveDownCommand}"
                                     ToolTip="下移选中的步骤"/>
                         </StackPanel>
@@ -333,8 +341,13 @@
                         <!-- Left: Step list -->
                         <DockPanel Grid.Column="0" Margin="0,0,8,0">
                             <ListBox ItemsSource="{Binding Flash.CurrentProfile.Steps}"
-                                     SelectedItem="{Binding Flash.SelectedStep, Mode=TwoWay}"
-                                     DisplayMemberPath="Kind"/>
+                                     SelectedItem="{Binding Flash.SelectedStep, Mode=TwoWay}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Kind, Converter={StaticResource UdsEnumDisplay}}"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
                         </DockPanel>
 
                         <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center" VerticalAlignment="Stretch"/>
@@ -353,7 +366,7 @@
 
                                 <!-- Property content: only visible when a step IS selected -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep, Converter={StaticResource NullToVisibilityConverter}}">
-                                <TextBlock Text="{Binding Flash.SelectedStep.Kind, StringFormat='Properties: {0}'}"
+                                <TextBlock Text="{Binding Flash.SelectedStep.Kind, Converter={StaticResource UdsEnumDisplay}, StringFormat='属性：{0}'}"
                                            FontWeight="Bold" FontSize="14" Margin="0,0,0,8"/>
 
                                 <!-- AddressingMode: 0x28 (CommunicationControl) 强制 Functional (broadcast), 其余步骤可切换 -->
@@ -362,17 +375,22 @@
                                         <ColumnDefinition Width="100"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="寻址:" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Text="寻址：" VerticalAlignment="Center"/>
                                     <ComboBox Grid.Column="1"
                                               ItemsSource="{Binding Flash.AddressingModes}"
                                               SelectedItem="{Binding Flash.SelectedStep.AddressingMode}"
-                                              IsEnabled="{Binding Flash.SelectedStep.CommunicationControl, Converter={StaticResource InverseNullToBooleanConverter}}"
-                                              />
+                                              IsEnabled="{Binding Flash.SelectedStep.CommunicationControl, Converter={StaticResource InverseNullToBooleanConverter}}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource UdsEnumDisplay}}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
                                 </Grid>
 
                                 <!-- PreCheck properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.PreCheck, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="预检查" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                    <TextBlock Text="预检查（PreCheck）" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -381,14 +399,14 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="例程 ID:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="例程 ID：" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.PreCheck.RoutineId, Converter={StaticResource HexConverter}, ConverterParameter=4, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                 </StackPanel>
 
                                 <!-- SecurityAccess properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.SecurityAccess, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="SecurityAccess" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                    <TextBlock Text="安全访问（SecurityAccess）" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -398,27 +416,33 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="等级:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="等级：" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.Level, Converter={StaticResource HexConverter}, ConverterParameter=2, UpdateSourceTrigger=PropertyChanged}"/>
                                         <TextBlock Grid.Row="0" Grid.Column="2" Foreground="{StaticResource Info}" VerticalAlignment="Center" Margin="4,0,0,0"
                                                    Visibility="{Binding Flash.SelectedStep.IsSecurityLevelFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}">
                                             <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Link}"/>
                                             <Run Text=" ODX"/>
                                         </TextBlock>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="模式:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="模式：" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="1" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.SecurityAccessModes}"
-                                                  SelectedItem="{Binding Flash.SelectedStep.SecurityAccess.Mode}"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="手动密钥:" VerticalAlignment="Center"/>
+                                                  SelectedItem="{Binding Flash.SelectedStep.SecurityAccess.Mode}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource UdsEnumDisplay}}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="手动密钥：" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.ManualKeyHex, UpdateSourceTrigger=PropertyChanged}"/>
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="DLL 路径:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="DLL 路径：" VerticalAlignment="Center"/>
                                         <DockPanel Grid.Row="3" Grid.Column="1">
                                             <Button Content="…" DockPanel.Dock="Right" Padding="6,0" Margin="2,0,0,0"
                                                     Command="{Binding Flash.SelectDllCommand}"/>
                                             <TextBox Text="{Binding Flash.SelectedStep.SecurityAccess.DllPath, UpdateSourceTrigger=PropertyChanged}"/>
                                         </DockPanel>
-                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="种子长度:" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.SeedLength, TargetNullValue='auto', UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="种子长度：" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Flash.SelectedStep.SecurityAccess.SeedLength, TargetNullValue='自动', UpdateSourceTrigger=PropertyChanged}"/>
                                         <TextBlock Grid.Row="4" Grid.Column="2" Foreground="{StaticResource Info}" VerticalAlignment="Center" Margin="4,0,0,0"
                                                    Visibility="{Binding Flash.SelectedStep.IsSeedLengthFromOdx, Converter={StaticResource BooleanToVisibilityConverter}}">
                                             <Run FontFamily="Segoe Fluent Icons" FontStyle="Normal" Text="{x:Static icons:FluentIconGlyphs.Link}"/>
@@ -429,7 +453,7 @@
 
                                 <!-- Erase/Verify (RoutineControl) properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.RoutineControl, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="RoutineControl" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="例程控制（RoutineControl）" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <!-- Issue 1: Erase 步骤的 Segment 选择器 — 选中后自动填充 StartAddr/Size -->
                                     <Grid Margin="0,0,0,8"
                                           Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}">
@@ -437,17 +461,17 @@
                                             <ColumnDefinition Width="100"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="段:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="0" Text="段：" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
                                                   SelectedIndex="{Binding Flash.EraseSegmentIndex, UpdateSourceTrigger=PropertyChanged}"
-                                                  ToolTip="选择要擦除的 Segment (地址+大小自动获取)">
+                                                  ToolTip="选择要擦除的段（地址和大小自动获取）">
                                             <ComboBox.ItemTemplate>
                                                 <DataTemplate>
                                                     <TextBlock>
                                                         <Run Text="{Binding FileName, Mode=OneWay}"/>
                                                         <Run Text=": 0x"/><Run Text="{Binding StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
                                                         <Run Text=" - 0x"/><Run Text="{Binding EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
-                                                        <Run Text=" ("/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" B)"/>
+                                                        <Run Text="（"/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" 字节）"/>
                                                     </TextBlock>
                                                 </DataTemplate>
                                             </ComboBox.ItemTemplate>
@@ -461,17 +485,17 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/><RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="例程 ID:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="例程 ID：" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.RoutineControl.RoutineId, Converter={StaticResource HexConverter}, ConverterParameter=4, UpdateSourceTrigger=PropertyChanged}"/>
                                         <!-- Start Addr / Size: Verify 步骤隐藏 (从 Segment 自动算); Erase 步骤显示.
                                              选中 Segment 后自动填充 (只读), 未选时可手工编辑. -->
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="起始地址:" VerticalAlignment="Center"
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="起始地址：" VerticalAlignment="Center"
                                                    Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"/>
                                         <TextBox Grid.Row="1" Grid.Column="1"
                                                  Text="{Binding Flash.SelectedStep.RoutineControl.StartAddress, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"
                                                  Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"
                                                  IsEnabled="{Binding Flash.EraseSegmentIndex, Converter={StaticResource NegativeToBooleanConverter}}"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="大小:" VerticalAlignment="Center"
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="大小：" VerticalAlignment="Center"
                                                    Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource InverseNullToVisibilityConverter}}"/>
                                         <TextBox Grid.Row="2" Grid.Column="1"
                                                  Text="{Binding Flash.SelectedStep.RoutineControl.Size, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"
@@ -482,7 +506,7 @@
 
                                 <!-- Download properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.Download, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="下载" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="下载传输（DownloadTransfer）" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -491,17 +515,17 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="段:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="段：" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
                                                   SelectedIndex="{Binding Flash.SelectedStep.Download.SegmentIndex}"
-                                                  ToolTip="选择要下载的 Segment (地址+大小+CRC 自动获取)">
+                                                  ToolTip="选择要下载的段（地址、大小和 CRC 自动获取）">
                                             <ComboBox.ItemTemplate>
                                                 <DataTemplate>
                                                     <TextBlock>
                                                         <Run Text="{Binding FileName, Mode=OneWay}"/>
                                                         <Run Text=": 0x"/><Run Text="{Binding StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
                                                         <Run Text=" - 0x"/><Run Text="{Binding EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
-                                                        <Run Text=" ("/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" B)"/>
+                                                        <Run Text="（"/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" 字节）"/>
                                                     </TextBlock>
                                                 </DataTemplate>
                                             </ComboBox.ItemTemplate>
@@ -511,7 +535,7 @@
 
                                 <!-- Verify properties (CRC 预设 + Segment 绑定) -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.Verify, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="校验" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="校验（Verify）" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -520,32 +544,32 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="段:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="段：" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Flash.AllSegments}"
                                                   SelectedIndex="{Binding Flash.SelectedStep.Verify.SegmentIndex}"
-                                                  ToolTip="选择要校验的 Segment (地址+大小+CRC 自动获取)">
+                                                  ToolTip="选择要校验的段（地址、大小和 CRC 自动获取）">
                                             <ComboBox.ItemTemplate>
                                                 <DataTemplate>
                                                     <TextBlock>
                                                         <Run Text="{Binding FileName, Mode=OneWay}"/>
                                                         <Run Text=": 0x"/><Run Text="{Binding StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
                                                         <Run Text=" - 0x"/><Run Text="{Binding EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
-                                                        <Run Text=" ("/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" B)"/>
+                                                        <Run Text="（"/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" 字节）"/>
                                                     </TextBlock>
                                                 </DataTemplate>
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="CRC 预设:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="CRC 预设：" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="1" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.CrcPresetNames}"
                                                   SelectedIndex="{Binding Flash.SelectedStep.Verify.SelectedCrcPresetIndex}"
                                                   ToolTip="选择 CRC 算法预设以匹配目标 ECU"/>
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="多项式:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="多项式：" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Polynomial, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"
                                                  IsEnabled="{Binding Flash.SelectedStep.Verify.IsCrcCustom}"/>
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="期望 CRC:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="期望 CRC：" VerticalAlignment="Center"/>
                                         <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.ExpectedChecksum, StringFormat=0x{0:X8}}"/>
-                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="地址:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="地址：" VerticalAlignment="Center"/>
                                         <TextBlock Grid.Row="4" Grid.Column="1">
                                             <Run Text="0x"/><Run Text="{Binding Flash.SelectedStep.Verify.StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
                                             <Run Text=" - 0x"/><Run Text="{Binding Flash.SelectedStep.Verify.EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
@@ -561,9 +585,9 @@
                                                 <ColumnDefinition Width="100"/><ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
                                             <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="初值:" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="初值：" VerticalAlignment="Center"/>
                                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.Init, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <TextBlock Grid.Row="0" Grid.Column="2" Text="最终异或:" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="2" Text="最终异或：" VerticalAlignment="Center"/>
                                             <TextBox Grid.Row="0" Grid.Column="3" Text="{Binding Flash.SelectedStep.Verify.CrcParameters.FinalXor, Converter={StaticResource HexConverter}, ConverterParameter=8, UpdateSourceTrigger=PropertyChanged}"/>
                                             <CheckBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Content="输入反转"
                                                       IsChecked="{Binding Flash.SelectedStep.Verify.CrcParameters.ReflectInput}"
@@ -577,7 +601,7 @@
 
                                 <!-- EcuReset properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.EcuReset, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="EcuReset" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="ECU 复位（ECUReset）" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -586,16 +610,22 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="复位类型:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="复位类型：" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.EcuResetTypes}"
-                                                  SelectedItem="{Binding Flash.SelectedStep.EcuReset.ResetType}"/>
+                                                  SelectedItem="{Binding Flash.SelectedStep.EcuReset.ResetType}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource UdsEnumDisplay}}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                     </Grid>
                                 </StackPanel>
 
                                 <!-- CommunicationControl (0x28) properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.CommunicationControl, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="CommunicationControl (0x28)" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="通信控制（CommunicationControl 0x28）" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -604,16 +634,22 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="子功能:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="子功能：" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.CommunicationSubFunctions}"
-                                                  SelectedItem="{Binding Flash.SelectedStep.CommunicationControl.SubFunction}"/>
+                                                  SelectedItem="{Binding Flash.SelectedStep.CommunicationControl.SubFunction}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource UdsEnumDisplay}}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                     </Grid>
                                 </StackPanel>
 
                                 <!-- DTCControl (0x14) properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.DtcControl, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="DTCControl (0x14)" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="DTC 控制（DTCControl 0x14）" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -622,18 +658,24 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/><RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="子功能:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="子功能：" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Row="0" Grid.Column="1"
                                                   ItemsSource="{Binding Flash.DtcControlSubFunctions}"
-                                                  SelectedItem="{Binding Flash.SelectedStep.DtcControl.SubFunction}"/>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="DTC 组:" VerticalAlignment="Center"/>
+                                                  SelectedItem="{Binding Flash.SelectedStep.DtcControl.SubFunction}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource UdsEnumDisplay}}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="DTC 组：" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Flash.SelectedStep.DtcControl.DtcGroup, Converter={StaticResource HexConverter}, ConverterParameter=6, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                 </StackPanel>
 
                                 <!-- DependencyCheck (编程依赖性检查) properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.DependencyCheck, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="DependencyCheck (编程依赖性检查)" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="编程依赖性检查（DependencyCheck）" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="100"/>
@@ -642,18 +684,18 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition/>
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="例程 ID:" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="例程 ID：" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Flash.SelectedStep.DependencyCheck.RoutineId, Converter={StaticResource HexConverter}, ConverterParameter=4, UpdateSourceTrigger=PropertyChanged}"/>
                                     </Grid>
                                 </StackPanel>
 
                                 <!-- FlashDriverDownload properties -->
                                 <StackPanel Visibility="{Binding Flash.SelectedStep.FlashDriverDownload, Converter={StaticResource NullToVisibilityConverter}}">
-                                    <TextBlock Text="FlashDriverDownload" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                    <TextBlock Text="将 flash driver 下载到 ECU RAM, ECU 自动执行擦写操作" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="刷写驱动下载（FlashDriverDownload）" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <TextBlock Text="将刷写驱动下载到 ECU RAM，由 ECU 自动执行擦写操作" Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap"/>
                                     <StackPanel Margin="0,8,0,0"
                                                 Visibility="{Binding Flash.FlashDriverSegmentCount, Converter={StaticResource NonZeroToVisibilityConverter}}">
-                                        <TextBlock Text="驱动段:" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                        <TextBlock Text="驱动段：" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                         <ItemsControl ItemsSource="{Binding Flash.FlashDriverSegments}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
@@ -661,7 +703,7 @@
                                                         <Run Text="{Binding FileName, Mode=OneWay}"/>
                                                         <Run Text=": 0x"/><Run Text="{Binding StartAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
                                                         <Run Text=" - 0x"/><Run Text="{Binding EndAddress, StringFormat={}{0:X8}, Mode=OneWay}"/>
-                                                        <Run Text=" ("/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" B)"/>
+                                                        <Run Text="（"/><Run Text="{Binding Length, Mode=OneWay}"/><Run Text=" 字节）"/>
                                                     </TextBlock>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
@@ -670,7 +712,7 @@
                                 </StackPanel>
 
                                 <!-- Show "no properties" when all groups are null (e.g. PreCheck, SessionControl) -->
-                                <TextBlock Text="(No configurable properties for this step kind)"
+                                <TextBlock Text="（此步骤类型无可配置属性）"
                                            Foreground="{StaticResource TextSecondary}" FontStyle="Italic" Margin="0,8,0,0">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">

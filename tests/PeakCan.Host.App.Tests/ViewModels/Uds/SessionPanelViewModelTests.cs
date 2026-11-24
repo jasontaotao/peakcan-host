@@ -66,7 +66,7 @@ public sealed class SessionPanelViewModelTests
     public void Ctor_Defaults_CurrentSession_Default_SecurityLevel_Null_TesterPresentActive_False()
     {
         var vm = NewVm(new RecordingUdsClient());
-        vm.CurrentSession.Should().Be("Default");
+        vm.CurrentSession.Should().Be("默认");
         vm.SecurityLevel.Should().BeNull();
         vm.TesterPresentActive.Should().BeFalse();
     }
@@ -80,7 +80,7 @@ public sealed class SessionPanelViewModelTests
         await vm.SetDefaultSessionCommand.ExecuteAsync(null);
 
         fake.SessionCalls.Should().ContainSingle().Which.Should().Be(0x01);
-        vm.CurrentSession.Should().Be("Default");
+        vm.CurrentSession.Should().Be("默认");
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class SessionPanelViewModelTests
         await vm.SetExtendedSessionCommand.ExecuteAsync(null);
 
         fake.SessionCalls.Should().ContainSingle().Which.Should().Be(0x02);
-        vm.CurrentSession.Should().Be("Extended");
+        vm.CurrentSession.Should().Be("扩展");
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public sealed class SessionPanelViewModelTests
         await vm.SetProgrammingSessionCommand.ExecuteAsync(null);
 
         fake.SessionCalls.Should().ContainSingle().Which.Should().Be(0x03);
-        vm.CurrentSession.Should().Be("Programming");
+        vm.CurrentSession.Should().Be("编程");
     }
 
     [Fact]
@@ -171,7 +171,7 @@ public sealed class SessionPanelViewModelTests
         await vm.SecurityAccessCommand.ExecuteAsync(null);
 
         log.Should().Contain(l => l.Level == "Warn" && l.Message.Contains("IKeyDerivationAlgorithm", StringComparison.OrdinalIgnoreCase));
-        log.Should().Contain(l => l.Level == "Info" && l.Message.Contains("Hint", StringComparison.OrdinalIgnoreCase));
+        log.Should().Contain(l => l.Level == "Info" && l.Message.Contains("提示", StringComparison.OrdinalIgnoreCase));
         vm.SecurityLevel.Should().BeNull();
     }
 
@@ -186,7 +186,7 @@ public sealed class SessionPanelViewModelTests
         await vm.SecurityAccessCommand.ExecuteAsync(null);
 
         vm.SecurityLevel.Should().Be((byte)0x01);
-        log.Should().Contain(l => l.Level == "Info" && l.Message.Contains("succeeded", StringComparison.OrdinalIgnoreCase));
+        log.Should().Contain(l => l.Level == "Info" && l.Message.Contains("成功", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -253,7 +253,7 @@ public sealed class SessionPanelViewModelTests
         // Start the loop.
         vm.ToggleTesterPresentCommand.Execute(null);
         vm.TesterPresentActive.Should().BeTrue();
-        log.Should().ContainSingle(l => l.Message.Contains("TesterPresent started"));
+        log.Should().ContainSingle(l => l.Message.Contains("TesterPresent 已启动"));
 
         // Wait briefly for the threadpool catch arm to fire on the first
         // TesterPresentAsync invocation.
@@ -268,7 +268,7 @@ public sealed class SessionPanelViewModelTests
         // production with a WPF SyncContext, the Post marshals back to
         // the UI dispatcher first.
         log.Should().Contain(l =>
-            l.Level == "Error" && l.Message.Contains("TesterPresent loop error"),
+            l.Level == "Error" && l.Message.Contains("TesterPresent 循环出错"),
             "the catch arm must append an Error log line (not throw)");
     }
 

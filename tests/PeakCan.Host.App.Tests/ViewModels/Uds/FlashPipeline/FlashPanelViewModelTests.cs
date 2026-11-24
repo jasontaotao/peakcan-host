@@ -288,12 +288,37 @@ public sealed class FlashPanelViewModelTests
             await ctx.Vm.StartCommand.ExecuteAsync(null);
 
             ctx.Vm.Status.Should().Be(FlashStatus.Success);
+            ctx.Vm.StatusMessage.Should().Be("刷写完成。", "成功终态必须给运营者中文反馈");
             ctx.Vm.IsFlashing.Should().BeFalse();
         }
         finally
         {
             if (File.Exists(tmp)) File.Delete(tmp);
         }
+    }
+
+    /// <summary>
+    /// 进度文案映射按 FlashStatus 走，不依赖 Core 的 "Done"/"Cancelled" 字符串；
+    /// 失败原因原样透出，Running 无消息时保留上一条。
+    /// </summary>
+    [Theory]
+    [InlineData(FlashStatus.Success, "Done", null, "刷写完成。")]
+    [InlineData(FlashStatus.Cancelled, "Cancelled", null, "已取消。")]
+    [InlineData(FlashStatus.Failed, "NRC 0x31", null, "NRC 0x31")]
+    [InlineData(FlashStatus.Running, null, "上一条消息", "上一条消息")]
+    public void MapProgressMessage_Is_Status_Driven(
+        FlashStatus status, string? message, string? current, string expected)
+    {
+        FlashPanelViewModel.MapProgressMessage(status, message, current).Should().Be(expected);
+    }
+
+    [Fact]
+    public void DtcControlSubFunctions_Contains_No_Duplicate_Values()
+    {
+        // 枚举里 ReportDTCFaultDetectionCounter 与 ClearDTCInformation 都是 0x14；
+        // 下拉框必须去重，否则出现两个显示相同的选项。
+        var ctx = Create();
+        ctx.Vm.DtcControlSubFunctions.Select(s => (byte)s).Should().OnlyHaveUniqueItems();
     }
 
     [Fact]
@@ -597,7 +622,7 @@ public sealed class FlashPanelViewModelTests
             File.Exists(tmp).Should().BeTrue("SaveProfile must write the profile to disk");
             var json = await File.ReadAllTextAsync(tmp);
             json.Should().Contain("Default Flash", "serialized JSON should contain the profile name");
-            ctx.Vm.StatusMessage.Should().Contain("saved");
+            ctx.Vm.StatusMessage.Should().Contain("已保存");
         }
         finally
         {
@@ -610,10 +635,11 @@ public sealed class FlashPanelViewModelTests
     {
         var dialog = new FakeFileDialogService { NextSaveResult = null }; // user cancelled
         var ctx = Create(dialog);
+        var before = ctx.Vm.StatusMessage;
 
         await ctx.Vm.SaveProfileCommand.ExecuteAsync(null);
 
-        ctx.Vm.StatusMessage.Should().NotContain("saved", "cancellation must not report success");
+        ctx.Vm.StatusMessage.Should().Be(before, "取消保存不应改动状态栏，更不能报成功");
     }
 
     [Fact]
@@ -644,7 +670,7 @@ public sealed class FlashPanelViewModelTests
 
             loadCtx.Vm.CurrentProfile.Steps.Count.Should().Be(expectedCount,
                 "LoadProfile must restore the full step list from disk");
-            loadCtx.Vm.StatusMessage.Should().Contain("loaded");
+            loadCtx.Vm.StatusMessage.Should().Contain("已从");
         }
         finally
         {
@@ -664,7 +690,7 @@ public sealed class FlashPanelViewModelTests
 
             await ctx.Vm.LoadProfileCommand.ExecuteAsync(null);
 
-            ctx.Vm.StatusMessage.Should().Contain("failed", "invalid JSON must report failure to operator");
+            ctx.Vm.StatusMessage.Should().Contain("失败", "invalid JSON must report failure to operator");
             ctx.Vm.Status.Should().Be(FlashStatus.Failed);
         }
         finally
@@ -1109,6 +1135,7 @@ public sealed class FlashPanelViewModelTests
 
             vm.IsFlashing.Should().BeFalse();
             vm.Status.Should().Be(FlashStatus.Cancelled, "the run observed OperationCanceledException");
+            vm.StatusMessage.Should().Be("已取消。", "取消终态必须给运营者中文反馈");
             // Reuse invariant: the (singleton) VM stays startable for the next window.
             vm.StartCommand.CanExecute(null).Should().BeTrue();
         }

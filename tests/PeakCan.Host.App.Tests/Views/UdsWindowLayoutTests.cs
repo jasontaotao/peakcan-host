@@ -22,7 +22,7 @@ public sealed class UdsWindowLayoutTests
     private static readonly XNamespace P = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
     private static readonly XNamespace X = "http://schemas.microsoft.com/winfx/2006/xaml";
 
-    private static readonly string[] DiagnosticTabs = { "DIDs", "Routines", "DTCs" };
+    private static readonly string[] DiagnosticTabs = { "DID", "例程", "DTC" };
 
     private static string RepoFile(params string[] relative)
     {
@@ -91,5 +91,52 @@ public sealed class UdsWindowLayoutTests
 
         banner.Should().NotBeNull("只禁用不说明，用户会以为界面卡住了");
         banner!.Descendants(P + "TextBlock").Should().NotBeEmpty();
+    }
+
+    /// <summary>
+    /// 例程表格「状态」列必须绑中文 StatusDisplay；绑 Status 会把
+    /// Running/Completed/Failed 这些内部状态直接渲染给用户。
+    /// </summary>
+    [Fact]
+    public void Routines_Status_Column_Binds_StatusDisplay()
+    {
+        var tab = UdsWindow().Descendants(P + "TabItem")
+            .Single(t => (string?)t.Attribute("Header") == "例程");
+        var statusColumn = tab.Descendants(P + "DataGridTextColumn")
+            .SingleOrDefault(c => (string?)c.Attribute("Header") == "状态");
+
+        statusColumn.Should().NotBeNull("例程表必须有状态列");
+        ((string?)statusColumn!.Attribute("Binding")).Should()
+            .Contain("StatusDisplay", "状态列显示中文；绑 Status 会把英文状态漏给用户");
+    }
+
+    /// <summary>
+    /// 界面文案中文化：刷写页的按钮/空态必须是中文。
+    /// 这些英文串曾经直接出现在 operator 面前，回归时必须钉住。
+    /// </summary>
+    [Theory]
+    [InlineData("添加固件文件")]
+    [InlineData("添加刷写驱动")]
+    [InlineData("（未选中）")]
+    [InlineData("（未加载驱动）")]
+    [InlineData("（此步骤类型无可配置属性）")]
+    public void Flash_Labels_Are_Chinese(string label)
+    {
+        XDocument.Load(RepoFile("src", "PeakCan.Host.App", "Windows", "UdsWindow.xaml"))
+            .ToString()
+            .Should().Contain(label, $"刷写页文案应中文化，不能残留英文 {label}");
+    }
+
+    [Theory]
+    [InlineData("+ Add Firmware File")]
+    [InlineData("- Remove")]
+    [InlineData("(No configurable properties for this step kind)")]
+    [InlineData("(none selected)")]
+    [InlineData("(no driver loaded)")]
+    public void Flash_English_Remnants_Are_Gone(string remnant)
+    {
+        XDocument.Load(RepoFile("src", "PeakCan.Host.App", "Windows", "UdsWindow.xaml"))
+            .ToString()
+            .Should().NotContain(remnant, $"旧英文文案必须清理：{remnant}");
     }
 }

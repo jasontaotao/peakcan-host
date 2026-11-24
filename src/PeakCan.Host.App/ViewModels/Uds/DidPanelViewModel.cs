@@ -92,7 +92,7 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
         ReadDidCommand.NotifyCanExecuteChanged();
         try
         {
-            AppendLog("Info", $"Reading DID 0x{row.Id:X4}...");
+            AppendLog("Info", $"正在读取 DID 0x{row.Id:X4}…");
             // v2.0.6 PATCH Bug-3: NO ConfigureAwait(false) here — the
             // continuation, catch handlers, and finally block all mutate
             // WPF-bound state (row.ReadValue, row.IsReading, ObservableCollection
@@ -122,15 +122,15 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
         }
         catch (UdsNegativeResponseException ex)
         {
-            AppendLog("Warn", $"Read DID 0x{row.Id:X4} failed: NRC 0x{(byte)ex.ResponseCode:X2}");
+            AppendLog("Warn", $"读取 DID 0x{row.Id:X4} 失败：NRC 0x{(byte)ex.ResponseCode:X2}");
         }
         catch (FormatException ex)
         {
-            AppendLog("Error", $"Read DID 0x{row.Id:X4}: invalid format — {ex.Message}");
+            AppendLog("Error", $"读取 DID 0x{row.Id:X4}：输入格式无效 — {ex.Message}");
         }
         catch (Exception ex)
         {
-            AppendLog("Error", $"Read DID 0x{row.Id:X4} error: {ex.Message}");
+            AppendLog("Error", $"读取 DID 0x{row.Id:X4} 出错：{ex.Message}");
         }
         finally
         {
@@ -149,24 +149,24 @@ public sealed partial class DidPanelViewModel : ObservableObject, IUdsPanel
         try
         {
             var data = ParseHexString(WriteValue);
-            AppendLog("Info", $"Writing DID 0x{row.Id:X4} ({data.Length} bytes)...");
+            AppendLog("Info", $"正在写入 DID 0x{row.Id:X4}（{data.Length} 字节）…");
             // v2.0.6 PATCH Bug-3: same reasoning as ReadDidAsync — no
             // ConfigureAwait(false) so the surrounding try/catch runs on the
             // UI dispatcher when AppendLog writes to the ObservableCollection.
             await _udsClient.WriteDataByIdentifierAsync(row.Id, data);
-            AppendLog("Info", $"DID 0x{row.Id:X4} written successfully");
+            AppendLog("Info", $"DID 0x{row.Id:X4} 写入成功");
         }
         catch (UdsNegativeResponseException ex)
         {
-            AppendLog("Warn", $"Write DID 0x{row.Id:X4} failed: NRC 0x{(byte)ex.ResponseCode:X2}");
+            AppendLog("Warn", $"写入 DID 0x{row.Id:X4} 失败：NRC 0x{(byte)ex.ResponseCode:X2}");
         }
         catch (FormatException ex)
         {
-            AppendLog("Error", $"Write DID 0x{row.Id:X4}: invalid hex input — {ex.Message}");
+            AppendLog("Error", $"写入 DID 0x{row.Id:X4}：hex 输入无效 — {ex.Message}");
         }
         catch (Exception ex)
         {
-            AppendLog("Error", $"Write DID 0x{row.Id:X4} error: {ex.Message}");
+            AppendLog("Error", $"写入 DID 0x{row.Id:X4} 出错：{ex.Message}");
         }
     }
 

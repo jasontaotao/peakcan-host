@@ -214,12 +214,12 @@
             <Separator />
             <StatusBarItem>
                 <Border Background="{StaticResource SurfaceSubtle}" Padding="6,2" CornerRadius="3">
-                    <TextBlock Text="{Binding Uds.Session.CurrentSession, StringFormat='会话: {0}'}" />
+                    <TextBlock Text="{Binding Uds.Session.CurrentSession, StringFormat='会话：{0}'}" />
                 </Border>
             </StatusBarItem>
             <StatusBarItem>
                 <Border Background="{StaticResource SurfaceSubtle}" Padding="6,2" CornerRadius="3">
-                    <TextBlock Text="{Binding Uds.Session.SecurityLevelText, StringFormat='安全: {0}'}" />
+                    <TextBlock Text="{Binding Uds.Session.SecurityLevelText, StringFormat='安全：{0}'}" />
                 </Border>
             </StatusBarItem>
             <StatusBarItem Visibility="{Binding Uds.Session.TesterPresentActive, Converter={StaticResource BoolToVis}}">

@@ -69,29 +69,30 @@ public sealed partial class RoutinePanelViewModel : ObservableObject, IUdsPanel
     {
         var row = SelectedRoutine;
         if (row is null) return;
-        var label = subFunction switch { 0x01 => "Start", 0x02 => "Stop", 0x03 => "Query", _ => $"subFn 0x{subFunction:X2}" };
+        var label = subFunction switch { 0x01 => "启动", 0x02 => "停止", 0x03 => "查询", _ => $"子功能 0x{subFunction:X2}" };
+
         row.Status = "Running";
         NotifyCanExecuteChanged();
         try
         {
-            AppendLog("Info", $"{label} routine 0x{row.Id:X4}...");
+            AppendLog("Info", $"{label}例程 0x{row.Id:X4}…");
             // v2.0.6 PATCH Bug-3: no ConfigureAwait(false) — the catch block
             // sets row.Status and AppendLog writes to the shared
             // ObservableCollection; both need to stay on the UI dispatcher.
             var result = await _udsClient.RoutineControlAsync(subFunction, row.Id);
             row.LastResult = BitConverter.ToString(result).Replace("-", " ");
             row.Status     = "Completed";
-            AppendLog("Info", $"{label} routine 0x{row.Id:X4} -> {row.LastResult}");
+            AppendLog("Info", $"{label}例程 0x{row.Id:X4} → {row.LastResult}");
         }
         catch (UdsNegativeResponseException ex)
         {
             row.Status = "Failed";
-            AppendLog("Warn", $"{label} routine 0x{row.Id:X4} failed: NRC 0x{(byte)ex.ResponseCode:X2}");
+            AppendLog("Warn", $"{label}例程 0x{row.Id:X4} 失败：NRC 0x{(byte)ex.ResponseCode:X2}");
         }
         catch (Exception ex)
         {
             row.Status = "Failed";
-            AppendLog("Error", $"{label} routine 0x{row.Id:X4} error: {ex.Message}");
+            AppendLog("Error", $"{label}例程 0x{row.Id:X4} 出错：{ex.Message}");
         }
         finally
         {

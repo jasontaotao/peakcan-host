@@ -281,7 +281,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// 前 4 项对应 CrcParameters.Presets, 最后一项 "Custom".
     /// </summary>
     public IReadOnlyList<string> CrcPresetNames { get; } =
-        [.. PeakCan.Host.Core.Uds.FlashPipeline.CrcParameters.PresetNames, "Custom"];
+        [.. PeakCan.Host.Core.Uds.FlashPipeline.CrcParameters.PresetNames, "自定义"];
 
     /// <summary>
     /// AddressingMode values for the per-step ComboBox.
@@ -299,7 +299,10 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// DtcControlSubFunction values for the 0x14 step ComboBox.
     /// </summary>
     public IReadOnlyList<PeakCan.Host.Core.Uds.DtcControlSubFunction> DtcControlSubFunctions { get; } =
-        Enum.GetValues<PeakCan.Host.Core.Uds.DtcControlSubFunction>();
+        // 0x14 在枚举里有两个同值成员（0x19 的 ReportDTCFaultDetectionCounter 与
+        // 0x14 服务的 ClearDTCInformation）。Distinct 按底层值去重，避免下拉框
+        // 出现两个显示完全相同的选项。
+        Enum.GetValues<PeakCan.Host.Core.Uds.DtcControlSubFunction>().Distinct().ToArray();
 
     /// <summary>
     /// Kinds the operator can add via the "Add Step" dropdown. Excludes
@@ -338,7 +341,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         {
             _logger.LogWarning("Start requested with no enabled steps.");
             Status = FlashStatus.Failed;
-            StatusMessage = "No enabled steps.";
+            StatusMessage = "没有已启用的步骤。";
             return Task.CompletedTask;
         }
 
@@ -354,7 +357,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             // throw remains in SecondaryFlashStackFactory.Build for any Auto snapshot that
             // ever bypasses this VM gate.
             Status = FlashStatus.Failed;
-            StatusMessage = "Auto SecurityAccess mode is not supported in Phase 1.";
+            StatusMessage = "第 1 阶段不支持自动 SecurityAccess 模式。";
             return Task.CompletedTask;
         }
 
@@ -371,7 +374,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         {
             Status = FlashStatus.Failed;
             StatusMessage =
-                "编程寻址与诊断寻址相同 (0x7E8) — 同寻址刷写仅支持 Manual mode。请将 ProgrammingCanId 改为不同于 0x7E0/0x7E8 的编程寻址。";
+                "编程寻址与诊断寻址相同（0x7E8）— 同寻址刷写仅支持手动模式。请将 ProgrammingCanId 改为不同于 0x7E0/0x7E8 的编程寻址。";
             _logger.LogWarning("Refused Dll-mode flash: programming ResponseId collides with diagnostic 0x7E8.");
             return Task.CompletedTask;
         }
@@ -400,7 +403,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
 
         IsFlashing = true;
         Status = FlashStatus.Running;
-        StatusMessage = "Flashing…";
+        StatusMessage = "刷写中…";
         TotalSteps = snapshots.Count;
         CurrentStepIndex = 0;
         NotifyCommandCanExecute();
@@ -478,7 +481,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             PostOrExecute(uiContext, () =>
             {
                 Status = FlashStatus.Success;
-                StatusMessage = "Flash complete.";
+                StatusMessage = MapProgressMessage(FlashStatus.Success, null, StatusMessage);
             });
             tcs.SetResult(null);
         }
@@ -487,7 +490,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             PostOrExecute(uiContext, () =>
             {
                 Status = FlashStatus.Cancelled;
-                StatusMessage = "Cancelled.";
+                StatusMessage = MapProgressMessage(FlashStatus.Cancelled, null, StatusMessage);
             });
             tcs.SetResult(null); // cancellation is a terminal state, not a fault
         }
@@ -614,19 +617,19 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private void AddFirmwareFile()
     {
         var path = _fileDialog.ShowOpenDialog(
-            "Firmware files (*.hex;*.s19;*.bin)|*.hex;*.s19;*.bin|Intel HEX (*.hex)|*.hex|Motorola S19 (*.s19)|*.s19|Raw binary (*.bin)|*.bin|All files|*.*");
+            "固件文件 (*.hex;*.s19;*.bin)|*.hex;*.s19;*.bin|Intel HEX (*.hex)|*.hex|Motorola S19 (*.s19)|*.s19|裸二进制 (*.bin)|*.bin|所有文件|*.*");
         if (path is null) return;  // user cancelled
         try
         {
             var file = FirmwareFileParser.ParseFile(path);
             CurrentProfile.FirmwareFiles.Add(file);
-            StatusMessage = $"Loaded {file.Format}: {IOPath.GetFileName(path)} ({file.Segments.Count} segment(s))";
+            StatusMessage = $"已加载 {UdsDisplayText.FirmwareFormatText(file.Format)} 文件：{IOPath.GetFileName(path)}（{file.Segments.Count} 个段）";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to parse firmware file {Path}", path);
             Status = FlashStatus.Failed;
-            StatusMessage = $"Failed to load firmware: {ex.Message}";
+            StatusMessage = $"固件加载失败：{ex.Message}";
         }
     }
 
@@ -639,7 +642,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     private void AddFlashDriver()
     {
         var path = _fileDialog.ShowOpenDialog(
-            "Flash driver (*.hex;*.s19;*.bin)|*.hex;*.s19;*.bin|Intel HEX (*.hex)|*.hex|Motorola S19 (*.s19)|*.s19|Raw binary (*.bin)|*.bin|All files|*.*");
+            "刷写驱动 (*.hex;*.s19;*.bin)|*.hex;*.s19;*.bin|Intel HEX (*.hex)|*.hex|Motorola S19 (*.s19)|*.s19|裸二进制 (*.bin)|*.bin|所有文件|*.*");
         if (path is null) return;
         try
         {
@@ -650,13 +653,13 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             OnPropertyChanged(nameof(CurrentProfile));
             OnPropertyChanged(nameof(FlashDriverSegments));
             OnPropertyChanged(nameof(FlashDriverSegmentCount));
-            StatusMessage = $"Loaded flash driver: {IOPath.GetFileName(path)} ({bytes.Length} bytes, {segments.Count} segment(s))";
+            StatusMessage = $"已加载刷写驱动：{IOPath.GetFileName(path)}（{bytes.Length} 字节，{segments.Count} 个段）";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load flash driver {Path}", path);
             Status = FlashStatus.Failed;
-            StatusMessage = $"Failed to load driver: {ex.Message}";
+            StatusMessage = $"刷写驱动加载失败：{ex.Message}";
         }
     }
 
@@ -772,17 +775,17 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         try
         {
             var path = _fileDialog.ShowSaveDialog(
-                "Flash profile (*.flash.json)|*.flash.json|All files|*.*", ".flash.json", null);
+                "刷写配置 (*.flash.json)|*.flash.json|所有文件|*.*", ".flash.json", null);
             if (path is null) return;
             var json = CurrentProfile.ToJson();
             await File.WriteAllTextAsync(path, json).ConfigureAwait(false);
-            StatusMessage = $"Profile saved to {path}";
+            StatusMessage = $"配置已保存到 {path}";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save profile");
             Status = FlashStatus.Failed;
-            StatusMessage = $"Save failed: {ex.Message}";
+            StatusMessage = $"保存失败：{ex.Message}";
         }
     }
 
@@ -797,7 +800,7 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         try
         {
             var path = _fileDialog.ShowOpenDialog(
-                "Flash profile (*.flash.json)|*.flash.json|All files|*.*");
+                "刷写配置 (*.flash.json)|*.flash.json|所有文件|*.*");
             if (path is null) return;
             var json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
             // Clear SelectedStep BEFORE swapping the profile so OnSelectedStepChanged
@@ -811,19 +814,19 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
             // operator selects the Erase step again.
             // Phase 2 (spec §8): after profile load, apply ODX defaults to steps still at factory values.
             ApplyOdxDefaultsIfUnset();
-            StatusMessage = $"Profile loaded from {path}";
+            StatusMessage = $"配置已从 {path} 加载";
         }
         catch (JsonException ex)
         {
             _logger.LogWarning(ex, "Failed to load profile — invalid JSON");
             Status = FlashStatus.Failed;
-            StatusMessage = $"Load failed: invalid profile file ({ex.Message})";
+            StatusMessage = $"加载失败：配置文件无效（{ex.Message}）";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load profile");
             Status = FlashStatus.Failed;
-            StatusMessage = $"Load failed: {ex.Message}";
+            StatusMessage = $"加载失败：{ex.Message}";
         }
     }
 
@@ -847,12 +850,25 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         Status = p.Status;
         CurrentStepIndex = p.CurrentStepIndex;
         TotalSteps = p.TotalSteps;
-        StatusMessage = p.Message ?? StatusMessage;
+        StatusMessage = MapProgressMessage(p.Status, p.Message, StatusMessage);
         if (p.CurrentStepTotalBytes is { } total && total > 0 && p.CurrentStepDoneBytes is { } done)
         {
             ProgressPercent = (int)(done * 100 / total);
         }
     }
+
+    /// <summary>
+    /// 进度消息 → 状态栏文案。按状态而不是 Core 的哨兵文案映射：Core 的
+    /// "Done"/"Cancelled" 是跨程序集字符串契约，改字就会静默退回英文；状态枚举
+    /// 是编译期契约。失败原因（异常消息）原样透出，保留技术诊断信息。
+    /// </summary>
+    internal static string MapProgressMessage(FlashStatus status, string? message, string? current)
+        => status switch
+        {
+            FlashStatus.Cancelled => "已取消。",
+            FlashStatus.Success   => "刷写完成。",
+            _                     => message ?? current ?? string.Empty,
+        };
 
     private FlashStepSnapshot ToSnapshot(FlashStep step) => new()
     {

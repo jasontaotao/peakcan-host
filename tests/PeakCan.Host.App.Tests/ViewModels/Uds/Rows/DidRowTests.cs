@@ -10,14 +10,14 @@ public sealed class DidRowTests
     public void WritableDisplay_Returns_RW_When_Writable_True()
     {
         var row = new DidRow { Writable = true };
-        row.WritableDisplay.Should().Be("R/W");
+        row.WritableDisplay.Should().Be("读/写");
     }
 
     [Fact]
     public void WritableDisplay_Returns_RO_When_Writable_False()
     {
         var row = new DidRow { Writable = false };
-        row.WritableDisplay.Should().Be("R/O");
+        row.WritableDisplay.Should().Be("只读");
     }
 
     [Fact]
