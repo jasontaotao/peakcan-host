@@ -86,6 +86,32 @@ public static class NmAnalyzer
             }
         }
 
+        // spec §5.3：加载期的提示（旧键 phase 改名）必须出现在报告里。只写在源码注释里
+        // 用户看不到，仍会把「全窗口求值」的结论当成「只在唤醒段求值」的结论。
+        // 读绑定后的链级提示而非 request.Standard：后者只有选中那一层，父层的提示会丢。
+        // 两者合并是为了兼容未走绑定路径的调用方（如直接构造 request 的测试）。
+        assumptions.AddRange(request.Profile.StandardLoadAssumptions ?? Array.Empty<string>());
+        foreach (var loadAssumption in request.Standard?.LoadAssumptions ?? Array.Empty<string>())
+        {
+            if (!assumptions.Contains(loadAssumption, StringComparer.Ordinal))
+                assumptions.Add(loadAssumption);
+        }
+
+        // spec §5.3 报告级固定提示：只要选中 profile 里有非 normal 的 DeclaredPhase，
+        // 就必须说明该字段是声明性元数据。按「是否存在非 normal」判定，避免对
+        // 全部规则都是 normal 的 profile 产出恒真噪音。
+        // 判定源用 Profile.StandardRules 而非 Standard.Rules：前者才是引擎实际求值的集合，
+        // 提示描述的是「引擎怎么跑这些规则」，两者不一致时以实际执行的为准。
+        if (request.Profile.StandardRules is { Count: > 0 } standardRules
+            && standardRules.Any(r => !string.Equals(r.DeclaredPhase, "normal", StringComparison.Ordinal)))
+        {
+            assumptions.Add(
+                // 用 YAML 键名而非 C# 属性名：用户编辑的是 declared_phase，
+                // 同一份报告里的加载期提示也用的是 YAML 键名，两处必须一致。
+                "规则 declared_phase 为声明性元数据：它不驱动求值作用域，" +
+                "引擎对全部规则在全窗口求值。");
+        }
+
         // spec §9：数据体检在规则求值之前跑。体检不阻断分析，只标注。
         // 传选择器过滤后的帧集：其它通道/窗口外的帧不属于本报告。
         var dataQuality = NmDataQualityAnalyzer.Analyze(request, selected, diagnostics);

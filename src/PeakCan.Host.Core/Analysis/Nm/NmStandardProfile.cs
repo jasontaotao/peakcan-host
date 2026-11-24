@@ -16,6 +16,21 @@ public sealed record NmStandardProfile
     public IReadOnlyList<NmStandardNode>? Nodes { get; init; }
     public IReadOnlyList<NmRuleDef>? Rules { get; init; }
 
+    /// <summary>
+    /// 本层加载期产生的提示（spec §5.3：旧键 <c>phase</c> 已改名 <c>declared_phase</c>，
+    /// 且该字段不驱动求值作用域）。
+    /// <para>
+    /// <b>这是逐层信息，不要直接拿它当报告内容</b>：报告读的是
+    /// <see cref="NmStandardFlattener.Flattened.LoadAssumptions"/>（链级合并去重），
+    /// 再经 <see cref="NmProfile.StandardLoadAssumptions"/> 到达报告。只读选中层会丢掉
+    /// 父层的提示——这正是此字段被逐层产生、却在展平层汇总的原因。
+    /// </para>
+    /// <para>
+    /// 手工构造的 profile（测试、展平中间层）不填此字段，为空表示无提示。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> LoadAssumptions { get; init; } = Array.Empty<string>();
+
     // 便利访问器：绝大多数调用方只关心「这个 profile 声明的时序/布局/开关」，
     // 不需要知道它们存在 overrides 下。展平逻辑（S1 后续）仍读 Overrides。
     public NmStandardTimings? Timings => Overrides?.Timings;

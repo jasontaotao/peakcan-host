@@ -257,6 +257,15 @@ public sealed partial class TraceViewerViewModel
             ? FormattableString.Invariant($"{standardFeaturesValue.ActiveWakeupBitEnabled}.{standardFeaturesValue.RepeatMsgIndEnabled}.{standardFeaturesValue.PnEnabled}")
             : string.Empty;
 
+        // 加载期提示（spec §5.3）必须参与 key：它依赖 YAML 键拼写（phase vs
+        // declared_phase）而不是语义，改键名不改值时上面的绑定结果逐字节相同，
+        // 不哈希就会命中旧报告，用户看到「修改没生效」。
+        // 用 JSON 序列化而非分隔符拼接：提示文案是自由文本，含 ';' 时
+        // ["x;y"] 与 ["x","y"] 会拼出同一串（与 standardTimings 同一做法）。
+        var standardLoadAssumptions = profile.StandardLoadAssumptions is { Count: > 0 } loadAssumptions
+            ? JsonSerializer.Serialize(loadAssumptions)
+            : string.Empty;
+
         var payload = string.Join("|",
             layout?.NidByte, layout?.CbvByte,
             layout?.UserDataOffset, layout?.UserDataLength,
@@ -269,7 +278,8 @@ public sealed partial class TraceViewerViewModel
             nodes, messages, conflicts,
             standardId ?? string.Empty,
             standardLayout, standardFeatures,
-            standardTimings, standardBitRoles, standardRules);
+            standardTimings, standardBitRoles, standardRules,
+            standardLoadAssumptions);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 }

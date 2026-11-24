@@ -25,6 +25,10 @@ public static class NmStandardProfileBinding
             StandardFeatures = flat.Features,
             StandardBitRoles = flat.Layout?.BitRoles,
             StandardRules = flat.Rules,
+            // 链级加载期提示（spec §5.3）：只读 Selected 会丢掉父层的提示。
+            StandardLoadAssumptions = flat.LoadAssumptions.Count == 0
+                ? null
+                : flat.LoadAssumptions,
             // 报告要能自述实际判定依据的继承链（base < OEM），否则 resolved_from 会
             // 一直谎报 "dbc"。ProfilePath/Hash 仍来自项目层，保留原值。
             Provenance = projectProfile.Provenance with { ResolvedFrom = flat.Provenance },

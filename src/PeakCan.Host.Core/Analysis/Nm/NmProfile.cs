@@ -102,7 +102,10 @@ public sealed record NmProfile(
     // 企标声明的布局/开关；只在项目层缺该字段时经 NmProfilePrecedence 补位。
     // 绑定阶段不合并进 Layout/Features（spec §6.1：项目 > OEM > base，只实现一次）。
     NmStandardLayout? StandardLayout = null,
-    NmStandardFeatures? StandardFeatures = null);
+    NmStandardFeatures? StandardFeatures = null,
+    // 展平链的加载期提示（spec §5.3：旧键 phase 改名）。进报告 Assumptions，
+    // 也参与缓存 key——它依赖 YAML 键拼写而非语义，不哈希就会命中旧报告。
+    IReadOnlyList<string>? StandardLoadAssumptions = null);
 
 /// <summary>用户在补全对话框里填的内容；序列化为 <c>*.nmprofile.json</c>。</summary>
 public sealed record NmUserSupplement(

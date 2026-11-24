@@ -342,8 +342,10 @@ overrides:
         Assert.Equal("wakeup", rule.DeclaredPhase);
     }
 
+
     // spec §5.3：phase 必填却不驱动求值作用域，用户会误以为它生效。
-    // 改名 DeclaredPhase 让名字本身诚实。
+    // 改名 DeclaredPhase 让名字本身诚实，且旧键必须产出可读的提示——
+    // 静默接受旧键等于让用户继续以为它生效。
     [Fact]
     public void Load_LegacyPhaseKey_StillAcceptedWithAssumption()
     {
@@ -368,6 +370,69 @@ overrides:
         var profile = NmStandardYaml.Load(yaml);
 
         Assert.Equal("normal", Assert.Single(profile.Rules!).DeclaredPhase);
+        // 旧键必须留下提示：改名这件事本身不能只体现在源码里。
+        var assumption = Assert.Single(profile.LoadAssumptions);
+        Assert.Contains("declared_phase", assumption, StringComparison.Ordinal);
+        Assert.Contains("phase", assumption, StringComparison.Ordinal);
+        Assert.Contains("不驱动", assumption, StringComparison.Ordinal);
+    }
+
+    // 两键并存时旧键被静默丢弃，用户会以为改的是 phase。加载器其它地方一律报错，
+    // 这里不能例外。
+    [Fact]
+    public void Load_BothPhaseKeys_Throws()
+    {
+        var yaml = """
+            standard:
+              id: t
+              version: "1.0"
+            rules:
+              - id: R1
+                requirement: 周期
+                declared_phase: wakeup
+                phase: sleep
+                observability: observed
+                clauses: ["§5.5"]
+                when:
+                  kind: cycle_tolerance
+                expect:
+                  kind: within_pct
+                finding: NM_CYCLE_DEVIATION
+                source_ref: §5.5
+            """;
+
+        var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardYaml.Load(yaml));
+
+        Assert.Contains("declared_phase", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("phase", ex.Message, StringComparison.Ordinal);
+    }
+
+    // 反向守卫：用新键时不得凭空产出提示，否则提示会变成恒真噪音，
+    // 用户学会忽略它，旧键那条也就失效了。
+    [Fact]
+    public void Load_DeclaredPhaseKey_ProducesNoLoadAssumption()
+    {
+        var yaml = """
+            standard:
+              id: t
+              version: "1.0"
+            rules:
+              - id: R1
+                requirement: 周期
+                declared_phase: normal
+                observability: observed
+                clauses: ["§5.5"]
+                when:
+                  kind: cycle_tolerance
+                expect:
+                  kind: within_pct
+                finding: NM_CYCLE_DEVIATION
+                source_ref: §5.5
+            """;
+
+        var profile = NmStandardYaml.Load(yaml);
+
+        Assert.Empty(profile.LoadAssumptions);
     }
 
     private static string RepoPath(string relative)

@@ -18,7 +18,18 @@ public static class NmStandardFlattener
         IReadOnlyList<NmRuleDef>? Rules,
         IReadOnlyList<NmStandardMessage>? Messages,
         IReadOnlyList<NmStandardNode>? Nodes,
-        string Provenance);
+        string Provenance)
+    {
+        /// <summary>
+        /// 整条继承链的加载期提示（spec §5.3），按链序合并去重。
+        /// <para>
+        /// 必须在展平层汇总：加载期提示是**逐文件**产生的，而报告只拿得到选中的那一层
+        /// （<see cref="NmStandardProfileLocator.Resolved.Selected"/>）。父层用旧键时
+        /// 只读 Selected 会一条提示都没有。
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<string> LoadAssumptions { get; init; } = Array.Empty<string>();
+    }
 
     public static Flattened Flatten(
         NmStandardProfile profile,
@@ -60,7 +71,15 @@ public static class NmStandardFlattener
                 ? null
                 : messages.Values.OrderBy(m => m.Id, StringComparer.Ordinal).ThenBy(m => m.Extended).ToArray(),
             nodes.Count == 0 ? null : nodes.Values.OrderBy(n => n.Name, StringComparer.Ordinal).ToArray(),
-            string.Join(" < ", chain.Select(l => $"{l.StandardId}@{l.Version}")));
+            string.Join(" < ", chain.Select(l => $"{l.StandardId}@{l.Version}")))
+        {
+            // 按链序（base → child）拼接并去重：同一句提示在多层重复时只留一份，
+            // 否则报告会被同一行刷屏，读者学会忽略它。
+            LoadAssumptions = chain
+                .SelectMany(l => l.LoadAssumptions)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray(),
+        };
     }
 
     /// <summary>应用 remove 列表。格式：<c>bit_roles[byte.bit]</c> / <c>rules[id]</c> / <c>messages[id]</c> / <c>nodes[name]</c>。</summary>

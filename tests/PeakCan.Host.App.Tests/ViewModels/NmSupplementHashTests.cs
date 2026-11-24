@@ -167,6 +167,24 @@ public class NmSupplementHashTests
         Assert.NotEqual(a, b);
     }
 
+    // spec §5.3：加载期提示（旧键 phase 改名）会进报告 Assumptions。它依赖 YAML
+    // 的**键拼写**而不是语义，所以改键名不改值时绑定后的 profile 逐字节相同——
+    // 缓存 key 不变就会命中旧报告，用户看到「修改没生效」。
+    [Fact]
+    public void Hash_StandardLoadAssumptions_ChangesHash()
+    {
+        var a = TraceViewerViewModel.NmSupplementHash(
+            Profile() with { StandardRules = new[] { Rule("NM_05", cycleMs: 500) } });
+        var b = TraceViewerViewModel.NmSupplementHash(
+            Profile() with
+            {
+                StandardRules = new[] { Rule("NM_05", cycleMs: 500) },
+                StandardLoadAssumptions = ["有 1 条规则使用了旧键 phase"],
+            });
+
+        Assert.NotEqual(a, b);
+    }
+
     [Fact]
     public void Hash_StandardIdPresence_ChangesHash()
     {

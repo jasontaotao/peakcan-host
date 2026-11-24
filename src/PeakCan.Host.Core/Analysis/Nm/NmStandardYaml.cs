@@ -83,7 +83,7 @@ public static class NmStandardYaml
         {
             StandardId = std.Id,
             Vendor = std.Vendor,
-            Version = string.IsNullOrWhiteSpace(std.Version) ? "1.0" : std.Version,
+            Version = VersionOf(std),
             Extends = std.Extends,
             Source = std.Source is null
                 ? null
@@ -104,6 +104,36 @@ public static class NmStandardYaml
                 new NmStandardNode(
                     RequireNonEmpty(n.Name, "nodes[].name")!, n.StationAddress)),
             Rules = MapList(dto.Rules, "rules", MapRule),
+            LoadAssumptions = CollectLoadAssumptions(dto, $"{std.Id}@{VersionOf(std)}"),
+        };
+    }
+
+    /// <summary>版本缺省值。提示里的层标识与 profile 实际版本必须同源，不能各写一份。</summary>
+    private static string VersionOf(StandardDto std)
+        => string.IsNullOrWhiteSpace(std.Version) ? "1.0" : std.Version;
+
+    /// <summary>
+    /// 加载期提示汇总（spec §5.3）。目前只有一条：规则用了旧键 <c>phase</c>。
+    /// <para>
+    /// 按「是否有规则用了旧键」判定，而不是按规则条数逐条产出——同一条提示重复
+    /// 十几遍会让读者学会忽略它，真正需要看到的那一条也就失效了。
+    /// </para>
+    /// <para>
+    /// <b>必须带层标识</b>：展平会把整条链的提示按整句去重。不带层名时，
+    /// 「base 有 1 条用旧键」与「OEM 也有 1 条」生成逐字节相同的句子，去重后
+    /// 只剩一条——报告说「有 1 条」，实际链上 2 条，用户按提示只改一处。
+    /// 计数不同时反而两条都出现，行为不对称。
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<string> CollectLoadAssumptions(NmStandardYamlDto dto, string layerKey)
+    {
+        var legacy = dto.Rules?.Count(r => r.DeclaredPhase is null && r.Phase is not null) ?? 0;
+        if (legacy == 0) return Array.Empty<string>();
+
+        return new[]
+        {
+            $"{layerKey} 有 {legacy} 条规则使用了旧键 phase：该键已改名 declared_phase，" +
+            "且它只是声明性元数据，不驱动求值作用域（引擎对全部规则在全窗口求值）。",
         };
     }
 
@@ -350,7 +380,17 @@ public static class NmStandardYaml
             ? string.Empty
             : RequireNonEmpty(r.Finding, $"规则 {r.Id} 的 finding code")!;
 
+        // 两键并存时旧键的值会被静默丢弃——加载器在其它地方（未知字段、拼错取值）
+        // 一律报错，这里不能例外。用户以为改的是 phase，实际生效的是 declared_phase。
+        if (r.DeclaredPhase is not null && r.Phase is not null)
+        {
+            throw new NmProfileValidationException(
+                $"规则 {r.Id} 同时声明了 declared_phase 与旧键 phase；" +
+                "旧键的值会被忽略，请只保留 declared_phase");
+        }
+
         // 旧键 phase 仍接受，但语义是「声明性元数据」。
+        // 提示由 Map 汇总产出（见 CollectLoadAssumptions），不在这里逐条抛。
         var declaredPhase = r.DeclaredPhase ?? r.Phase ?? "normal";
 
         return new NmRuleDef(

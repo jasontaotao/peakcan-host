@@ -568,6 +568,145 @@ BO_ 1280 NM_Message: 8 ECU_A
             u.Reason.Contains("共享 ID", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Analyze_StandardWithNonNormalPhase_EmitsDeclarativePhaseAssumption()
+    {
+        // spec §5.3：phase 不驱动求值作用域。吉利的规则大量标 wakeup/sleep，
+        // 若报告不说明这一点，读者会把「全窗口求值」的结论当成「只在唤醒段求值」的结论。
+        var flat = LoadGeelyFlattened();
+        var bound = NmStandardProfileBinding.Bind(Profile(), flat);
+
+        // 前置断言：绑定后的规则集里确实有非 normal 的 DeclaredPhase。
+        // 没有它，这个测试在「规则全被过滤掉」的实现下也会绿。
+        Assert.Contains(bound.StandardRules!,
+            r => !string.Equals(r.DeclaredPhase, "normal", StringComparison.Ordinal));
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, new[] { F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0) },
+            null, bound, 0, 1, Standard: GeelyStandard()));
+
+        // 文案必须用 YAML 键名 declared_phase，与加载期提示同一口径。
+        var assumption = Assert.Single(report.Assumptions,
+            a => a.Contains("declared_phase", StringComparison.Ordinal));
+        // 必须同时说明「不驱动作用域」与「全窗口求值」，只写一半仍会误导。
+        Assert.Contains("不驱动", assumption, StringComparison.Ordinal);
+        Assert.Contains("全窗口", assumption, StringComparison.Ordinal);
+    }
+
+    // spec §5.3 的端到端守卫：加载期提示必须真的出现在**报告**里。
+    // 只断言 profile.LoadAssumptions 不够——删掉 NmAnalyzer 的转发，那条断言照样绿。
+    [Fact]
+    public void Analyze_LegacyPhaseKeyInYaml_SurfacesLoadAssumptionInReport()
+    {
+        var standard = NmStandardYaml.Load("""
+            standard:
+              id: t
+              version: "1.0"
+            rules:
+              - id: R1
+                requirement: 周期
+                phase: normal
+                observability: observed
+                clauses: ["§5.5"]
+                when:
+                  kind: cycle_tolerance
+                expect:
+                  kind: within_pct
+                finding: NM_CYCLE_DEVIATION
+                source_ref: §5.5
+            """);
+        // 前置断言：加载期确实产了提示，否则下面的报告断言可能是空转。
+        Assert.Single(standard.LoadAssumptions);
+
+        var profile = Profile() with { StandardRules = standard.Rules };
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, new[] { F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0) },
+            null, profile, 0, 1, Standard: standard));
+
+        Assert.Contains(report.Assumptions,
+            a => a.Contains("declared_phase", StringComparison.Ordinal));
+    }
+
+    // spec §5.3：继承链上**任何一层**用了旧键都必须出现在报告里。
+    // 只读 Selected 会丢掉 base 层的提示——那是展平层的信息，单层 profile 装不下。
+    [Fact]
+    public void Analyze_LegacyPhaseKeyInParentProfile_SurfacesInReport()
+    {
+        var baseProfile = NmStandardYaml.Load("""
+            standard:
+              id: autosar-cannm
+              version: "4.1.3"
+            rules:
+              - id: NM_CYCLE
+                requirement: 周期
+                phase: normal
+                observability: observed
+                clauses: []
+                when:
+                  kind: cycle_tolerance
+                expect:
+                  kind: within_pct
+                finding: NM_CYCLE_DEVIATION
+                source_ref: AUTOSAR SWS CanNm 4.1.3 §9
+            """);
+        Assert.Single(baseProfile.LoadAssumptions);
+
+        // 子层用新键，旧键只出现在父层。
+        var child = NmStandardYaml.Load("""
+            standard:
+              id: geely-cv
+              version: "2.0"
+              extends: autosar-cannm@4.1.3
+            """);
+        Assert.Empty(child.LoadAssumptions);
+
+        var registry = new Dictionary<string, NmStandardProfile>(StringComparer.Ordinal)
+        {
+            ["autosar-cannm@4.1.3"] = baseProfile,
+        };
+        var flat = NmStandardFlattener.Flatten(child, registry);
+        var bound = NmStandardProfileBinding.Bind(Profile(), flat);
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, new[] { F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0) },
+            null, bound, 0, 1, Standard: child));
+
+        Assert.Contains(report.Assumptions,
+            a => a.Contains("declared_phase", StringComparison.Ordinal));
+    }
+
+    // 反向守卫：所有规则都是 normal 时不产这条假设——否则它退化成恒真噪音。
+    // 规则必须同时进 Profile.StandardRules（引擎实际求值的集合）才非空转：
+    // 只塞 Standard.Rules 的话，判定源为空，断言会因为「没有规则」而不是
+    // 「规则全是 normal」而通过。
+    [Fact]
+    public void Analyze_StandardWithOnlyNormalPhase_EmitsNoDeclarativePhaseAssumption()
+    {
+        NmRuleDef[] rules =
+        [
+            new NmRuleDef("R1", "周期", "normal",
+                new NmRuleWhen("cycle_tolerance"),
+                new NmRuleExpect("within_pct"), "NM_CYCLE_DEVIATION")
+            {
+                SourceRef = "§5.5",
+                Clauses = ["§5.5"],
+            },
+        ];
+        var standard = new NmStandardProfile { StandardId = "t", Rules = rules };
+        var profile = Profile() with { StandardRules = rules };
+
+        var report = NmAnalyzer.Analyze(new NmAnalysisRequest(
+            "src", null, new[] { F(0.0, 0x500, false, 0xF4, 0, 0, 0, 0, 0, 0, 0) },
+            null, profile, 0, 1, Standard: standard));
+
+        Assert.DoesNotContain(report.Assumptions,
+            a => a.Contains("声明性", StringComparison.Ordinal));
+    }
+
+    /// <summary>仓库真实的吉利 profile（未展平），用于验证报告级假设。</summary>
+    private static NmStandardProfile GeelyStandard()
+        => NmStandardYaml.LoadFile(RepoPath("profiles/oem/geely-cv@2.0.nmstd.yaml"));
+
     /// <summary>加载仓库真实的 base + 吉利 profile，展平并校验（与生产路径同源）。</summary>
     private static NmStandardFlattener.Flattened LoadGeelyFlattened()
     {
