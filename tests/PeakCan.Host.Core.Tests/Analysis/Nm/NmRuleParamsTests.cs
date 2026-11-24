@@ -274,6 +274,32 @@ overrides:
         Assert.Equal(ResumeClauses, resume.Clauses);
     }
 
+    // spec §4 表 / §19.1：NM_06 的原语就是 repeat_message_duration。条款可追溯性
+    // 要求 finding 能回到它实际验证的那条条款；只挂 §5.5 会让 NM_06 在报告里
+    // 完全不可见，而 §5.5 同时被四条规则共用，无法据此定位。
+    [Fact]
+    public void Flatten_GeelyDurationRules_CarryNm06Clause()
+    {
+        var geelyYaml = File.ReadAllText(RepoPath("profiles/oem/geely-cv@2.0.nmstd.yaml"));
+        var registry = new Dictionary<string, NmStandardProfile>(StringComparer.Ordinal)
+        {
+            ["autosar-cannm@4.1.3"] = NmStandardYaml.Load(
+                File.ReadAllText(RepoPath("profiles/base/autosar-cannm@4.1.3.nmstd.yaml"))),
+            ["geely-cv@2.0"] = NmStandardYaml.Load(geelyYaml),
+        };
+
+        var flat = NmStandardYaml.LoadAndFlatten(geelyYaml, registry);
+
+        // 双区间拆成两条规则，两条都必须挂 NM_06。
+        foreach (var id in new[] { "NM_RMS_DURATION_BURST", "NM_RMS_DURATION_NOBURST" })
+        {
+            var rule = Assert.Single(flat.Rules!, r => r.Id == id);
+            Assert.Contains("NM_06", rule.Clauses);
+            // 时序区间出处仍是 §5.5，不能被 NM_06 顶掉。
+            Assert.Contains("§5.5", rule.Clauses);
+        }
+    }
+
     // spec §7.2：stop_sending 的参数是 timeout_ms，当前 NmRuleWhen 没有这个字段。
     // 没有它，规则只能退回读报文级超时，无法表达「按规则声明的超时判停发」。
     [Fact]

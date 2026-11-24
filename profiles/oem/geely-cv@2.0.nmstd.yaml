@@ -88,7 +88,12 @@ rules:
     requirement: Repeat Message State（含快发）持续 1700±60ms
     declared_phase: wakeup
     observability: partial
-    clauses: ["§5.5"]
+    # NM_06 是「RMS 下 T_REPEAT_MESSAGE 超时 → NOS」，其判据正是本规则测的时长
+    # （spec §4 表 / §19.1 明确 NM_06 用 repeat_message_duration，不是挂错）。
+    # §5.5 是时序参数出处；两条都要挂——只挂 §5.5 会让 NM_06 在报告里完全不可见，
+    # 而 §5.5 同时是这两条时长规则的 clauses、以及 NM_BURST_SHAPE 的 source_ref，
+    # 单凭它无法定位到具体条款。
+    clauses: ["NM_06", "§5.5"]
     when:
       kind: repeat_message_duration
       cycle_ms: 500
@@ -105,7 +110,8 @@ rules:
     requirement: Repeat Message State（不含快发）持续 1500±60ms
     declared_phase: wakeup
     observability: partial
-    clauses: ["§5.5"]
+    # 同 NM_RMS_DURATION_BURST：NM_06 的判据是时长，§5.5 是参数出处。
+    clauses: ["NM_06", "§5.5"]
     when:
       kind: repeat_message_duration
       cycle_ms: 500

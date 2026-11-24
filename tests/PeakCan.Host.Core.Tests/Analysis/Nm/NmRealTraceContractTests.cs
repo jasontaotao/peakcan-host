@@ -55,6 +55,13 @@ public class NmRealTraceContractTests
             f => Assert.Equal("NM_RMS_DURATION_NOBURST", f.RuleId));
         Assert.All(rms.Where(f => Math.Abs(f.EvidenceTimes[1] - 8.775) < 1e-6),
             f => Assert.Equal("NM_RMS_DURATION_BURST", f.RuleId));
+        // spec §4 表 / §19.1：NM_06 的判据就是 T_REPEAT_MESSAGE 时长，条款归因必须带上它。
+        // 只挂 §5.5 会让 NM_06 在报告里完全不可见，而 §5.5 被四条规则共用无法定位。
+        Assert.All(rms, f => Assert.Contains("NM_06", f.Clauses));
+        // 兼容字段取 ordinal-first："NM_06" < "§5.5"，所以 requirement_id 从 §5.5
+        // 变成 NM_06。这是 §4.0 的既定约定，钉住它让意图显式——否则 AI 工具输出的
+        // requirement_id 会无声漂移。
+        Assert.All(rms, f => Assert.Equal("NM_06", f.RequirementId));
         // 两段分别结束于 2.1s 与 8.775s（EvidenceTimes = [start, end]）；
         // 每段都必须点名两个节点，不能合并后只归给「先到」的那个。
         foreach (var segmentEnd in new[] { 2.1, 8.775 })
