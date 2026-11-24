@@ -89,6 +89,21 @@ public sealed class TraceSource : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// 该 trace 的加载代数（spec §10.1 的 trace 内容版本）。
+    /// <para>
+    /// 进入 NM 报告缓存 key：同一 source 重新加载成内容不同的 trace 时必须重算。
+    /// 取「加载代数」而非「对全部帧做哈希」——后者成本随帧数线性增长，而
+    /// <see cref="TraceSessionRegistry.LoadAsync"/> 每次分配新 sourceId，
+    /// 同一 sourceId 重载今天不会发生；该字段是让那种情况一旦出现就自动失效的保险。
+    /// </para>
+    /// <para>
+    /// 默认 0 = 「未记录代数」。既有构造点不传该参数时保持编译，语义上也正确
+    /// （测试里手工构造的 source 没有真实加载过程）。
+    /// </para>
+    /// </summary>
+    public int LoadVersion { get; }
+
     // Explicit ctor preserves the v3.2.0 positional call-site shape:
     //   new TraceSource("a", "traceA", "C:/a.asc", Colors.Blue, LineStyle.Solid)
     public TraceSource(
@@ -96,13 +111,15 @@ public sealed class TraceSource : INotifyPropertyChanged
         string displayName,
         string path,
         Color color,
-        LineStyle strokeStyle)
+        LineStyle strokeStyle,
+        int loadVersion = 0)
     {
         SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
         DisplayName = displayName ?? throw new ArgumentNullException(nameof(displayName));
         Path = path ?? throw new ArgumentNullException(nameof(path));
         Color = color;
         StrokeStyle = strokeStyle;
+        LoadVersion = loadVersion;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

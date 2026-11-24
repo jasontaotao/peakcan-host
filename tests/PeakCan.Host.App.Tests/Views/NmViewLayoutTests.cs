@@ -101,10 +101,11 @@ public sealed class NmViewLayoutTests
             .Single(e => (string?)e.Attribute("Header") == "图例");
 
         ((string?)legend.Attribute("IsExpanded")).Should().Be("False",
-            "图例常驻三行会吃掉 360px 面板约 60px 垂直空间；默认折叠");
+            "图例常驻四行会吃掉 360px 面板约 80px 垂直空间；默认折叠");
 
         // 折叠内容不能被删掉，且颜色必须与轨道同源（x:Static 笔刷），不能写死色值。
-        legend.Descendants(P + "TextBlock").Should().HaveCount(3);
+        // 四行 = 时间推断阶段 / NMSts 实测阶段（spec §7.5.4）/ 事件 / 整网行。
+        legend.Descendants(P + "TextBlock").Should().HaveCount(4);
         var runs = legend.Descendants(P + "Run").ToList();
         runs.Count(r => ((string?)r.Attribute("Foreground"))?
                 .StartsWith("{x:Static conv:NmSegmentBrushConverter.", StringComparison.Ordinal) == true)
@@ -118,12 +119,14 @@ public sealed class NmViewLayoutTests
         var root = Panel().Descendants(P + "Grid").First();
         var rows = root.Element(P + "Grid.RowDefinitions")!.Elements(P + "RowDefinition").ToList();
 
-        rows.Should().HaveCount(9);
+        // 11 行：选择器 / profile 摘要 / 冲突 / 语义横幅 / partial / 能力 chip /
+        // 标定面板 / 时间条 / 筛选 / 动作 / 事件表。
+        rows.Should().HaveCount(11);
         // 时间条与事件表都按比例分配；事件表不再固定 160px。
-        ((string?)rows[5].Attribute("Height")).Should().Be("2*");
-        ((string?)rows[5].Attribute("MinHeight")).Should().NotBeNull();
-        ((string?)rows[8].Attribute("Height")).Should().Be("*");
-        ((string?)rows[8].Attribute("MinHeight")).Should().NotBeNull();
+        ((string?)rows[7].Attribute("Height")).Should().Be("2*");
+        ((string?)rows[7].Attribute("MinHeight")).Should().NotBeNull();
+        ((string?)rows[10].Attribute("Height")).Should().Be("*");
+        ((string?)rows[10].Attribute("MinHeight")).Should().NotBeNull();
     }
 
     [Fact]
@@ -132,11 +135,11 @@ public sealed class NmViewLayoutTests
         var root = Panel().Descendants(P + "Grid").First();
 
         var filters = root.Elements()
-            .Single(e => (string?)e.Attribute("Grid.Row") == "6");
+            .Single(e => (string?)e.Attribute("Grid.Row") == "8");
         filters.Name.Should().Be(P + "WrapPanel", "360px 下横向 StackPanel 会把计数裁掉");
 
         var actions = root.Elements()
-            .Single(e => (string?)e.Attribute("Grid.Row") == "7");
+            .Single(e => (string?)e.Attribute("Grid.Row") == "9");
         actions.Name.Should().Be(P + "StackPanel");
         actions.Elements(P + "WrapPanel").Should().ContainSingle();
         // 状态文案与“面板=事实 / AI=解释”的分工说明各占一行，
@@ -155,15 +158,150 @@ public sealed class NmViewLayoutTests
         var root = Panel().Descendants(P + "Grid").First();
 
         var profileBar = root.Elements(P + "Border")
-            .Single(b => (string?)b.Attribute("Grid.Row") == "0");
+            .Single(b => (string?)b.Attribute("Grid.Row") == "1");
         ((string?)profileBar.Attribute("Visibility")).Should()
             .Contain("NmHasReport", "分析前不能渲染空的 Profile 条/补全按钮");
 
         var hint = root.Elements(P + "TextBlock")
-            .Single(t => (string?)t.Attribute("Grid.Row") == "5");
+            .Single(t => (string?)t.Attribute("Grid.Row") == "7");
         ((string?)hint.Attribute("Text")).Should().Contain("尚未分析");
         hint.Descendants(P + "DataTrigger").Should()
             .Contain(t => (string?)t.Attribute("Binding") == "{Binding NmHasReport}");
+    }
+
+    // —— 企标选择器（spec §10.1）——
+
+    [Fact]
+    public void Panel_HasProfileSelector_BoundToChoices()
+    {
+        var combo = Panel().Descendants(P + "ComboBox")
+            .Single(c => (string?)c.Attribute("ItemsSource") == "{Binding NmProfileChoices}");
+
+        ((string?)combo.Attribute("SelectedItem")).Should().Be("{Binding NmSelectedProfile}");
+        ((string?)combo.Attribute("DisplayMemberPath")).Should().Be("Display",
+            "候选项是 NmProfileChoiceVm 记录，必须指定显示字段");
+    }
+
+    [Fact]
+    public void Panel_ProfileSelector_IsAlwaysVisible()
+    {
+        // 与 profile 摘要条不同：用户可以先选企标再跑分析，
+        // 所以选择器不能绑 NmHasReport 而隐藏。
+        var selectorBorder = Panel().Descendants(P + "Grid").First()
+            .Elements(P + "Border")
+            .Single(b => (string?)b.Attribute("Grid.Row") == "0");
+
+        ((string?)selectorBorder.Attribute("Visibility")).Should().BeNull(
+            "选择器不随分析状态隐藏");
+        selectorBorder.Descendants(P + "ComboBox").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Panel_ProfileSelector_ShowsHintAndCandidateSummary()
+    {
+        var selectorBorder = Panel().Descendants(P + "Grid").First()
+            .Elements(P + "Border")
+            .Single(b => (string?)b.Attribute("Grid.Row") == "0");
+
+        var texts = selectorBorder.Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .ToList();
+        texts.Should().Contain("{Binding NmProfileSelectorHint}");
+        texts.Should().Contain("{Binding NmProfileCandidatesSummary}");
+    }
+
+    // —— 标定面板（spec §10.2）——
+
+    [Fact]
+    public void Panel_HasCalibrationPanel_CollapsedByDefault()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        ((string?)calibration.Attribute("IsExpanded")).Should().Be("False",
+            "四块表常驻会吃掉 360px 面板的绝大部分垂直空间");
+        ((string?)calibration.Attribute("Visibility")).Should()
+            .Contain("NmHasCalibration", "无内容时整块隐藏，不留空壳");
+    }
+
+    [Fact]
+    public void Panel_CalibrationPanel_HasAllFourSections()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        // spec §10.2 四块：规则表 / 观测 vs 期望 / 数据体检 / 未建模条款。
+        var itemsSources = calibration.Descendants(P + "ItemsControl")
+            .Select(i => (string?)i.Attribute("ItemsSource"))
+            .ToList();
+
+        itemsSources.Should().Contain("{Binding NmCalibrationRows}");
+        itemsSources.Should().Contain("{Binding NmCalibrationComparisons}");
+        itemsSources.Should().Contain("{Binding NmDataQualityChecks}");
+        itemsSources.Should().Contain("{Binding NmUnmodeledClauses}");
+    }
+
+    /// <summary>
+    /// spec §10.2「点击 seek 到证据时刻」：规则行必须能跳转。
+    /// <para>
+    /// 无证据时刻的行不可点（Cursor 保持箭头）——否则「看起来能点但没反应」
+    /// 会被当成 bug。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationRuleRow_SeeksToEvidenceTime()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        var mouseBindings = calibration.Descendants(P + "MouseBinding")
+            .Where(m => ((string?)m.Attribute("Command") ?? "")
+                .Contains("SeekToNmTimeOrIgnore", StringComparison.Ordinal))
+            .ToList();
+
+        mouseBindings.Should().NotBeEmpty("规则行必须能 seek 到证据时刻");
+        mouseBindings.Should().Contain(m =>
+            (((string?)m.Attribute("CommandParameter")) ?? "")
+                .Contains("FirstEvidenceTime", StringComparison.Ordinal),
+            "跳转时刻来自该规则的证据时间");
+
+        // 可点性由 CanSeek 驱动，不能所有行都显示手型。
+        calibration.Descendants(P + "DataTrigger").Should()
+            .Contain(t => (string?)t.Attribute("Binding") == "{Binding CanSeek}");
+    }
+
+    /// <summary>
+    /// spec §10.2「未建模条款：显式列出，附条款号」。
+    /// <para>
+    /// 多条款规则（<c>NM_STOP_SENDING → NM_09/NM_12</c>）只显示第一个会丢条款。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Panel_UnmodeledClauseRow_ShowsClauseNumbers()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        calibration.Descendants(P + "Run").Should()
+            .Contain(r => (((string?)r.Attribute("Text")) ?? "")
+                    .Contains("ClausesText", StringComparison.Ordinal),
+                "未建模条款行必须显示条款号（spec §10.2）");
+    }
+
+    [Fact]
+    public void Panel_CalibrationRuleTable_DistinguishesTriggeredStatus()
+    {
+        // 「触发」必须视觉上区别于「未触发」——否则标定面板最重要的一列没有信号。
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        var statusTriggers = calibration.Descendants(P + "DataTrigger")
+            .Where(t => (string?)t.Attribute("Binding") == "{Binding StatusText}")
+            .ToList();
+
+        statusTriggers.Should().NotBeEmpty("规则状态必须有颜色区分");
+        statusTriggers.Should().Contain(t => (string?)t.Attribute("Value") == "触发");
+        statusTriggers.Should().Contain(t => (string?)t.Attribute("Value") == "未建模");
     }
 
     [Fact]

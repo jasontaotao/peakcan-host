@@ -13,8 +13,47 @@ using PeakCan.Host.Core.Analysis.Nm;
 namespace PeakCan.Host.App.ViewModels;
 
 public sealed record NmCapabilityChipVm(string Name, bool Available, string Tooltip);
-public sealed record NmTimelineSegmentVm(double Left, double Width, string Kind,
-    double Start, double End, string Tooltip = "");
+
+/// <summary>
+/// 企标选择器的一项（spec §10.1）。
+/// <para>
+/// <see cref="Path"/> 为 null 表示「未选择企标」——它必须是列表里可选项，
+/// 否则用户选中一个 profile 后没法退回「只做观测」的状态。
+/// </para>
+/// </summary>
+public sealed record NmProfileChoiceVm(
+    string Display,
+    string? Path,
+    string? StandardId,
+    string? Version,
+    string? LevelText)
+{
+    /// <summary>「未选择企标」的哨兵项。</summary>
+    public static NmProfileChoiceVm None { get; } =
+        new("未选择企标（仅观测）", null, null, null, null);
+
+    /// <summary>是否为「未选择」项。</summary>
+    public bool IsNone => Path is null;
+}
+
+/// <summary>
+/// 时间条上一个活动段的视图模型（spec §7.5.2.1）。
+/// <para>
+/// <see cref="Evidence"/> / <see cref="IsWindowTruncated"/> / <see cref="StateBoundaryKnown"/>
+/// 三个字段必须从 <see cref="Core.Analysis.Nm.NmSegment"/> 逐字段复制过来：
+/// 只改 hover 签名而不带数据，hover 拿到的永远是默认值，「实测/推断」落不了地。
+/// </para>
+/// </summary>
+public sealed record NmTimelineSegmentVm(
+    double Left,
+    double Width,
+    string Kind,
+    double Start,
+    double End,
+    string Tooltip = "",
+    string Evidence = "inferred",
+    bool IsWindowTruncated = false,
+    bool StateBoundaryKnown = false);
 
 /// <summary>
 /// 时间条事件标记：设计坐标 X + 形状/颜色 kind；像素换算在 XAML 层完成。
@@ -70,6 +109,13 @@ public static class NmTimelineText
     {
         NmTimelineKinds.Wakeup => "唤醒",
         NmTimelineKinds.Active => "发送中",
+        // spec §7.5.4：有 NMSts 时按状态切段，不再是 wakeup/active。
+        NmTimelineKinds.Repeat => "重复报文",
+        // 「常规操作发送段」而非「常规操作状态」：NMSts=1 只代表观测到的发送段，
+        // RSS 期间无帧、状态位无从读取（spec §7.5.1.3）。
+        NmTimelineKinds.Normal => "常规操作发送段",
+        NmTimelineKinds.Immediate => "快速发送",
+        NmTimelineKinds.Unknown => "状态未知",
         NmTimelineKinds.Released => "已释放",
         NmTimelineKinds.Silent or NmTimelineKinds.Silence => "静默",
         NmTimelineKinds.Episode => "活跃区间",
@@ -102,6 +148,40 @@ public static class NmTimelineText
         "inferred" => "推断",
         "boundary" => "边界",
         _ => kind,
+    };
+
+    /// <summary>
+    /// 活动段的证据等级文案（spec §7.5.2.1）。与事件表的 <see cref="EvidenceKind"/>
+    /// 不同：这里要说明**凭什么**，事件表只说等级。
+    /// <para>
+    /// <b>推断的依据随 kind 不同</b>：只有 <c>repeat</c> 是 T_REPEAT_MESSAGE 兜底窗，
+    /// <c>silent</c>/<c>released</c> 是超时推断，<c>wakeup</c>/<c>active</c> 是时间推断，
+    /// <c>unknown</c> 是逐帧 DLC 不可读。统一写「推断（T_REPEAT_MESSAGE）」会让
+    /// 悬停在 silent 段时声称一个与它无关的依据。
+    /// </para>
+    /// <para>
+    /// 空输入返回空串——事件标记复用同一张卡时不传证据，不得凭空显示「推断」。
+    /// </para>
+    /// </summary>
+    public static string SegmentEvidence(string evidence, string kind = "") => evidence switch
+    {
+        "" => "",
+        "measured" => "实测（NMSts）",
+        "inferred" => kind switch
+        {
+            NmTimelineKinds.Repeat => "推断（T_REPEAT_MESSAGE）",
+            // wakeup 的依据分两种情形（企标选窗 / M1 快发锚定），单个字符串表达不了，
+            // 用不误导的合并措辞：两者都来自「观察窗与帧间隔」。
+            NmTimelineKinds.Wakeup => "推断（观察窗 / 帧间隔）",
+            NmTimelineKinds.Active => "推断（按帧间隔）",
+            // released 的依据是「其它 NM 报文仍在发」，不是超时；silent 才是超时。
+            NmTimelineKinds.Released => "推断（其它 NM 报文仍在发送）",
+            NmTimelineKinds.Silent or NmTimelineKinds.Silence => "推断（超时未达静默阈值）",
+            NmTimelineKinds.Unknown => "推断（该区间 DLC 不足，读不出状态位）",
+            _ => "推断",
+        },
+        "boundary" => "边界截断",
+        _ => evidence,
     };
 
     /// <summary>profile 来源标识（引擎契约）；未知值原样显示，不猜测。</summary>
@@ -215,6 +295,8 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty] private string _nmHoverTitle = "";
     [ObservableProperty] private string _nmHoverRange = "";
     [ObservableProperty] private string _nmHoverHint = "";
+    /// <summary>证据等级文案（spec §7.5.2.1）；空串 = 该段没有证据信息可显示。</summary>
+    [ObservableProperty] private string _nmHoverEvidence = "";
     // 最近一次报告的窗口边界：准星像素 → 秒需要它；报告清空时同步清零。
     private double _nmWindowStart;
     private double _nmWindowEnd;
@@ -223,6 +305,24 @@ public sealed partial class TraceViewerViewModel
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(InterpretNmEventInAiCommand))]
     private NmEventRowVm? _nmSelectedEvent;
+
+    // —— 企标选择器（spec §10.1）——
+    /// <summary>可用 profile 候选；「未选择企标」也在列表里（第一项）。</summary>
+    public ObservableCollection<NmProfileChoiceVm> NmProfileChoices { get; } = new();
+    /// <summary>当前选中的 profile；null = 未选择企标（只做观测，不做企标判定）。</summary>
+    [ObservableProperty] private NmProfileChoiceVm? _nmSelectedProfile;
+    /// <summary>未选择时的提示文案（spec §10.1）。</summary>
+    [ObservableProperty] private string _nmProfileSelectorHint = "未选择企标：仅做观测，不做企标判定";
+    /// <summary>候选列表来源说明（哪一层命中、共几份）。</summary>
+    [ObservableProperty] private string _nmProfileCandidatesSummary = "";
+
+    // —— 标定面板（spec §10.2）——
+    public ObservableCollection<NmCalibrationRow> NmCalibrationRows { get; } = new();
+    public ObservableCollection<NmCalibrationComparison> NmCalibrationComparisons { get; } = new();
+    public ObservableCollection<NmDataQualityCheck> NmDataQualityChecks { get; } = new();
+    public ObservableCollection<NmUnmodeledClauseRow> NmUnmodeledClauses { get; } = new();
+    /// <summary>标定面板是否有内容；无企标且无体检结果时整块隐藏。</summary>
+    [ObservableProperty] private bool _nmHasCalibration;
 
     public ObservableCollection<NmCapabilityChipVm> NmCapabilityChips { get; } = new();
     public ObservableCollection<NmTimelineRowVm> NmTimelineRows { get; } = new();
@@ -268,7 +368,8 @@ public sealed partial class TraceViewerViewModel
                 var tooltip = string.Create(CultureInfo.InvariantCulture,
                     $"{NmTimelineText.SegmentKind(s.Kind)}  {s.Start:F3}s – {s.End:F3}s");
                 return new NmTimelineSegmentVm(
-                    left, Math.Max(right - left, 1), s.Kind, s.Start, s.End, tooltip);
+                    left, Math.Max(right - left, 1), s.Kind, s.Start, s.End, tooltip,
+                    s.Evidence, s.IsWindowTruncated, s.StateBoundaryKnown);
             }).ToList();
 
             // spec §9.1：时间条要标记观察突发、超时空档与原始字节/位变化。
@@ -560,13 +661,16 @@ public sealed partial class TraceViewerViewModel
         // 这里清掉上一次状态文案，避免与进度提示叠加。NmIsPartial 等新结果应用时
         // 再改：中途失败/被替换时，屏幕上仍是最初那份（部分）报告，徽标要跟着它。
         NmStatus = "";
+        // 启动时记下 profile 代数：回写时与当前值比对（spec §10.1.2 双条件之一）。
+        var startedGeneration = _nmProfileGeneration;
         try
         {
             var snapshot = await ((IChatToolContext)this).GetNmSnapshotAsync(new NmToolQuery(
                 TStart: window?.Start, TEnd: window?.End,
                 WindowRef: window is null ? "full" : "viewport"), ct);
-            // 被更新一次分析替换（或窗口已关闭）时丢弃结果，避免旧报告覆盖新报告。
-            if (IsCurrentNmRun(cts))
+            // 被更新一次分析替换（或窗口已关闭 / profile 已被改动）时丢弃结果，
+            // 避免旧报告覆盖新报告。
+            if (IsCurrentNmRun(cts, startedGeneration))
             {
                 ApplyNmReport(snapshot);
                 // 自动补全是模态对话框：先结束“分析中”状态，否则进度条/取消按钮
@@ -603,8 +707,133 @@ public sealed partial class TraceViewerViewModel
         }
     }
 
-    /// <summary>当前分析是否仍是最近一次（窗口 Dispose 后 _nmCts 置 null，一律不算）。</summary>
-    private bool IsCurrentNmRun(CancellationTokenSource cts) => ReferenceEquals(_nmCts, cts);
+    /// <summary>
+    /// 当前分析是否仍是最近一次（窗口 Dispose 后 _nmCts 置 null，一律不算）。
+    /// <para>
+    /// <b>双条件（spec §10.1.2）</b>：
+    /// </para>
+    /// <list type="number">
+    /// <item><b>selection generation</b> —— 本次运行启动后 profile 文件没有被改动过
+    /// （<see cref="_nmProfileGeneration"/> 未变）。watcher 失效时递增，
+    /// 在途运行的回写因此被拒。</item>
+    /// <item><b>profile hash</b> —— 由报告缓存 key 承担：不同 profile 语义产生不同
+    /// canonical hash，运行本身就会拿到另一份报告，不存在「旧 profile 的结果
+    /// 冒充新 profile」的路径。</item>
+    /// </list>
+    /// <para>
+    /// 只用 CTS 引用相等会漏掉一种情况：watcher 在分析进行中失效了 profile，
+    /// 新的 profile 内容已写盘，但这次运行的 CTS 仍是「当前」。
+    /// </para>
+    /// <para>
+    /// <paramref name="startedGeneration"/> 是本次分析开始时的代数；
+    /// null 表示调用方不校验（测试与不关心 profile 的路径）。
+    /// </para>
+    /// </summary>
+    private bool IsCurrentNmRun(CancellationTokenSource cts, int? startedGeneration = null)
+    {
+        if (!ReferenceEquals(_nmCts, cts)) return false;
+        if (startedGeneration is null) return true;
+        return startedGeneration == _nmProfileGeneration;
+    }
+
+    /// <summary>
+    /// profile 失效代数：watcher 检测到 profile 文件变化时递增。
+    /// 在途运行的回写靠它判断「我用的 profile 还是不是当前的」。
+    /// </summary>
+    private int _nmProfileGeneration;
+
+    /// <summary>profile 目录监听器（spec §10.1.2）；null = 没有可监听的目录。</summary>
+    private Services.Nm.INmProfileWatcher? _nmProfileWatcher;
+
+    /// <summary>
+    /// 测试接缝：注入 watcher 工厂。生产路径用默认实现（真 <c>FileSystemWatcher</c>），
+    /// 测试注入假实现以验证「失效后清缓存 + 重算」而不碰文件系统。
+    /// </summary>
+    internal Func<string, Services.Nm.INmProfileWatcher>? NmProfileWatcherFactory { get; set; }
+
+    /// <summary>
+    /// 确保监听器指向 <paramref name="directory"/> 且关注 <paramref name="dependencies"/>。
+    /// 目录变化时重建监听器（<c>FileSystemWatcher</c> 的目录不可改）。
+    /// </summary>
+    private void EnsureNmProfileWatcher(string? directory, IReadOnlyList<NmProfileDependency> dependencies)
+    {
+        if (string.IsNullOrEmpty(directory))
+        {
+            DisposeNmProfileWatcher();
+            return;
+        }
+
+        if (_nmProfileWatcher is not null
+            && string.Equals(_nmProfileWatchedDirectory, directory, StringComparison.OrdinalIgnoreCase))
+        {
+            _nmProfileWatcher.Track(dependencies);
+            return;
+        }
+
+        DisposeNmProfileWatcher();
+        try
+        {
+            var factory = NmProfileWatcherFactory
+                ?? (dir => new Services.Nm.NmProfileWatcher(dir));
+            _nmProfileWatcher = factory(directory);
+            _nmProfileWatchedDirectory = directory;
+            _nmProfileWatcher.Changed += OnNmProfileFilesChanged;
+            _nmProfileWatcher.Track(dependencies);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException)
+        {
+            // 目录不存在 / 无权限 / 路径非法：**明确上报**而不是静默不监听。
+            // 用户会以为「改了 profile 会自动生效」，实际没有。
+            _nmProfileWatcher = null;
+            _nmProfileWatchedDirectory = null;
+            NmProfileWatcherStatus = "profile 目录无法监听：" + ex.Message;
+        }
+    }
+
+    private string? _nmProfileWatchedDirectory;
+
+    /// <summary>监听状态文案；空串 = 正常或不适用。UI 可据此提示。</summary>
+    [ObservableProperty] private string _nmProfileWatcherStatus = "";
+
+    private void DisposeNmProfileWatcher()
+    {
+        if (_nmProfileWatcher is null) return;
+        _nmProfileWatcher.Changed -= OnNmProfileFilesChanged;
+        _nmProfileWatcher.Dispose();
+        _nmProfileWatcher = null;
+        _nmProfileWatchedDirectory = null;
+    }
+
+    /// <summary>
+    /// profile 文件变化（spec §10.1.2）：清缓存 + 作废在途运行 + 重算。
+    /// <para>
+    /// 事件在线程池线程上抛；缓存失效是线程安全的，重算必须回 UI 线程
+    /// （它会改 WPF 绑定集合）。
+    /// </para>
+    /// </summary>
+    private void OnNmProfileFilesChanged(IReadOnlyList<string> affectedIds)
+    {
+        _nmCache.Invalidate();
+        // 作废在途运行：递增代数会让 IsCurrentNmRun 的比对失败，结果被丢弃。
+        Interlocked.Increment(ref _nmProfileGeneration);
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            // 无 UI（测试/无窗口）：直接重算。测试注入的假 watcher 不会走到这里
+            // 除非它主动调——那时重算仍应发生。
+            _ = RunNmAnalysisAsync(null);
+            return;
+        }
+
+        dispatcher.BeginInvoke(() =>
+        {
+            NmProfileWatcherStatus = affectedIds.Count == 0
+                ? ""
+                : $"profile 已更新：{string.Join("、", affectedIds)}（已重算）";
+            _ = RunNmAnalysisAsync(null);
+        });
+    }
 
     /// <summary>失败时清空旧报告，避免换 trace 后残留上一次的段/事件/能力/摘要。</summary>
     private void ClearNmReport()
@@ -628,6 +857,7 @@ public sealed partial class TraceViewerViewModel
         NmHoverTitle = "";
         NmHoverRange = "";
         NmHoverHint = "";
+        NmHoverEvidence = "";
         _nmWindowStart = 0;
         _nmWindowEnd = 0;
         NmMissingText = "补全";
@@ -640,7 +870,33 @@ public sealed partial class TraceViewerViewModel
         _allNmEventRows.Clear();
         NmEventFilterSummary = "";
         NmSelectedEvent = null;
+        // 标定面板与选择器同样属于「上一份报告」：不清会留着上一份 trace 的规则结论。
+        NmCalibrationRows.Clear();
+        NmCalibrationComparisons.Clear();
+        NmDataQualityChecks.Clear();
+        NmUnmodeledClauses.Clear();
+        NmHasCalibration = false;
+        NmProfileChoices.Clear();
+        NmProfileSelectorHint = "未选择企标：仅做观测，不做企标判定";
+        NmProfileCandidatesSummary = "";
+        // 重建期间抑制选中回调，避免清空触发一次多余的重分析。
+        _nmApplyingProfileChoices = true;
+        try { NmSelectedProfile = null; }
+        finally { _nmApplyingProfileChoices = false; }
+        // 报告清空时监听器也失去意义：继续监听会在没有报告的状态下触发重算。
+        DisposeNmProfileWatcher();
+        NmProfileWatcherStatus = "";
+        Interlocked.Increment(ref _nmProfileGeneration);
+        // opt-out 是「用户对当前 trace 的意图」，换 trace 后不再适用。
+        NmProfileOptOut = false;
+        NmExplicitProfilePath = null;
     }
+
+    /// <summary>测试接缝：验证报告清空时新面板状态一并复位。</summary>
+    internal void ClearNmReportPublic() => ClearNmReport();
+
+    /// <summary>测试接缝：读取当前 profile 代数（验证 watcher 失效后它递增）。</summary>
+    internal int NmProfileGenerationForTest => _nmProfileGeneration;
 
     internal void ApplyNmReport(NmToolSnapshot snapshot)
     {
@@ -699,7 +955,203 @@ public sealed partial class TraceViewerViewModel
         }
         RefreshNmEventRows();
 
+        ApplyNmProfileSelector(snapshot);
+        ApplyNmCalibration(report, profile);
+        // spec §10.1.2：监听当前 profile 所在目录，文件变化即失效重算。
+        // 依赖链目前只含选中的那一份（extends 祖先由 Flatten 在分析时解析；
+        // 监听父文件所在目录需要多个 watcher，本轮只监听选中文件所在目录，
+        // 并在 Status 里说明——不谎称「父文件变化也会自动生效」）。
+        EnsureNmProfileWatcher(
+            ProfileDirectoryOf(snapshot),
+            BuildProfileDependencies(snapshot));
+
         NmStatus = ResolveStatus(snapshot, _nmCancelledByUser);
+    }
+
+    /// <summary>
+    /// 填充企标选择器（spec §10.1）：列出可用 profile + 标明命中层级。
+    /// <para>
+    /// 「未选择企标」永远是第一项且永远可选——用户选中某份 profile 后
+    /// 必须能退回「只做观测」的状态。
+    /// </para>
+    /// </summary>
+    private void ApplyNmProfileSelector(NmToolSnapshot snapshot)
+    {
+        // 重建列表会触发 SelectedItem 的变更回调，期间不能让它误触发重分析。
+        _nmApplyingProfileChoices = true;
+        try
+        {
+            NmProfileChoices.Clear();
+            NmProfileChoices.Add(NmProfileChoiceVm.None);
+
+            foreach (var candidate in snapshot.ProfileCandidates)
+            {
+                NmProfileChoices.Add(new NmProfileChoiceVm(
+                    $"{candidate.Id}（{NmProfileLevelText(candidate.Level)}）",
+                    candidate.Path,
+                    candidate.StandardId,
+                    candidate.Version,
+                    NmProfileLevelText(candidate.Level)));
+            }
+
+            // 选中项：用户 opt-out 时固定显示「未选择」，不去反查 StandardId——
+            // 反查会把用户刚取消的那份 profile 重新选上，界面与操作意图相反。
+            NmSelectedProfile = NmProfileOptOut
+                ? NmProfileChoiceVm.None
+                : NmProfileChoices.FirstOrDefault(c =>
+                        c.Path is not null
+                        && string.Equals(c.Path, NmExplicitProfilePath, StringComparison.OrdinalIgnoreCase))
+                    ?? NmProfileChoices.FirstOrDefault(c =>
+                        c.StandardId is not null
+                        && string.Equals($"{c.StandardId}@{c.Version}", snapshot.Report.StandardId,
+                            StringComparison.Ordinal))
+                    ?? NmProfileChoiceVm.None;
+        }
+        finally
+        {
+            _nmApplyingProfileChoices = false;
+        }
+
+        NmProfileSelectorHint = snapshot.Report.StandardId is null
+            ? "未选择企标：仅做观测，不做企标判定"
+            : "";
+
+        // 候选来源：让用户知道「这份企标是从哪来的」，否则 AppData 与安装目录
+        // 各有一份时无法判断当前跑的是哪一份。
+        var level = snapshot.ProfileLevel;
+        NmProfileCandidatesSummary = snapshot.ProfileCandidates.Count switch
+        {
+            0 => "",
+            1 => $"共 1 份候选（{NmProfileLevelText(level)}）",
+            _ => $"共 {snapshot.ProfileCandidates.Count} 份候选，请选择（{NmProfileLevelText(level)}）",
+        };
+
+        // 监听能力限制：选中 profile 时始终披露。不显示等于默认「父文件变更会自动生效」。
+        if (snapshot.ProfileCandidates.Count > 0)
+        {
+            NmProfileWatcherStatus = NmProfileWatcherLimitText;
+        }
+    }
+
+    private static string NmProfileLevelText(NmProfileSearchLevel? level) => level switch
+    {
+        NmProfileSearchLevel.Explicit => "会话显式选择",
+        NmProfileSearchLevel.DbcDirectory => "DBC 同目录",
+        NmProfileSearchLevel.AppData => "%APPDATA%",
+        NmProfileSearchLevel.InstallDirectory => "安装目录",
+        _ => "未命中",
+    };
+
+    /// <summary>当前 profile 文件所在目录；无 profile 时 null（不监听）。</summary>
+    private static string? ProfileDirectoryOf(NmToolSnapshot snapshot)
+    {
+        // 优先用用户显式选中的那份；否则用本次搜索命中的第一份候选。
+        var path = snapshot.ProfileCandidates.Count > 0
+            ? snapshot.ProfileCandidates[0].Path
+            : null;
+        return string.IsNullOrEmpty(path) ? null : Path.GetDirectoryName(path);
+    }
+
+    /// <summary>
+    /// 构造 watcher 用的依赖链。
+    /// <para>
+    /// <b>只登记候选文件本身，不登记 <c>extends</c> 边</b>：父文件通常在不同目录
+    /// （<c>profiles/base</c>），单个 <see cref="FileSystemWatcher"/> 覆盖不到，
+    /// 多目录监听属未完成工作。
+    /// </para>
+    /// <para>
+    /// <b>不能因此谎称「父文件变化会自动重算」</b>：用户在
+    /// <see cref="NmProfileWatcherStatus"/> 里看不到任何提示就会以为改了 base
+    /// 会自动生效。该限制由 <see cref="NmProfileWatcherLimitText"/> 在
+    /// 选中了 profile 时始终显示。
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<NmProfileDependency> BuildProfileDependencies(NmToolSnapshot snapshot)
+        => snapshot.ProfileCandidates
+            .Select(c => new NmProfileDependency(c.Id, Array.Empty<string>()))
+            .ToArray();
+
+    /// <summary>
+    /// 监听能力的已知限制说明（spec §10.1.2 的 <c>extends</c> 链失效尚未接线）。
+    /// 选中 profile 时始终显示——静默不提示等于让用户误以为父文件变更会自动生效。
+    /// </summary>
+    internal const string NmProfileWatcherLimitText =
+        "仅监听所选 profile 所在目录；extends 父文件变更不会自动重算";
+
+    /// <summary>
+    /// 重建候选列表时抑制选中回调：清空再填充会让 SelectedItem 短暂变成 null，
+    /// 若不当心，每次刷新都会触发一次「切换到未选择」的重分析。
+    /// </summary>
+    private bool _nmApplyingProfileChoices;
+
+    /// <summary>
+    /// 切换企标后的重算触发器（spec §10.1「选中后触发重分析」）。
+    /// <para>
+    /// 默认走 <see cref="RunNmAnalysisAsync"/>；测试替换它来验证「切换确实触发了重算」，
+    /// 而不必真的跑一次分析（后者会因测试替身没有 trace 源而抛错并清空面板）。
+    /// </para>
+    /// </summary>
+    internal Action? NmProfileChangeRequested { get; set; }
+
+    partial void OnNmSelectedProfileChanged(NmProfileChoiceVm? value)
+    {
+        if (_nmApplyingProfileChoices) return;
+
+        // 用户手动切换企标：写入显式选择并重算。缓存 key 含 canonical profile hash，
+        // 换 profile 天然失效——不需要手动清缓存。
+        var newPath = value?.Path;
+        var optingOut = value is null || value.IsNone;
+
+        // 变化判定必须同时看两个状态：从「自动选中的 a@1」切到「未选择」时
+        // path 两侧都是 null，只看 path 会判定为「没变化」而不重算，
+        // 界面显示「未选择」但报告仍是那份 profile 的结果。
+        if (optingOut == NmProfileOptOut
+            && string.Equals(newPath, NmExplicitProfilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        NmProfileOptOut = optingOut;
+        NmExplicitProfilePath = optingOut ? null : newPath;
+        if (NmProfileChangeRequested is { } requested) requested();
+        else _ = RunNmAnalysisAsync(null);
+    }
+
+    /// <summary>
+    /// 填充标定面板（spec §10.2）：规则三态表 + 观测 vs 期望 + 数据体检 + 未建模条款。
+    /// <para>
+    /// 四块都从报告读，不再跑一次分析——面板必须与时间条/事件表基于同一份报告，
+    /// 否则用户会看到「表说违规、时间条说没问题」的自相矛盾。
+    /// </para>
+    /// </summary>
+    private void ApplyNmCalibration(NmReport report, NmProfile profile)
+    {
+        NmCalibrationRows.Clear();
+        NmCalibrationComparisons.Clear();
+        NmDataQualityChecks.Clear();
+        NmUnmodeledClauses.Clear();
+
+        // 规则表只在选了企标时有意义：没规则就没有「哪条规则触发」。
+        var rules = profile.StandardRules;
+        if (rules is { Count: > 0 })
+        {
+            foreach (var row in NmCalibrationTable.Build(rules, report))
+                NmCalibrationRows.Add(row);
+        }
+
+        foreach (var comparison in NmCalibrationTable.BuildComparisons(report))
+            NmCalibrationComparisons.Add(comparison);
+
+        foreach (var check in NmCalibrationTable.BuildDataQuality(report))
+            NmDataQualityChecks.Add(check);
+
+        foreach (var clause in NmCalibrationTable.BuildUnmodeledClauses(report))
+            NmUnmodeledClauses.Add(clause);
+
+        NmHasCalibration = NmCalibrationRows.Count > 0
+            || NmCalibrationComparisons.Count > 0
+            || NmDataQualityChecks.Count > 0
+            || NmUnmodeledClauses.Count > 0;
     }
 
     /// <summary>
@@ -991,6 +1443,19 @@ public sealed partial class TraceViewerViewModel
     private void SeekToNmTime(double t) => _masterService?.Seek(t);
 
     /// <summary>
+    /// 可空版本：标定面板的规则行绑 <c>FirstEvidenceTime</c>（<c>double?</c>）。
+    /// <para>
+    /// 无证据时刻时参数为 null，命令直接不跳——与「Cursor 保持箭头」一致，
+    /// 不会把「没证据」呈现成「跳到 0 秒」。
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private void SeekToNmTimeOrIgnore(double? t)
+    {
+        if (t is { } seconds) _masterService?.Seek(seconds);
+    }
+
+    /// <summary>
     /// 时间条准星：设计坐标（0..1000）→ 当前窗口秒数文案。
     /// 报告窗口未知时不启动准星，避免显示凭空推算的时间。
     /// </summary>
@@ -1012,17 +1477,36 @@ public sealed partial class TraceViewerViewModel
     }
 
     /// <summary>
-    /// 活动段 hover 信息卡文案：阶段、报文/整网行、起止与持续时长。
+    /// 活动段 hover 信息卡文案：阶段、报文/整网行、起止与持续时长，以及**证据等级**。
     /// 只描述数据事实，不推断节点状态。
+    /// <para>
+    /// 证据走独立属性 <see cref="NmHoverEvidence"/>，<b>不挤占</b>
+    /// <see cref="NmHoverHint"/>——后者是「点击跳转到 X」的操作提示，两者是不同信息。
+    /// </para>
+    /// <para>
+    /// <paramref name="evidence"/> 为空时不显示证据（事件标记复用同一张卡时不传证据）。
+    /// 「窗口截断」是<b>后缀拼接</b>而非替换——它与证据等级正交（spec §7.5.2.1）。
+    /// </para>
     /// </summary>
-    internal void SetNmSegmentHover(string kind, string rowLabel, double start, double end)
+    internal void SetNmSegmentHover(
+        string kind, string rowLabel, double start, double end,
+        string evidence = "", bool isWindowTruncated = false)
     {
         var who = string.IsNullOrEmpty(rowLabel) ? "" : " · " + rowLabel;
         NmHoverKind = kind;
         NmHoverTitle = NmTimelineText.SegmentKind(kind) + who;
         NmHoverRange = string.Create(CultureInfo.InvariantCulture,
             $"{start:F2}s – {end:F2}s · 持续 {Math.Max(end - start, 0):F2}s");
-        NmHoverHint = string.Create(CultureInfo.InvariantCulture, $"点击跳转到 {start:F2}s");
+        // spec §7.5.1.3：normal 段的终点是观测到的末帧，不代表完整 NOS 生命周期，
+        // 提示里必须写明，否则用户会以为「常规操作」覆盖了整个 NOS。
+        NmHoverHint = string.Equals(kind, NmTimelineKinds.Normal, StringComparison.Ordinal)
+            ? string.Create(CultureInfo.InvariantCulture, $"观测至最后一帧；点击跳转到 {start:F2}s")
+            : string.Create(CultureInfo.InvariantCulture, $"点击跳转到 {start:F2}s");
+
+        var evidenceText = NmTimelineText.SegmentEvidence(evidence, kind);
+        NmHoverEvidence = isWindowTruncated
+            ? string.IsNullOrEmpty(evidenceText) ? "窗口截断" : evidenceText + "，窗口截断"
+            : evidenceText;
     }
 
     internal void ClearNmSegmentHover()
@@ -1031,6 +1515,7 @@ public sealed partial class TraceViewerViewModel
         NmHoverTitle = "";
         NmHoverRange = "";
         NmHoverHint = "";
+        NmHoverEvidence = "";
     }
 
     /// <summary>
@@ -1040,6 +1525,10 @@ public sealed partial class TraceViewerViewModel
     internal void SetNmMarkerHover(string kind, string rowLabel, double t,
         string typeLabel, string detail)
     {
+        // 标记没有「段证据」这回事：不清会把上一段的「实测（NMSts）」留在卡片上，
+        // 而 View 侧切到标记时先清 _nmHoveredSegment 再调本方法，
+        // 段离开时的清理被 ReferenceEquals 守卫吃掉，只能在这里复位。
+        NmHoverEvidence = "";
         NmHoverKind = kind;
         NmHoverTitle = string.IsNullOrEmpty(rowLabel)
             ? typeLabel

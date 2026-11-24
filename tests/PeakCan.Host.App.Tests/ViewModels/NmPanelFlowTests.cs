@@ -494,7 +494,8 @@ public class NmPanelFlowTests
     public void StoreNmReport_PartialIsNotCached_FullIsCached()
     {
         var vm = NewVm();
-        var key = new NmCacheKey("src", null, 10, "hash", "supp", 0, 10, NmAnalyzer.EngineVersion, "full");
+        var key = new NmCacheKey(
+            "src", null, 0, 10, "full", 10, 1, "profile-hash", NmAnalyzer.EngineVersion);
 
         vm.StoreNmReport(key, MakeReport(isPartial: true));
         vm.TryGetCachedNmReport(key, out _).Should().BeFalse("partial 结果不得进入缓存（spec §9.4）");
@@ -974,6 +975,12 @@ public class NmPanelFlowTests
                         new NmSegment(1, 6, "active"),
                         new NmSegment(6, 8, "released"),
                         new NmSegment(8, 10, "silent"),
+                        // NMSts 实测切段（spec §7.5.1）：这些 kind 也由面板发射，
+                        // 必须一并进常量表，否则会被 UnknownBrush 画成品红。
+                        new NmSegment(10, 11, "repeat"),
+                        new NmSegment(11, 12, "normal"),
+                        new NmSegment(12, 13, "immediate"),
+                        new NmSegment(13, 14, "unknown"),
                     }),
             },
             Array.Empty<NmNodeReport>(),

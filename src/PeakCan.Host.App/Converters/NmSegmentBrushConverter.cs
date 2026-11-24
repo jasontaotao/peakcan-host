@@ -14,11 +14,21 @@ namespace PeakCan.Host.App.Converters;
 /// </summary>
 public static class NmTimelineKinds
 {
-    // 报文活动阶段（NmActivityBuilder）
+    // 报文活动阶段（NmActivityBuilder 时间推断，无 NMSts 时使用）
     public const string Wakeup = "wakeup";
     public const string Active = "active";
     public const string Released = "released";
     public const string Silent = "silent";
+
+    // 报文活动阶段（NMSts 实测切段，spec §7.5.1）
+    /// <summary>NMSts=0 → Repeat Message State。</summary>
+    public const string Repeat = "repeat";
+    /// <summary>NMSts=1 → Normal Operation State 的**发送段**（不含 RSS）。</summary>
+    public const string Normal = "normal";
+    /// <summary>repeat 段内的快发子段（NM_03/NM_04 的直接证据）。</summary>
+    public const string Immediate = "immediate";
+    /// <summary>该区间逐帧读不出 NMSts（DLC 不足），只降级这一小段。</summary>
+    public const string Unknown = "unknown";
 
     // 整网行
     public const string Episode = "episode";
@@ -37,6 +47,7 @@ public static class NmTimelineKinds
     public static readonly IReadOnlyList<string> All = new[]
     {
         Wakeup, Active, Released, Silent,
+        Repeat, Normal, Immediate, Unknown,
         Episode, Silence, Boundary,
         Burst, Gap, BusGap, Byte, Bit, Signal,
     };
@@ -55,6 +66,12 @@ public sealed class NmSegmentBrushConverter : IValueConverter
 {
     public static readonly SolidColorBrush WakeupBrush = Create(0xFF, 0xF0, 0xA0, 0x30);
     public static readonly SolidColorBrush ActiveBrush = Create(0xFF, 0x4C, 0x9A, 0xFF);
+    // NMSts 实测切段（spec §7.5.4）：与时间推断的 wakeup/active 明确区分色相，
+    // 让「这段是量出来的还是猜的」一眼可辨。
+    public static readonly SolidColorBrush RepeatBrush = Create(0xFF, 0x8B, 0x5C, 0xF6);
+    public static readonly SolidColorBrush NormalBrush = Create(0xFF, 0x22, 0xC5, 0x5E);
+    public static readonly SolidColorBrush ImmediateBrush = Create(0xFF, 0xF5, 0x9E, 0x0B);
+    public static readonly SolidColorBrush UnknownStateBrush = Create(0x80, 0x9C, 0xA3, 0xAF);
     public static readonly SolidColorBrush ReleasedBrush = Create(0xFF, 0x66, 0xB2, 0xA0);
     // 静默段降低不透明度：让「没有报文」在视觉上退后，而不是当成活动。
     public static readonly SolidColorBrush SilentBrush = Create(0x80, 0xB0, 0xB4, 0xBA);
@@ -78,6 +95,10 @@ public sealed class NmSegmentBrushConverter : IValueConverter
         {
             NmTimelineKinds.Wakeup => WakeupBrush,
             NmTimelineKinds.Active => ActiveBrush,
+            NmTimelineKinds.Repeat => RepeatBrush,
+            NmTimelineKinds.Normal => NormalBrush,
+            NmTimelineKinds.Immediate => ImmediateBrush,
+            NmTimelineKinds.Unknown => UnknownStateBrush,
             NmTimelineKinds.Released => ReleasedBrush,
             NmTimelineKinds.Silent or NmTimelineKinds.Silence => SilentBrush,
             NmTimelineKinds.Episode => EpisodeBrush,

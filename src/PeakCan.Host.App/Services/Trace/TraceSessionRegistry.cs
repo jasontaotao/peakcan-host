@@ -27,6 +27,8 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
     private readonly PeakCan.Host.Infrastructure.Channel.SecOc.SecOcVerdictTable? _secOcVerdicts;
 
     private readonly Dictionary<string, Entry> _sources = new(StringComparer.Ordinal);
+    // 加载代数计数器：每次 LoadAsync 递增，写入 TraceSource.LoadVersion。
+    private int _loadCounter;
 
     public TraceSessionRegistry(ITracePalette palette, ILoggerFactory loggerFactory)
         : this(palette, loggerFactory, ReplayOptions.Default)
@@ -106,7 +108,11 @@ public sealed class TraceSessionRegistry : ITraceSessionRegistry
         }
 
         // 4. Register + notify.
-        var meta = new TraceSource(sourceId, displayName, path, color, stroke);
+        // 加载代数（spec §10.1 的 trace 内容版本）：单调递增，进入 NM 报告缓存 key。
+        // 用 Interlocked 而非 ++：LoadAsync 可能被多个会话恢复路径并发调用
+        // （registry 是单例），重复代数会让两份不同内容的 trace 撞同一个 key。
+        var loadVersion = Interlocked.Increment(ref _loadCounter);
+        var meta = new TraceSource(sourceId, displayName, path, color, stroke, loadVersion);
         _sources[sourceId] = new Entry(service, meta);
         SourcesChanged?.Invoke();
         return meta;

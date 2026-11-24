@@ -197,4 +197,88 @@ public class NmBurstDetectorTests
         Assert.Equal(10, d.FrameCount);
         Assert.Equal(9, d.IntervalCount);
     }
+
+    // ---------------- anchorAtStart（spec §7.3 唤醒终点语义） ----------------
+
+    [Fact]
+    public void DetectInEpisode_AnchorAtStart_MidEpisodeBurstIsNotWakeupEnd()
+    {
+        // 报文先按周期发几帧、中途才出现快发。唤醒终点必须仍是首帧起的段，
+        // 不能跳到中途的快发上——否则时间条会画出「先正常发送、后唤醒」。
+        var ts = new[] { 0.0, 0.5, 1.0, 1.02, 1.04, 1.06, 1.08, 2.0 };
+
+        var anchored = NmBurstDetector.DetectInEpisode(
+            ts, episodeStart: 0, episodeEnd: ts[^1], timing: Geely, anchorAtStart: true);
+        var free = NmBurstDetector.DetectInEpisode(
+            ts, episodeStart: 0, episodeEnd: ts[^1], timing: Geely, anchorAtStart: false);
+
+        // 锚定模式：快发不在首帧起算 → 判为无候选。
+        Assert.False(anchored.IsCandidate);
+        // 自由模式：能检出中途那段快发（规则求值需要它）。
+        Assert.True(free.IsCandidate);
+        Assert.Equal(1.0, free.Start, precision: 6);
+    }
+
+    [Fact]
+    public void DetectInEpisode_AnchorAtStart_ShorterFirstRunLosesToLongerMidRun()
+    {
+        // 关键区分场景：**首帧起就有一小段快发**，中途还有一段更长的快发。
+        // 自由模式会选「最长的那段」（中途），锚定模式必须只认首帧起的那段。
+        // 上一条测试的首个间隔 0.5s 已超阈值，runStart 从未在 0 处启动，
+        // 所以它区分不出 anchorAtStart 的实现差异——这条才能。
+        var ts = new[]
+        {
+            0.0, 0.02, 0.04,            // 首帧起 2 个短间隔
+            0.5,                        // 长间隔断开
+            1.0, 1.02, 1.04, 1.06, 1.08, 1.10,  // 中途 5 个短间隔（更长）
+        };
+
+        var anchored = NmBurstDetector.DetectInEpisode(
+            ts, episodeStart: 0, episodeEnd: ts[^1], timing: Geely, anchorAtStart: true);
+        var free = NmBurstDetector.DetectInEpisode(
+            ts, episodeStart: 0, episodeEnd: ts[^1], timing: Geely, anchorAtStart: false);
+
+        // 锚定：只认首帧起的那段（0.0–0.04），不能被中途更长的段取代。
+        Assert.True(anchored.IsCandidate);
+        Assert.Equal(0.0, anchored.Start, precision: 6);
+        Assert.Equal(0.04, anchored.End, precision: 6);
+
+        // 自由：选最长的那段（中途，1.0 起）。
+        Assert.True(free.IsCandidate);
+        Assert.Equal(1.0, free.Start, precision: 6);
+        Assert.True(free.IntervalCount > anchored.IntervalCount);
+    }
+
+    [Fact]
+    public void DetectInEpisode_AnchorAtStart_FirstFrameBurstIsDetected()
+    {
+        // 快发确实从首帧起算时，锚定模式必须检出。
+        var ts = new[] { 0.0, 0.02, 0.04, 0.06, 0.5 };
+
+        var d = NmBurstDetector.DetectInEpisode(
+            ts, episodeStart: 0, episodeEnd: ts[^1], timing: Geely, anchorAtStart: true);
+
+        Assert.True(d.IsCandidate);
+        Assert.Equal(0.0, d.Start, precision: 6);
+        Assert.Equal(0.06, d.End, precision: 6);
+    }
+
+    [Fact]
+    public void DetectInEpisode_PreferImmediateCycleFalse_UsesCycleRatioThreshold()
+    {
+        // spec §7.5.3.1 回退表：禁用 immediate 路径时用 0.5×CycleMs = 250ms。
+        // 100ms 间隔在 immediate 路径下不算快发（>40ms），在回退路径下算（<250ms）。
+        var ts = new[] { 0.0, 0.1, 0.2, 0.3, 1.0 };
+
+        var immediate = NmBurstDetector.DetectInEpisode(
+            ts, episodeStart: 0, episodeEnd: ts[^1], timing: Geely,
+            anchorAtStart: true, preferImmediateCycle: true);
+        var fallback = NmBurstDetector.DetectInEpisode(
+            ts, episodeStart: 0, episodeEnd: ts[^1], timing: Geely,
+            anchorAtStart: true, preferImmediateCycle: false);
+
+        Assert.False(immediate.IsCandidate);
+        Assert.True(fallback.IsCandidate);
+        Assert.Equal("cycle_ratio_fallback", fallback.Detector);
+    }
 }

@@ -45,4 +45,18 @@ internal static class NmProfilePrecedence
             .FirstOrDefault(r => r.Byte == cbvByte && r.Bit == 6
                 && string.Equals(r.Name, "PartialNetworkInfo", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// 按名称定位 NMSts 位角色（spec §7.5.1）。未声明时返回 null——调用方必须退回
+    /// 时间推断，不能假设某个固定字节就是 NMSts。
+    /// </summary>
+    internal static NmBitRole? FindNmStsRole(IReadOnlyList<NmBitRole>? roles)
+    {
+        if (roles is null) return null;
+        for (var i = 0; i < roles.Count; i++)
+        {
+            if (string.Equals(roles[i].Name, "NmSts", StringComparison.Ordinal)) return roles[i];
+        }
+        return null;
+    }
 }

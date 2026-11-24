@@ -94,10 +94,12 @@ public class NmMultiEpisodeActivityTests
             .ToArray();
         var episodes = NmEpisodeBuilder.Build(frames, timeoutMs: 2000, windowStart: 0, windowEnd: 4.61);
 
+        // 显式声明 T_REPEAT_MESSAGE=1600（M1 单一值同时代表含/不含快发两个窗口）。
+        var timing = new NmEffectiveTiming(500, 3000, 2000, 1600, 1600, 20, 10, 10, 120, 0.2,
+            RepeatWindowSource: NmRepeatWindowSource.M1Single);
         var segments = NmActivityBuilder.Build(
-            frames, def, episodes,
-            effectiveCycleMs: 500, repeatMessageMs: 1600,
-            allNmFrames: frames, windowEnd: 4.61, effectiveTimeoutMs: 3000);
+            frames, def, episodes, timing,
+            allNmFrames: frames, windowEnd: 4.61);
 
         var sorted = segments.OrderBy(s => s.Start).ToArray();
         for (int i = 1; i < sorted.Length; i++)
@@ -120,10 +122,11 @@ public class NmMultiEpisodeActivityTests
         var all = new[] { aFrames[0], aFrames[1], aFrames[2], aFrames[3], bFrames[0], bFrames[1] };
         var episodes = NmEpisodeBuilder.Build(all, timeoutMs: 2000, windowStart: 0, windowEnd: 11);
 
+        var timing = new NmEffectiveTiming(500, 2000, 2000, 1600, 1600, 20, 10, 10, 120, 0.2,
+            RepeatWindowSource: NmRepeatWindowSource.M1Single);
         var segments = NmActivityBuilder.Build(
-            aFrames, aDef, episodes,
-            effectiveCycleMs: 500, repeatMessageMs: 1600,
-            allNmFrames: all, windowEnd: 11, effectiveTimeoutMs: 2000);
+            aFrames, aDef, episodes, timing,
+            allNmFrames: all, windowEnd: 11);
 
         // 中间 episode（5.0–5.5）不属于 A：不得生成任何从该区间起始的段；
         // 第 3 个 episode（10.0–10.5）仍应正常生成 A 的段。

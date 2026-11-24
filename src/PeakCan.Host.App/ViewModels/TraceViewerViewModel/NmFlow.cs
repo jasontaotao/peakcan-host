@@ -29,6 +29,53 @@ public sealed partial class TraceViewerViewModel
     /// </summary>
     internal Action? NmHeavyWorkProbe { get; set; }
 
+    /// <summary>
+    /// 会话显式选择的企标 profile 路径（spec §10.1 搜索顺序的第 1 级）。
+    /// <para>
+    /// null = 用户没选，走自动搜索。设置后必须重算（调用方负责触发分析）——
+    /// 报告缓存 key 含 canonical profile hash，换 profile 天然失效。
+    /// </para>
+    /// </summary>
+    internal string? NmExplicitProfilePath { get; set; }
+
+    /// <summary>
+    /// 用户主动选择「未选择企标（仅观测）」。
+    /// <para>
+    /// <b>为什么需要独立状态</b>：<see cref="NmExplicitProfilePath"/> 为 null 的含义是
+    /// 「用户没表态，走自动搜索」。若把「用户明确不要企标」也编码成 null，
+    /// 自动搜索会立刻把它发现的那份 profile 重新选中——用户选「未选择」后
+    /// 界面仍显示已选，且不会重算。多候选时碰巧正常，单候选（最常见）必现。
+    /// </para>
+    /// </summary>
+    internal bool NmProfileOptOut { get; set; }
+
+    /// <summary>
+    /// 两个全局 profile 根目录（spec §10.1）。抽成可覆写属性是为了让测试指向临时目录，
+    /// 不去碰真实的 <c>%APPDATA%</c>。
+    /// </summary>
+    internal string NmAppDataProfilesRoot { get; set; } =
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "PeakCan", "profiles");
+
+    internal string NmInstallProfilesRoot { get; set; } =
+        Path.Combine(AppContext.BaseDirectory, "profiles");
+
+    /// <summary>
+    /// 构造本次搜索的选项（spec §10.1）。
+    /// <para>
+    /// 用户主动 opt-out 时，把两个全局根目录也置空并跳过显式路径 —— 等价于
+    /// 「不搜任何层级」，得到 <see cref="NmStandardProfileLocator.SearchResult.None"/>。
+    /// 用一个专门的开关而不是复用 null 值，见 <see cref="NmProfileOptOut"/> 的说明。
+    /// </para>
+    /// </summary>
+    private NmProfileSearchOptions ProfileSearchOptions() => NmProfileOptOut
+        ? new NmProfileSearchOptions()
+        : new NmProfileSearchOptions(
+            ExplicitPath: NmExplicitProfilePath,
+            AppDataProfilesRoot: NmAppDataProfilesRoot,
+            InstallProfilesRoot: NmInstallProfilesRoot);
+
     async Task<NmToolSnapshot> IChatToolContext.GetNmSnapshotAsync(NmToolQuery query, CancellationToken ct)
     {
         // UI 线程只做快照捕获：帧列表加载后不可变，路径/窗口都是只读值。
@@ -40,6 +87,12 @@ public sealed partial class TraceViewerViewModel
             ?? throw new InvalidOperationException($"unknown source_id: {sourceId}");
 
         var frames = service.LoadedFrames;
+        // trace 内容版本（spec §10.1）：来自 registry 的加载代数。取不到（未知 source）
+        // 时用 0 —— 与 TraceSource.LoadVersion 的「未记录」默认值一致，
+        // 且 unknown source 会在上面 GetService 处已经抛错，走不到这里。
+        var traceLoadVersion = _registry.Sources
+            .FirstOrDefault(s => string.Equals(s.SourceId, sourceId, StringComparison.Ordinal))
+            ?.LoadVersion ?? 0;
         // 多通道且未指定 channel 时分析器只会返回空选择；这里直接报错，
         // 避免工具/面板把「不知道看哪个通道」呈现成「没有 NM」。
         EnsureSingleChannel(frames, query.Channel);
@@ -68,39 +121,68 @@ public sealed partial class TraceViewerViewModel
                 profile = AppendDbcHashConflict(profile, supplement!.DbcHash!, dbcHash);
             }
 
-            // 企标 profile：本版本仅支持「DBC 同目录」一级（spec §10.1）；未找到时
-            // Standard 为 null，走 M1 行为。加载失败/多份候选会抛异常，不静默降级。
-            // resolved.Registry 已含 extends 祖先链，OEM 企标不必与 base 同目录也能展平。
-            var resolved = NmStandardProfileLocator.TryLoad(dbcPath);
-            if (resolved is not null)
+            // 企标 profile（spec §10.1 三级搜索）：显式选择 > DBC 同目录 > AppData > 安装目录。
+            // 未找到时 Standard 为 null，走 M1 行为。同 id@version 多份文件会抛异常
+            // （事实源冲突）；不同身份多份则返回候选列表、不自动选——由选择器让用户选。
+            //
+            // 用户主动 opt-out 时完全不搜：只把全局根目录置空挡不住「DBC 同目录」这一层，
+            // 结果会立刻把用户刚取消的那份 profile 重新选中。
+            var search = NmProfileOptOut
+                ? NmStandardProfileLocator.SearchResult.None
+                : NmStandardProfileLocator.Search(dbcPath, ProfileSearchOptions());
+            NmStandardProfile? selected = search.Selected;
+            IReadOnlyDictionary<string, NmStandardProfile>? registry = null;
+            if (selected is not null)
             {
-                var flat = NmStandardFlattener.Flatten(resolved.Selected, resolved.Registry);
+                registry = search.Registry;
+                var flat = NmStandardFlattener.Flatten(selected, registry);
                 NmStandardValidator.ValidateFlattened(flat);
                 profile = NmStandardProfileBinding.Bind(profile, flat);
             }
 
             // 企标身份与报告 StandardId 同源（id@version）：换只差身份的 profile 也必须失效。
-            var standardId = resolved is null
+            var standardId = selected is null
                 ? null
-                : $"{resolved.Selected.StandardId}@{resolved.Selected.Version}";
-            var key = new NmCacheKey(sourceId, query.Channel, frames.Count, dbcHash,
-                NmSupplementHash(profile, standardId), start, end, NmAnalyzer.EngineVersion, windowRef);
+                : $"{selected.StandardId}@{selected.Version}";
+            // spec §10.1 的 key 身份：profile 语义由 canonical hash 承载（不再拼整份 DBC 哈希），
+            // trace 内容版本由加载代数承载。
+            //
+            // **DBC 信号布局仍必须参与**：分析器直接消费 DBC 的信号定义
+            // （NmSignalSummary 的 signal_change 事件、NmStsResolver 的编码交叉校验、
+            // SignalDecode 能力），而 NmProfile.Messages 不含信号信息。
+            // 只拼 DBC 信号语义摘要而不是整份文件哈希——后者会让「只改注释也失效」。
+            var key = new NmCacheKey(
+                sourceId, query.Channel, start, end, windowRef,
+                frames.Count, traceLoadVersion,
+                string.Concat(
+                    NmCanonicalProfileHash.Compute(profile, standardId),
+                    ":",
+                    NmDbcSignalHash.Compute(dbc)),
+                NmAnalyzer.EngineVersion);
 
             // 缓存读写仍在同一后台临界区内，保证命中/写入不会与 UI 线程交错。
             if (_nmCache.TryGet(key, out var cached))
                 return new NmToolSnapshot(
                     sourceId, query.Channel, dbcPath, dbcHash, profile,
-                    WithStaleSidecarAssumption(cached, staleSidecar), frames);
+                    WithStaleSidecarAssumption(cached, staleSidecar), frames)
+                {
+                    ProfileCandidates = search.Candidates,
+                    ProfileLevel = search.Level,
+                };
 
             var request = new NmAnalysisRequest(
                 sourceId, query.Channel, frames, dbc, profile, start, end, windowRef,
-                Standard: resolved?.Selected);
+                Standard: selected);
 
             var report = NmAnalyzer.Analyze(request, ct);
             StoreNmReport(key, report);
             return new NmToolSnapshot(
                 sourceId, query.Channel, dbcPath, dbcHash, profile,
-                WithStaleSidecarAssumption(report, staleSidecar), frames);
+                WithStaleSidecarAssumption(report, staleSidecar), frames)
+            {
+                ProfileCandidates = search.Candidates,
+                ProfileLevel = search.Level,
+            };
         }, ct).ConfigureAwait(false);
     }
 
@@ -194,92 +276,5 @@ public sealed partial class TraceViewerViewModel
                 return "unreadable";
             }
         }
-    }
-
-    /// <summary>
-    /// profile 的语义摘要，参与报告缓存 key（spec §10.1）。
-    /// <para>
-    /// 企标字段（<see cref="NmProfile.StandardTimings"/> / <see cref="NmProfile.StandardBitRoles"/> /
-    /// <see cref="NmProfile.StandardRules"/> / <see cref="NmProfile.StandardLayout"/> /
-    /// <see cref="NmProfile.StandardFeatures"/>）必须参与：它们只在选中 profile 后非 null，
-    /// 漏掉会导致「切换企标仍命中旧报告」。
-    /// </para>
-    /// </summary>
-    /// <param name="standardId">
-    /// 企标身份（<c>id@version</c>）；报告会把它写进 <c>StandardId</c>，因此也必须是 key 的一部分。
-    /// 通过参数传入而不是加进 <see cref="NmProfile"/>：身份属于分析请求的 Standard 快照，
-    /// <see cref="NmProfile"/> 是项目层模型，绑定阶段拿不到身份串（Flattened 只有 provenance 链）。
-    /// </param>
-    internal static string NmSupplementHash(NmProfile profile, string? standardId = null)
-    {
-        var layout = profile.Layout;
-        var timings = profile.Timings;
-        var features = profile.Features;
-
-        // Nodes / Messages 按稳定顺序拼接，避免集合顺序漂移产生无谓的缓存未命中。
-        var nodes = string.Join(";", profile.Nodes
-            .OrderBy(n => n.Name, StringComparer.Ordinal)
-            .Select(n => $"{n.Name}/{n.StationAddress}/{n.NodeIdentifier}/{n.IsNmNode}"));
-
-        var messages = string.Join(";", profile.Messages
-            .Where(m => m.IsNm)
-            .OrderBy(m => m.CanIdHex, StringComparer.Ordinal)
-            .ThenBy(m => m.IsExtended)
-            .Select(m => $"{m.CanIdHex}/{m.IsExtended}/{m.Name}/{m.Sender}/{m.Dlc}/{m.CycleMs}/{m.TimeoutMs}"));
-
-        // 冲突集合也参与 key：stale sidecar 追加的 dbc_hash 冲突会改变分析结果，
-        // 不能命中之前“无冲突”的报告缓存。
-        var conflicts = string.Join(";", profile.Conflicts
-            .Select(c => $"{c.Field}:{string.Join(",", c.Values)}:{string.Join(",", c.Sources)}"));
-
-        // 企标 profile：三个 Standard* 字段必须参与 key，否则切换 profile 会命中旧报告
-        // （spec §10.1）。列表先按业务 key 排序，保证同一 profile 的枚举顺序不影响 hash。
-        var standardTimings = profile.StandardTimings is { } standard
-            ? JsonSerializer.Serialize(standard)
-            : string.Empty;
-        var standardBitRoles = string.Join(";",
-            (profile.StandardBitRoles ?? Array.Empty<NmBitRole>())
-                .OrderBy(r => r.Byte).ThenBy(r => r.Bit)
-                .Select(r => $"{r.Byte}.{r.Bit}:{r.Name}:{(int)r.Constraint}"));
-        // 整条规则序列化（含 when/expect 参数）：只比 Id+Kind 会在只改参数时漏失效。
-        var standardRules = string.Join(";",
-            (profile.StandardRules ?? Array.Empty<NmRuleDef>())
-                .OrderBy(r => r.Id, StringComparer.Ordinal)
-                .Select(r => JsonSerializer.Serialize(r)));
-
-        // 企标布局/开关现在经 NmProfilePrecedence 参与每条分析路径（nid/cbv/user_data/pn），
-        // 漏进 key 会让「改 layout/features 块或换只差这些块的 profile」命中旧报告。
-        // 字段按固定顺序拼接，空值用 invariant 文本，保证同一 profile 稳定同 hash。
-        var standardLayout = profile.StandardLayout is { } standardLayoutValue
-            ? FormattableString.Invariant($"{standardLayoutValue.NidByte}.{standardLayoutValue.CbvByte}.{standardLayoutValue.UserDataOffset}.{standardLayoutValue.UserDataLength}")
-            : string.Empty;
-        var standardFeatures = profile.StandardFeatures is { } standardFeaturesValue
-            ? FormattableString.Invariant($"{standardFeaturesValue.ActiveWakeupBitEnabled}.{standardFeaturesValue.RepeatMsgIndEnabled}.{standardFeaturesValue.PnEnabled}")
-            : string.Empty;
-
-        // 加载期提示（spec §5.3）必须参与 key：它依赖 YAML 键拼写（phase vs
-        // declared_phase）而不是语义，改键名不改值时上面的绑定结果逐字节相同，
-        // 不哈希就会命中旧报告，用户看到「修改没生效」。
-        // 用 JSON 序列化而非分隔符拼接：提示文案是自由文本，含 ';' 时
-        // ["x;y"] 与 ["x","y"] 会拼出同一串（与 standardTimings 同一做法）。
-        var standardLoadAssumptions = profile.StandardLoadAssumptions is { Count: > 0 } loadAssumptions
-            ? JsonSerializer.Serialize(loadAssumptions)
-            : string.Empty;
-
-        var payload = string.Join("|",
-            layout?.NidByte, layout?.CbvByte,
-            layout?.UserDataOffset, layout?.UserDataLength,
-            timings.CycleMs, timings.TimeoutMs,
-            timings.RepeatMessageMs, timings.WaitBusSleepMs,
-            timings.ImmediateCycleMs, timings.ImmediateCount,
-            features?.PnEnabled, features?.ActiveWakeupBitEnabled,
-            features?.RepeatMsgIndEnabled,
-            profile.IdMapping,
-            nodes, messages, conflicts,
-            standardId ?? string.Empty,
-            standardLayout, standardFeatures,
-            standardTimings, standardBitRoles, standardRules,
-            standardLoadAssumptions);
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 }

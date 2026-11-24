@@ -126,6 +126,9 @@ public static class NmAnalyzer
         var nmFrames = new List<NmFrame>();
         IReadOnlyList<NmEpisode> episodes = Array.Empty<NmEpisode>();
         IReadOnlyList<string>? gapUnknowns = null;
+        // 时间条因 NMSts 位不可用而退回推断的报文（spec §7.5.1.2）。
+        // 不进 unknowns 就等于「悄悄用旧画法」，用户无法知道状态位没被用上。
+        var stsFallbackUnknowns = new List<string>();
 
         // 阶段边界取消检查（spec §9.4）：取消不抛异常，由调用方返回部分结果。
         bool IsCanceled(NmAnalyzerCheckpoint checkpoint)
@@ -139,6 +142,7 @@ public static class NmAnalyzer
         {
             var unknowns = new List<string>(s_unknowns);
             if (gapUnknowns is not null) unknowns.AddRange(gapUnknowns);
+            unknowns.AddRange(stsFallbackUnknowns);
             // 窗口在 NM 静默未达阈值前结束：结束时刻不可判明，消费方不得据此断言"节点仍在活动"。
             if (episodes.Any(e => e.BoundaryEnd))
                 unknowns.Add("indeterminate_end（窗口结束时未达静默阈值，episode 结束时间不可判明）");
@@ -309,14 +313,24 @@ public static class NmAnalyzer
                         timestamps.Take(5).ToArray(), false, "核对帧格式/配置"));
                 }
 
-                // 阶段推断：wakeup → active → released/silent（spec §7.3）。
+                // 阶段切段（spec §7.5.1）：有 NMSts 位时按状态切 repeat/normal，
+                // 否则退回 M1 的 wakeup → active → released/silent 推断。
+                // 位声明与 DBC 编码冲突时必须显式上报——不能让用户以为时间条是按状态位画的。
+                var stsProbe = NmStsResolver.TryResolve(
+                    request.Profile.StandardBitRoles, request.Dbc,
+                    def.CanIdHex, def.IsExtended, out var stsUnavailableReason);
+                if (stsUnavailableReason is not null)
+                {
+                    stsFallbackUnknowns.Add(
+                        $"{def.CanIdHex} 的 NMSts 位不可用（{stsUnavailableReason}），" +
+                        "时间条已退回时间推断");
+                }
                 var activity = NmActivityBuilder.Build(
                     frames, def, episodes,
-                    effectiveCycleMs: effTiming.CycleMs,
-                    repeatMessageMs: request.Profile.Timings.RepeatMessageMs,
+                    timing: effTiming,
                     allNmFrames: nmFrames,
                     windowEnd: request.End,
-                    effectiveTimeoutMs: effectiveTimeoutMs);
+                    stsProbe: stsProbe);
                 // 静默归因走唯一实现（spec §7.1.2）：必须看「其它 NM 报文是否仍在发」，
                 // 否则全网静默会被误判成单节点掉线。
                 var lastEpisode = episodes.LastOrDefault(e =>

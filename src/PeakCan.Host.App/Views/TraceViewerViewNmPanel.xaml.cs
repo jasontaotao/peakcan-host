@@ -97,7 +97,7 @@ public partial class TraceViewerViewNmPanel : UserControl
         _nmHoveredMarker = null;
         _nmHoveredSegment = segment;
         vm.SetNmSegmentHover(segment.Kind, FindRowVm((DependencyObject)sender)?.Label ?? "",
-            segment.Start, segment.End);
+            segment.Start, segment.End, segment.Evidence, segment.IsWindowTruncated);
         ShowCard((UIElement)sender, vm);
     }
 

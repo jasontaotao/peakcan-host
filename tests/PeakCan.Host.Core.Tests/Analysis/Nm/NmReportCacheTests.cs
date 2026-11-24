@@ -12,14 +12,19 @@ public class NmReportCacheTests
         Array.Empty<string>(), Array.Empty<NmCapabilityState>(), Array.Empty<NmInputMissing>(),
         Array.Empty<NmTruncation>(), EngineVersion: NmAnalyzer.EngineVersion);
 
+    /// <summary>
+    /// spec §10.1 的 key 身份维度：profile 语义由 <c>CanonicalProfileHash</c> 承载
+    /// （原 DbcHash/SupplementHash 已移除），trace 内容版本由 <c>TraceLoadVersion</c> 承载。
+    /// </summary>
     private static NmCacheKey Key(
-        string dbcHash = "d1",
-        string supplement = "s1",
+        string canonicalProfileHash = "p1",
+        int traceLoadVersion = 1,
         ushort? channel = null,
         int frameCount = 100,
         double start = 0,
         double end = 10) => new(
-            "src", channel, frameCount, dbcHash, supplement, start, end, NmAnalyzer.EngineVersion);
+            "src", channel, start, end, "full", frameCount, traceLoadVersion,
+            canonicalProfileHash, NmAnalyzer.EngineVersion);
 
     [Fact]
     public void PutThenTryGet_ReturnsCachedReport()
@@ -32,21 +37,23 @@ public class NmReportCacheTests
     }
 
     [Fact]
-    public void DifferentDbcHash_MissesCache()
+    public void DifferentProfileHash_MissesCache()
     {
+        // spec §10.1：profile 语义变了（切企标、改时序/规则）必须重算。
         var cache = new NmReportCache();
-        cache.Put(Key("dbc-a"), Report());
+        cache.Put(Key("profile-a"), Report());
 
-        Assert.False(cache.TryGet(Key("dbc-b"), out _));
+        Assert.False(cache.TryGet(Key("profile-b"), out _));
     }
 
     [Fact]
-    public void DifferentSupplementHash_MissesCache()
+    public void DifferentTraceLoadVersion_MissesCache()
     {
+        // 同 source 重载成内容不同的 trace：帧数与起止都可以相同，只有代数不同。
         var cache = new NmReportCache();
-        cache.Put(Key(supplement: "sidecar-a"), Report());
+        cache.Put(Key(traceLoadVersion: 1), Report());
 
-        Assert.False(cache.TryGet(Key(supplement: "sidecar-b"), out _));
+        Assert.False(cache.TryGet(Key(traceLoadVersion: 2), out _));
     }
 
     [Fact]
@@ -55,7 +62,7 @@ public class NmReportCacheTests
         var cache = new NmReportCache();
         cache.Put(Key(), Report());
 
-        var bumped = new NmCacheKey("src", null, 100, "d1", "s1", 0, 10, "nm-m1-2");
+        var bumped = Key() with { EngineVersion = "nm-m1-2" };
         Assert.False(cache.TryGet(bumped, out _));
     }
 
@@ -64,13 +71,13 @@ public class NmReportCacheTests
     {
         var cache = new NmReportCache();
         cache.Put(Key(), Report());
-        cache.Put(new NmCacheKey("other", null, 100, "d1", "s1", 0, 10, NmAnalyzer.EngineVersion), Report());
+        cache.Put(Key() with { SourceId = "other" }, Report());
 
         cache.Invalidate("src");
 
         Assert.False(cache.TryGet(Key(), out _));
         Assert.True(cache.TryGet(
-            new NmCacheKey("other", null, 100, "d1", "s1", 0, 10, NmAnalyzer.EngineVersion), out _));
+            Key() with { SourceId = "other" }, out _));
     }
 
     [Fact]
@@ -78,13 +85,13 @@ public class NmReportCacheTests
     {
         var cache = new NmReportCache();
         cache.Put(Key(), Report());
-        cache.Put(new NmCacheKey("other", null, 100, "d1", "s1", 0, 10, NmAnalyzer.EngineVersion), Report());
+        cache.Put(Key() with { SourceId = "other" }, Report());
 
         cache.Invalidate();
 
         Assert.False(cache.TryGet(Key(), out _));
         Assert.False(cache.TryGet(
-            new NmCacheKey("other", null, 100, "d1", "s1", 0, 10, NmAnalyzer.EngineVersion), out _));
+            Key() with { SourceId = "other" }, out _));
     }
 
     [Fact]
@@ -106,7 +113,7 @@ public class NmReportCacheTests
         NmCacheKey[] keys =
         [
             Key(), Key(channel: 1), Key(channel: 2),
-            new NmCacheKey("other", null, 100, "d1", "s1", 0, 10, NmAnalyzer.EngineVersion),
+            Key() with { SourceId = "other" },
         ];
 
         Parallel.For(0, 2000, i =>

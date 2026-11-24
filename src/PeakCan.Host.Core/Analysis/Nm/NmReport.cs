@@ -79,7 +79,42 @@ public sealed record NmUnmodeledRule(
     public IReadOnlyList<string> Clauses { get; init; } = Array.Empty<string>();
 }
 
-public sealed record NmSegment(double Start, double End, string Kind);
+/// <summary>
+/// 时间条上的一个活动段（spec §7.5）。
+/// <para>
+/// <see cref="Evidence"/> 与两个 bool <b>正交</b>，不得互相替代：
+/// 证据等级说「这段凭什么画出来」，两个 bool 说「段的起止边界是怎么确定的」。
+/// 把证据塞进 <see cref="Kind"/>（如 <c>repeat_measured</c>）会让枚举翻倍，
+/// 并打断现有的笔刷/文案映射（spec §7.5.2）。
+/// </para>
+/// </summary>
+/// <param name="Evidence">
+/// 与 <see cref="NmEvent.EvidenceKind"/> 同一词表：<c>measured</c> | <c>inferred</c> | <c>boundary</c>。
+/// <para>
+/// <c>measured</c> = 有实测依据（NMSts 位值、观测到的快发段）；
+/// <c>inferred</c> = 时间推断（T_REPEAT_MESSAGE 兜底窗、active/released）；
+/// <c>boundary</c> = 段本身只因窗口/报告边界才存在，内部没有任何可用证据。
+/// </para>
+/// <para>
+/// 默认 <c>inferred</c>：M1 的全部现有段都来自时间推断，语义正确，
+/// 老构造点不写该参数时自动得到正确的等级。
+/// </para>
+/// </param>
+/// <param name="IsWindowTruncated">
+/// 段的终点恰好等于窗口/报告边界，即这一段是<b>被边界切断</b>的。
+/// 严格定义：只有真正被切断才为 true，不是「状态可能在窗口外延续」。
+/// </param>
+/// <param name="StateBoundaryKnown">
+/// 段内是否观测到状态跃迁（NMSts 变化）。false = 窗口内只有单一状态，
+/// 状态边界不可判明——<b>不代表被截断</b>。
+/// </param>
+public sealed record NmSegment(
+    double Start,
+    double End,
+    string Kind,
+    string Evidence = "inferred",
+    bool IsWindowTruncated = false,
+    bool StateBoundaryKnown = false);
 
 public sealed record NmEpisode(
     int Index,

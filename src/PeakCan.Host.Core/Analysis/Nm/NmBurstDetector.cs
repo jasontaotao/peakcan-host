@@ -48,11 +48,29 @@ public static class NmBurstDetector
     /// 在 episode 内检测快发段。段尾落在 <paramref name="episodeEnd"/> 上时，
     /// 后续帧可能被窗口切掉，返回 <see cref="BurstDetection.IsIndeterminate"/>。
     /// </summary>
+    /// <param name="anchorAtStart">
+    /// true = 只认「从 episode 首帧起算」的连续短间隔（唤醒段终点的语义，spec §7.3）；
+    /// false = 取整段内最长的一段（规则求值的语义）。
+    /// <para>
+    /// 两者不能合并：报文在 episode 中途又出现一段快发时，「最长段」会把唤醒终点
+    /// 跳到中段，画出「先正常发送、后唤醒」的时间条。
+    /// </para>
+    /// </param>
+    /// <param name="preferImmediateCycle">
+    /// true = 优先用 <c>ImmediateCycleMs</c> 判短间隔（企标已声明快发周期）；
+    /// false = 强制走 M1 的 <c>0.5×CycleMs</c> 回退口径。
+    /// <para>
+    /// <b>不能靠「ImmediateCycleMs 是否为 0」推断</b>：它有默认值 20，未声明时也是 20。
+    /// Activity 段在未选企标时必须用 M1 口径，否则无 profile 的行为会变（spec §7.5.5）。
+    /// </para>
+    /// </param>
     public static BurstDetection DetectInEpisode(
         IReadOnlyList<double> timestamps,
         double episodeStart,
         double episodeEnd,
-        NmEffectiveTiming timing)
+        NmEffectiveTiming timing,
+        bool anchorAtStart = false,
+        bool preferImmediateCycle = true)
     {
         var none = new BurstDetection(0, 0, 0, 0, false, false, "none", false);
 
@@ -61,8 +79,12 @@ public static class NmBurstDetector
             return none with { IsIndeterminate = true };
 
         // 只分析落在本 episode 内的帧；边界为闭区间。
-        // 去重后再做索引运算：循环里跳过重复帧会让 runStart/runCount 与数组下标错位，
-        // 导致 end / FrameCount 取到错误帧。重复帧本就是同一时刻，先合并最简单。
+        //
+        // **必须去重**：重复时间戳是同一时刻的重复帧，会产生 delta=0 的假短间隔，
+        // 把「3 帧」数成「4 帧」、把合规快发判成不合规。
+        // 这与 M1 的 ResolveWakeupEnd 不同——那里不去重是 M1 自己的缺陷
+        // （提交 98acb20a 修的就是这一类），§7.5.5 的「行为不变」指结论口径，
+        // 不包含把已知缺陷一并复刻。
         var ordered = timestamps
             .Where(t => t >= episodeStart && t <= episodeEnd)
             .Distinct()
@@ -70,12 +92,12 @@ public static class NmBurstDetector
             .ToArray();
         if (ordered.Length < 2) return none;
 
-        // 检测阈值与检测器名：优先用 ImmediateCycleMs，缺失时回退到周期比例。
+        // 检测阈值与检测器名：优先用 ImmediateCycleMs，缺失或被禁用时回退到周期比例。
         double detectThreshold;
         string detector;
         var canJudgeCompliance = false;
 
-        if (timing.ImmediateCycleMs > 0)
+        if (preferImmediateCycle && timing.ImmediateCycleMs > 0)
         {
             detectThreshold = timing.ImmediateCycleMs * CandidateFactor / 1000.0;
             detector = "immediate";
@@ -87,7 +109,8 @@ public static class NmBurstDetector
             detector = "cycle_ratio_fallback";
         }
 
-        // 找最长的一段连续短间隔。起止用「间隔两端」的帧时刻。
+        // 找连续短间隔。anchorAtStart 时只认从首帧起算的那一段，否则取最长的一段。
+        // 起止用「间隔两端」的帧时刻。
         var bestStart = -1;
         var bestCount = 0;
         var runStart = -1;
@@ -117,6 +140,8 @@ public static class NmBurstDetector
             }
             else
             {
+                // 锚定首帧时，第一个长间隔就是这段快发的终点，后面再有快发也不算。
+                if (anchorAtStart) break;
                 runStart = -1;
                 runCount = 0;
             }
@@ -124,6 +149,9 @@ public static class NmBurstDetector
 
         // 候选要求 ≥2 个间隔（spec §7.3 阶段 1：连续 ≥3 帧）。
         if (bestCount < 2 || bestStart < 0) return none;
+
+        // 锚定首帧时，快发必须从首帧起算；中途出现的长段不能当唤醒终点。
+        if (anchorAtStart && bestStart != 0) return none;
 
         var start = ordered[bestStart];
         var end = ordered[bestStart + bestCount];

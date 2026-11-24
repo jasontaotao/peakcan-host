@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:conv="clr-namespace:PeakCan.Host.App.Converters"
+             xmlns:cconv="clr-namespace:PeakCan.Host.App.Composition.Converters"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels">
     <UserControl.Resources>
         <conv:NmChipBrushConverter x:Key="NmChipBrush" />
@@ -9,13 +10,26 @@
         <conv:NmEventShapeConverter x:Key="NmEventShape" />
         <conv:NmTimelinePixelXConverter x:Key="NmPixelX" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <!-- 面板内定义的转换器：面板必须能在不加载 App.xaml 的情况下单独实例化
+             （面板级 XAML 冒烟测试就这么做）。依赖全局资源会让它抛 XamlParseException。 -->
+        <cconv:NonEmptyStringToVisibilityConverter x:Key="NonEmptyStringToVis" />
+        <cconv:CountToVisibilityConverter x:Key="CountToVis" />
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
+            <!-- 0 企标选择器 -->
             <RowDefinition Height="Auto" />
+            <!-- 1 profile 摘要条 -->
             <RowDefinition Height="Auto" />
+            <!-- 2 冲突条 -->
             <RowDefinition Height="Auto" />
+            <!-- 3 语义能力横幅 -->
             <RowDefinition Height="Auto" />
+            <!-- 4 partial 徽标 -->
+            <RowDefinition Height="Auto" />
+            <!-- 5 能力 chip -->
+            <RowDefinition Height="Auto" />
+            <!-- 6 标定面板（spec §10.2，可折叠） -->
             <RowDefinition Height="Auto" />
             <!-- 时间条与事件表按比例分配剩余高度：窗口高时表能多显示，
                  窗口矮时时间条保留最小可视高度，避免被固定 160px 挤没。 -->
@@ -25,8 +39,35 @@
             <RowDefinition Height="*" MinHeight="120" />
         </Grid.RowDefinitions>
 
+        <!-- 企标选择器（spec §10.1）：只读下拉，选中后重分析。
+             分析前也显示——用户可以先选企标再跑分析。 -->
+        <Border Grid.Row="0" Padding="6" Background="#F2F6FA" BorderBrush="#C7D6E4"
+                BorderThickness="0,0,0,1">
+            <StackPanel>
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Text="企标 profile" VerticalAlignment="Center"
+                               Margin="0,0,6,0" FontSize="11" Foreground="#445566" />
+                    <ComboBox ItemsSource="{Binding NmProfileChoices}"
+                              SelectedItem="{Binding NmSelectedProfile}"
+                              DisplayMemberPath="Display"
+                              ToolTip="选择企标 profile；切换后自动重算"
+                              MinWidth="180" />
+                </DockPanel>
+                <TextBlock Text="{Binding NmProfileSelectorHint}" TextWrapping="Wrap"
+                           FontSize="10" Foreground="#8A6D00" Margin="0,3,0,0"
+                           Visibility="{Binding NmProfileSelectorHint, Converter={StaticResource NonEmptyStringToVis}}" />
+                <TextBlock Text="{Binding NmProfileCandidatesSummary}" TextWrapping="Wrap"
+                           FontSize="10" Foreground="#666666" Margin="0,2,0,0"
+                           Visibility="{Binding NmProfileCandidatesSummary, Converter={StaticResource NonEmptyStringToVis}}" />
+                <!-- 监听能力限制必须显式披露：不说就等于默认「父文件变更会自动生效」。 -->
+                <TextBlock Text="{Binding NmProfileWatcherStatus}" TextWrapping="Wrap"
+                           FontSize="10" Foreground="#8A6D00" Margin="0,2,0,0"
+                           Visibility="{Binding NmProfileWatcherStatus, Converter={StaticResource NonEmptyStringToVis}}" />
+            </StackPanel>
+        </Border>
+
         <!-- Profile bar：分析前不渲染，否则空的摘要 + 空按钮会变成一条无意义的色带。 -->
-        <Border Grid.Row="0" Padding="6" Background="#FFF7E6" BorderBrush="#E0C080"
+        <Border Grid.Row="1" Padding="6" Background="#FFF7E6" BorderBrush="#E0C080"
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
             <DockPanel>
@@ -46,7 +87,7 @@
         </Border>
 
         <!-- Conflicts bar (spec §9.1；无冲突隐藏) -->
-        <Border Grid.Row="1" Padding="6" Background="#FFF4CE" BorderBrush="#E0C080"
+        <Border Grid.Row="2" Padding="6" Background="#FFF4CE" BorderBrush="#E0C080"
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding NmHasConflicts, Converter={StaticResource BoolToVis}}">
             <StackPanel>
@@ -65,19 +106,19 @@
         </Border>
 
         <!-- M1 semantics banner：只有能力不可用时才显示（补全后自动消失） -->
-        <TextBlock Grid.Row="2" Margin="6,4" Foreground="#8A6D00"
+        <TextBlock Grid.Row="3" Margin="6,4" Foreground="#8A6D00"
                    Text="{Binding NmSemanticsBanner}"
                    Visibility="{Binding NmHasSemanticsBanner, Converter={StaticResource BoolToVis}}" />
 
         <!-- Partial result badge (spec §9.4；分析取消/超时) -->
-        <Border Grid.Row="3" Padding="6" Background="#FFE0B2" BorderBrush="#E0A060"
+        <Border Grid.Row="4" Padding="6" Background="#FFE0B2" BorderBrush="#E0A060"
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding NmIsPartial, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="{Binding NmPartialText}" FontWeight="SemiBold" Foreground="#7A4300" />
         </Border>
 
         <!-- Capability chips -->
-        <ItemsControl Grid.Row="4" ItemsSource="{Binding NmCapabilityChips}" Margin="6,2">
+        <ItemsControl Grid.Row="5" ItemsSource="{Binding NmCapabilityChips}" Margin="6,2">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
@@ -92,8 +133,128 @@
             </ItemsControl.ItemTemplate>
         </ItemsControl>
 
+        <!-- 标定面板（spec §10.2）：规则三态表 + 观测 vs 期望 + 数据体检 + 未建模条款。
+             默认折叠——360px 面板下四块表常驻会把时间条挤没。 -->
+        <Expander Grid.Row="6" Header="标定面板" IsExpanded="False" Margin="6,2"
+                  FontSize="11" FontWeight="SemiBold" Foreground="#445566"
+                  Visibility="{Binding NmHasCalibration, Converter={StaticResource BoolToVis}}">
+            <StackPanel Margin="0,2,0,0">
+                <!-- 规则表：每条规则 → 触发 / 未触发 / 未建模，点击 seek 到证据时刻 -->
+                <TextBlock Text="规则" FontSize="10" FontWeight="SemiBold" Foreground="#666666"
+                           Margin="0,4,0,2" />
+                <ItemsControl ItemsSource="{Binding NmCalibrationRows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <!-- spec §10.2「点击 seek 到证据时刻」：有证据时刻的行才可点。
+                                 无证据（未触发/未建模）时 Cursor 保持默认，避免「看起来能点但没反应」。 -->
+                            <Border Padding="4,2" Margin="0,1" Background="#F7F9FB" CornerRadius="3"
+                                    ToolTip="{Binding Requirement}">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Cursor" Value="Arrow" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CanSeek}" Value="True">
+                                                <Setter Property="Cursor" Value="Hand" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Border.InputBindings>
+                                    <MouseBinding MouseAction="LeftClick"
+                                                  Command="{Binding DataContext.SeekToNmTimeOrIgnoreCommand,
+                                                            RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                  CommandParameter="{Binding FirstEvidenceTime}" />
+                                </Border.InputBindings>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Text="{Binding StatusText}"
+                                               FontSize="10" FontWeight="SemiBold" Width="44">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="#666666" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding StatusText}" Value="触发">
+                                                        <Setter Property="Foreground" Value="#C0392B" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding StatusText}" Value="未建模">
+                                                        <Setter Property="Foreground" Value="#B26A00" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock DockPanel.Dock="Left" Text="{Binding RuleId}"
+                                               FontSize="10" Width="120"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock FontSize="10" Foreground="#555555"
+                                               TextTrimming="CharacterEllipsis"
+                                               Text="{Binding Reason, TargetNullValue=''}" />
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- 观测 vs 期望 -->
+                <TextBlock Text="观测 vs 期望" FontSize="10" FontWeight="SemiBold" Foreground="#666666"
+                           Margin="0,6,0,2"
+                           Visibility="{Binding NmCalibrationComparisons.Count,
+                                                Converter={StaticResource CountToVis}}" />
+                <ItemsControl ItemsSource="{Binding NmCalibrationComparisons}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock FontSize="10" TextWrapping="Wrap" Margin="0,1">
+                                <Run Text="{Binding Subject, Mode=OneWay}" FontWeight="SemiBold" />
+                                <Run Text=" 期望 " />
+                                <Run Text="{Binding Expected, Mode=OneWay}" />
+                                <Run Text=" ｜ " />
+                                <Run Text="{Binding Observed, Mode=OneWay}" />
+                            </TextBlock>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- 数据体检（§9.2 三态） -->
+                <TextBlock Text="数据体检" FontSize="10" FontWeight="SemiBold" Foreground="#666666"
+                           Margin="0,6,0,2"
+                           Visibility="{Binding NmDataQualityChecks.Count,
+                                                Converter={StaticResource CountToVis}}" />
+                <ItemsControl ItemsSource="{Binding NmDataQualityChecks}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock FontSize="10" TextWrapping="Wrap" Margin="0,1">
+                                <Run Text="{Binding Code, Mode=OneWay}" FontWeight="SemiBold" />
+                                <Run Text=" ｜ " />
+                                <Run Text="{Binding Detail, Mode=OneWay}" Foreground="#555555" />
+                            </TextBlock>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- 未建模条款（spec §10.2：显式列出，附条款号） -->
+                <TextBlock Text="未建模条款" FontSize="10" FontWeight="SemiBold" Foreground="#666666"
+                           Margin="0,6,0,2"
+                           Visibility="{Binding NmUnmodeledClauses.Count,
+                                                Converter={StaticResource CountToVis}}" />
+                <ItemsControl ItemsSource="{Binding NmUnmodeledClauses}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock FontSize="10" TextWrapping="Wrap" Margin="0,1">
+                                <Run Text="{Binding RuleId, Mode=OneWay}" FontWeight="SemiBold" />
+                                <!-- spec §10.2「显式列出，附条款号」：多条款规则要全列。 -->
+                                <Run Text="{Binding ClausesText, Mode=OneWay}" Foreground="#23364D" />
+                                <Run Text=" " />
+                                <Run Text="{Binding Reason, Mode=OneWay}" Foreground="#555555" />
+                                <Run Text="{Binding ReasonCode, Mode=OneWay, StringFormat=（{0}）}"
+                                     Foreground="#8A6D00" />
+                            </TextBlock>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Expander>
+
         <!-- 分析前的空态：告诉用户从哪开始，而不是留一块空白。 -->
-        <TextBlock Grid.Row="5" Text="尚未分析 NM：点击下方「分析全 trace」或「分析当前窗口」"
+        <TextBlock Grid.Row="7" Text="尚未分析 NM：点击下方「分析全 trace」或「分析当前窗口」"
                    Margin="10,16" FontSize="12" Foreground="#777777" TextWrapping="Wrap">
             <TextBlock.Style>
                 <Style TargetType="TextBlock">
@@ -108,7 +269,7 @@
         </TextBlock>
 
         <!-- Timeline (design width 1000, Viewbox scales to panel) -->
-        <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto"
+        <ScrollViewer Grid.Row="7" VerticalScrollBarVisibility="Auto"
                       ScrollChanged="OnNmTimelineScrollChanged"
                       Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
             <StackPanel>
@@ -153,7 +314,17 @@
                                                                MouseLeave="OnNmSegmentMouseLeave">
                                                         <Rectangle.Style>
                                                             <Style TargetType="Rectangle">
+                                                                <!-- spec §7.5.2.1：证据的视觉区分与文案必须同批。
+                                                                     推断段降透明度——「这段是猜的」必须看得出来，
+                                                                     不能只有 hover 时才说。 -->
+                                                                <Setter Property="Opacity" Value="1" />
                                                                 <Style.Triggers>
+                                                                    <!-- spec §7.5.2.1：推断段降透明度，让「这段是猜的」看得出来。
+                                                                         取 0.7 而非 0.55：SilentBrush / UnknownStateBrush 本身
+                                                                         alpha 已是 0x80，再乘 0.55 只剩约 28%，深色背景上几乎不可见。 -->
+                                                                    <DataTrigger Binding="{Binding Evidence}" Value="inferred">
+                                                                        <Setter Property="Opacity" Value="0.7" />
+                                                                    </DataTrigger>
                                                                     <Trigger Property="IsMouseOver" Value="True">
                                                                         <!-- 描边在 Viewbox 内会被横向缩小（360px 面板约 ×0.36），
                                                                              用 3 设计单位保证屏幕上仍有约 1px 可见。 -->
@@ -296,7 +467,7 @@
                     <StackPanel Margin="0,2,0,0">
                     <!-- 每行显式 Normal：Expander 的 SemiBold 会向内容继承，图例正文不能变粗体。 -->
                     <TextBlock FontSize="10" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0">
-                        <Run Text="报文条  " Foreground="#666666" />
+                        <Run Text="报文条（时间推断）  " Foreground="#666666" />
                         <Run Text="■ 唤醒  "
                              Foreground="{x:Static conv:NmSegmentBrushConverter.WakeupBrush}" />
                         <Run Text="■ 发送中  "
@@ -305,6 +476,18 @@
                              Foreground="{x:Static conv:NmSegmentBrushConverter.ReleasedBrush}" />
                         <Run Text="■ 静默"
                              Foreground="{x:Static conv:NmSegmentBrushConverter.SilentBrush}" />
+                    </TextBlock>
+                    <!-- spec §7.5.4：有 NMSts 时按状态切段，与上面的时间推断分开列。 -->
+                    <TextBlock FontSize="10" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0">
+                        <Run Text="报文条（NMSts 实测）  " Foreground="#666666" />
+                        <Run Text="■ 重复报文  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.RepeatBrush}" />
+                        <Run Text="■ 常规操作  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.NormalBrush}" />
+                        <Run Text="■ 快速发送  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.ImmediateBrush}" />
+                        <Run Text="■ 状态未知"
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.UnknownStateBrush}" />
                     </TextBlock>
                     <TextBlock FontSize="10" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0">
                         <Run Text="事件  " Foreground="#666666" />
@@ -335,7 +518,7 @@
 
         <!-- Event filters (spec §9.1) -->
         <!-- 右侧面板只有 360px：用 WrapPanel，窄宽度时换行而不是裁掉右侧计数。 -->
-        <WrapPanel Grid.Row="6" Margin="6,2"
+        <WrapPanel Grid.Row="8" Margin="6,2"
                    Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="筛选" VerticalAlignment="Center" Margin="0,0,4,0" />
             <ComboBox ItemsSource="{Binding NmEventTypeFilters}"
@@ -348,7 +531,7 @@
         </WrapPanel>
 
         <!-- Actions：按钮换行时状态文案独立成行，避免被挤到面板外。 -->
-        <StackPanel Grid.Row="7" Margin="6">
+        <StackPanel Grid.Row="9" Margin="6">
             <WrapPanel>
                 <Button Content="分析全 trace" Command="{Binding AnalyzeNmFullCommand}"
                         ToolTip="分析整个 trace 时间范围" Margin="0,0,6,4" />
@@ -379,7 +562,7 @@
         </StackPanel>
 
         <!-- Event table -->
-        <DataGrid Grid.Row="8" ItemsSource="{Binding NmEventRows}" IsReadOnly="True"
+        <DataGrid Grid.Row="10" ItemsSource="{Binding NmEventRows}" IsReadOnly="True"
                   AutoGenerateColumns="False" SelectionMode="Single"
                   SelectedItem="{Binding NmSelectedEvent}"
                   PreviewMouseLeftButtonUp="OnEventRowClick"
@@ -451,6 +634,19 @@
                     </Grid>
                     <TextBlock Text="{Binding NmHoverRange}" FontSize="11" Margin="14,4,0,0"
                                TextWrapping="Wrap" Foreground="#23364D" />
+                    <!-- spec §7.5.2.1：证据等级独立一行；空串时整行不占位。 -->
+                    <TextBlock Text="{Binding NmHoverEvidence}" FontSize="10" Margin="14,2,0,0"
+                               TextWrapping="Wrap" Foreground="#8A6D1F" FontWeight="SemiBold">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <Trigger Property="Text" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="{Binding NmHoverHint}" FontSize="10" Margin="14,2,0,0"
                                TextWrapping="Wrap" Foreground="#6B7785" />
                 </StackPanel>

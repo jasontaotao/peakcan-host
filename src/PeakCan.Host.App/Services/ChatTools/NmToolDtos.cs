@@ -19,4 +19,19 @@ public sealed record NmToolSnapshot(
     string? DbcHash,
     NmProfile Profile,
     NmReport Report,
-    IReadOnlyList<ReplayFrame> Frames);
+    IReadOnlyList<ReplayFrame> Frames)
+{
+    /// <summary>
+    /// 本次搜索命中的 profile 候选（spec §10.1 选择器）。
+    /// <para>
+    /// 带进快照而不是让面板再搜一次：重搜会再解析一遍 YAML，
+    /// 且在「候选文件刚好被改动」时给出与本次分析不一致的列表。
+    /// 默认空表示调用方没有提供候选（测试与工具路径）。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<NmStandardProfileLocator.Candidate> ProfileCandidates { get; init; }
+        = Array.Empty<NmStandardProfileLocator.Candidate>();
+
+    /// <summary>本次 profile 的命中层级；null = 没找到任何 profile。</summary>
+    public NmProfileSearchLevel? ProfileLevel { get; init; }
+}

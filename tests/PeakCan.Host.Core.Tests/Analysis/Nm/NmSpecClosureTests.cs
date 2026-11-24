@@ -413,10 +413,11 @@ public class NmSpecClosureTests
         // 用真实 episode 切分结果，不手搓 End 超出末帧的合成 episode。
         var episodes = NmEpisodeBuilder.Build(nm, timeoutMs: 2000, windowStart: 0, windowEnd: 5.0);
 
+        // repeatMessageMs: null → 无声明 → 观察窗用周期（M1 老口径，spec §7.5.5）。
         var segments = NmActivityBuilder.Build(
             nm, Def(), episodes,
-            effectiveCycleMs: 500, repeatMessageMs: null, allNmFrames: nm,
-            windowEnd: 5.0, effectiveTimeoutMs: 2000);
+            new NmEffectiveTiming(500, 2000, 2000, 1700, 1500, 20, 10, 10, 120, 0.2),
+            allNmFrames: nm, windowEnd: 5.0);
 
         Assert.Equal("silent", segments[^1].Kind);
         Assert.Equal(1.0, segments[^1].Start);

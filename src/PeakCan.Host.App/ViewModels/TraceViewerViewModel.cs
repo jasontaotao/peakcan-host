@@ -434,6 +434,10 @@ public sealed partial class TraceViewerViewModel : ObservableObject, IDisposable
         _nmCts?.Cancel();
         _nmCts?.Dispose();
         _nmCts = null;
+        // spec §10.1.2：profile 目录监听器持有 FileSystemWatcher 句柄并订阅本 VM。
+        // 不释放会让「关窗 → 改 profile → 后台重算」这条路径继续作用在已关闭窗口的
+        // VM 上，并且每开关一次 Trace Viewer 泄漏一个 watcher + 一个被它钉住的 VM。
+        DisposeNmProfileWatcher();
         GC.SuppressFinalize(this);
     }
 }

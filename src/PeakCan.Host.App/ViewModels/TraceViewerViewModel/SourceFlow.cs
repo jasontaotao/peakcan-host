@@ -340,6 +340,12 @@ public sealed partial class TraceViewerViewModel
             {
                 row.Dbc = doc;
             }
+            // spec §10.1：DBC 信号定义参与 NM 报告（signal_change 事件、NMSts 编码
+            // 交叉校验、SignalDecode 能力）。换 DBC 后旧 NM 报告不再成立——
+            // 清缓存并重算，否则面板会继续显示上一份 DBC 的信号事件与切段结果。
+            // 缓存 key 已含 DBC 信号摘要，但不清缓存就不会触发任何一次查询。
+            _nmCache.Invalidate();
+            if (NmHasReport) _ = RunNmAnalysisAsync(null);
         })).RunOnUi();
     }
 }

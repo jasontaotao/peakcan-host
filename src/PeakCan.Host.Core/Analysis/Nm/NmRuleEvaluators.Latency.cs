@@ -414,16 +414,16 @@ public static partial class NmRuleEvaluators
         return true;
     }
 
-    /// <summary>按名称定位 NMSts 位角色；profile 未声明时返回 null。</summary>
+    /// <summary>
+    /// 按名称定位 NMSts 位角色；profile 未声明时返回 null。
+    /// <para>
+    /// 委托给 <see cref="NmProfilePrecedence.FindNmStsRole"/>：Activity 段（S6）
+    /// 与规则求值必须用同一处匹配规则，否则「哪一位是 NMSts」会有两份答案
+    /// （§7.5.3.1 唯一实现的教训）。
+    /// </para>
+    /// </summary>
     private static NmBitRole? FindNmstsRole(IReadOnlyList<NmBitRole>? roles)
-    {
-        if (roles is null) return null;
-        for (var i = 0; i < roles.Count; i++)
-        {
-            if (string.Equals(roles[i].Name, "NmSts", StringComparison.Ordinal)) return roles[i];
-        }
-        return null;
-    }
+        => NmProfilePrecedence.FindNmStsRole(roles);
 
     /// <summary>episode 内的 NM 帧，按时间升序。</summary>
     private static NmFrame[] FramesInEpisode(IReadOnlyList<NmFrame> frames, NmEpisode episode)

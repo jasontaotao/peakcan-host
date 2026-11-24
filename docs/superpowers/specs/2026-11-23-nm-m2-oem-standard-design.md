@@ -1156,6 +1156,29 @@ public static IReadOnlyList<NmSegment> Build(
 - 无 profile / 无 NMSts 时 **M1 行为不变**，`NmSpecClosureTests` 三条 wakeup 测试作回归门。
 - 新增测试：NMSts 恒 0、恒 1、**窗口只覆盖单一状态（必须仍为 measured + `IsWindowTruncated=true`，不得退回 wakeup）**、位不可读（DLC 不足）、跨 episode 不合并、`Evidence` 三值、`boundary` 只用于纯边界段、hover 文案含截断后缀。
 
+**S6 实施补记（2026-11-24）**——三处 spec 未写清、实现时必须裁决的点：
+
+| 点 | 裁决 | 依据 / 代价 |
+|---|---|---|
+| `normal_transmit` 的命名 | 实现为 `repeat`，不发射 `normal_transmit` | §7.5.1.1 把无快发的那部分叫 `normal_transmit`，§7.5.5 验收表对同一区间写 `repeat`。两者同义同区间，取验收表（硬验收门），且并存会让时间条出现两个同义 kind。代价：偏离 §7.5.1.1 措辞。 |
+| §7.5.3 双窗口 vs §7.5.5「M1 行为不变」 | `NmEffectiveTiming` 加**三态** `RepeatWindowSource`（None / M1Single / StandardDual）：None 用周期当观察窗；M1Single 沿用「唤醒终点 = 快发段末帧」的 M1 语义；只有 StandardDual 才「快发只选窗，唤醒段 = 1700/1500 整段」 | 两者直接冲突：`NmTimingDefaults` 在无人声明时也会填 1700/1500，无法用值反推是否声明。**单 bool 不够**——M1 的单一值与企标双值语义不同，用同一开关会让既有项目的唤醒段突然变长（实测：单 bool 版本让 `Analyze_Activity_ObservedBurstEndsWakeup` 红）。代价：多一个枚举。 |
+| 快发阈值同理 | 加 `ImmediateCycleDeclared`：未显式声明 `ImmediateCycleMs` 时走 M1 的 `<0.5×CycleMs`，而不是默认的 `≤2.0×20ms` | §7.5.3.1 回退表以「是否配置 ImmediateCycleMs」为分界，但该字段默认值就是 20，同样无法用值反推。不加这个标志，`Analyze_Activity_ObservedBurstEndsWakeup` 直接红（实测过）。 |
+
+**`NmStsResolver` 只校验 DBC 能给出的三类冲突**（位宽≠1 / Motorola / 有符号）。§7.5.1.2 表里的「信号未定义」在本数据模型下不构成冲突——profile 的单 bit 声明本身就是充分的读法；「DLC 不足」「字节越界」由 `NmStsProbe.Read` 逐帧返回 null 处理。没有 DBC 时不做编码交叉校验（无从校验，不臆造冲突）。
+
+**已知缺口：共享 ID 未按 NID 细化（S6 有意不含）**。§7.5.1 的「M2 边界」要求按 `(CAN ID, extended, NID)` 分组后再切段；S6 的切段仍按报文进行。共享 ID（同一 CAN ID 下多 NID 交替、NMSts 逐帧不同）时会产生 repeat/normal 交替的碎片段。**这是记录在案的缺口，不是漏做**：`NmAnalyzer` 已识别 sharedId 并用于抑制周期结论，切段侧的 NID 分组留待后续切片。
+
+**§7.5.1 退回条件第 3 行与 §7.5.5 验收项的措辞差异（不是冲突，实现按此判）**：
+
+| 出处 | 措辞 | 判定 |
+|---|---|---|
+| §7.5.1 第 3 行 | 「窗口内只有单一状态」→ 不得置 `IsWindowTruncated` | 该行的场景是**末帧 < windowEnd**（报文自己停了），段没被切断 |
+| §7.5.5 验收项 | 「窗口只覆盖单一状态」→ **必须** `IsWindowTruncated=true` | 该行的场景是**末帧 == windowEnd**（窗口把它切了） |
+
+两行的区别只在末帧是否等于窗口终点，因此判据是 `|end − windowEnd| ≤ 容差`，与「有几个状态」无关。`StateBoundaryKnown` 则只看「终点是不是 NMSts 变化帧」（字段定义本身就是「段内是否观测到状态跃迁」），与截断正交——这一点 §7.5.2 已强调过。
+
+**base profile 声明 1700/1500 是有意的**：这两个值是 AUTOSAR CanNm 标准的 T_REPEAT_MESSAGE（含/不含快发），不是吉利专属。base 自称「不含 OEM 约束」指 layout/bit_roles 层面（PNI 位、预留位），timings 是标准语义。因此只选 base 的用户也会走 `StandardDual`——这是期望行为，不是串味。
+
 ## 8. 校验器
 
 加载/保存时校验，失败不允许进入分析：
@@ -1428,7 +1451,125 @@ Rev 2 的顺序有问题：S2 的原语依赖统一时序，却排在 S3 之前�
 | **S4** | P 级原语（`first_frame_latency`/`repeat_message_duration`/`normal_resume_shape`/`stop_sending`）+ episode/静默推断 | **Rev 5 据实修正**：截至 Rev 5，S4 只完成 `first_frame_latency` + `repeat_message_duration`；`normal_resume_shape` / `stop_sending` **未实现**（`TryEvaluate` 无对应 case，走 `default: return false`），验收不含它们。`max_gap_observe` 不做（§7.2）。主动唤醒两阶段判定**未实现**——`bit_rule` 只支持 `is_zero`，AWB=1 需要 `is_one` + wakeup 作用域 |
 | **S5** | 数据体检（§9.1 五项）+ 真实 trace 端到端 | 体检项单测；contract test（必须出现 + 必须不出现）。**Rev 5 收敛**：§9.1 后半五项因判据未定义不做。报告模型见 §9.2（三态检查表） |
 | **S6** | Activity 段模型（§7.5：NMSts 切段 + 快发子状态 + `Evidence` + 双窗口裁决）+ 笔刷/文案/图例 | §7.5.5 验收；`NmSpecClosureTests` 回归门 |
-| **S7** | 只读选择器 + 标定面板 + 缓存 key + watcher | 面板结构测试；切 profile 必重算；canonical hash 稳定性测试 |
+| **S7** | 只读选择器 + 标定面板 + 缓存 key + watcher | 面板结构测试；切 profile 必重算；canonical hash 稳定性测试。**已完成**，实施裁决见下方「S7 实施补记」 |
+
+**S6 状态（2026-11-24 更新）**：已实现并合入 `fix/nm-m2-spec-gaps`。Core 侧（`NmSegment` 三字段 / `NmActivityBuilder` 双窗口 + NMSts 切段 / `NmStsResolver` / 快发子段）与 App 侧（VM 三字段 / hover 证据行 / 笔刷 / 文案 / 图例）同批落地，Core NM 测试 478 绿。§7.5.5 的两条硬冲突裁决见该节末尾的实施补记。
+
+### S7 实施补记（2026-11-24）
+
+四块内容与三处设计裁决，外加一轮 code-reviewer 审查的 2 HIGH / 4 MEDIUM / 2 LOW 修复。
+
+**测试**：Core 2154 绿 / App 2365 绿；新增 8 个 Core 测试类 + 5 个 App 测试类，关键分支做过 12 次反向验证。
+
+#### 一、`NmCacheKey` 重塑（§10.1）
+
+```csharp
+public sealed record NmCacheKey(
+    string SourceId, ushort? Channel,
+    double Start, double End, string WindowRef,
+    int FrameCount,
+    int TraceLoadVersion,        // 新增：trace 内容版本
+    string CanonicalProfileHash, // 新增：profile 语义摘要
+    string EngineVersion);       // 移除 DbcHash / SupplementHash
+```
+
+**`TraceLoadVersion` 用「加载代数」而非「帧内容哈希」**。核实过：`TraceSessionRegistry.LoadAsync` 每次分配新 GUID 的 sourceId，从不复用 service，所以「同一 sourceId 重载」今天不会发生——spec §10.1 自身也给了「或 load generation」这个替代方案。对全部帧做哈希的成本随帧数线性增长，而收益只在一种当前不可达的场景里兑现。代数由 `TraceSource.LoadVersion` 承载（`Interlocked.Increment`，默认 0 保证 16 个既有构造点不改），存在意义是让那种场景一旦出现就自动失效。
+
+**`DbcHash` 仍然计算**，只是不再进 key：`NmSidecarStore` 的陈旧检测（`AppendDbcHashConflict`）与 `ClaimNmWizardAutoOpen` 的去重键都依赖它。移除的是 key 身份，不是这个值本身。
+
+#### 二、canonical hash 搬到 Core（§10.1.1）
+
+`NmCanonicalProfileHash.Compute(NmProfile, string? standardId)` 取代 App 层的 `NmSupplementHash`（后者已删除，其 8 条测试迁到 Core 的 `NmCanonicalProfileHashTests`）。
+
+**用显式 DTO + JSON 序列化，不直接序列化 `NmProfile`**：
+- `NmProvenance` 带文件路径与 DBC hash，直接序列化会让「同一份内容换个路径」拆成两个缓存项；
+- `NmProfile.Source` 是「怎么来的」而非内容；
+- 旧实现用 `string.Join("|")`，自由文本含 `|` 时会拼出同一串（`["x|y"]` 与 `["x","y"]` 碰撞）。JSON 的引号与转义消除这个风险。
+
+排序规则按 §10.1.1 落实：messages→can_id+ext、nodes→name、rules→id、bit_roles→byte+bit、conflicts→field，无业务 key 的字符串集合（Reasons / MissingFields / LoadAssumptions / Clauses）一律 ordinal 排序。
+
+**排除字段**：`Provenance`（路径/哈希）、`Source`（来源标志）、`ResolvedFrom`。有测试钉住「换路径 hash 不变」「改 Source 标志 hash 不变」。
+
+#### 三、locator 三级搜索与多候选语义（§10.1）
+
+`NmStandardProfileLocator.Search(dbcPath, NmProfileSearchOptions)` 按 `Explicit > DbcDirectory > AppData > InstallDirectory` 逐层搜索，`TryLoad(dbcPath)` 保留为「只搜 DBC 同目录」的兼容包装（S1/S2 的既有调用与测试依赖该签名）。
+
+**多候选语义按 spec 而非按旧实现**（此处推翻了既有行为，经用户确认）：
+
+| 情形 | 旧实现 | 新实现 |
+|---|---|---|
+| 同目录 1 份 | 选中 | 选中 |
+| 同目录多份**不同** id@version | 抛异常 | 返回候选列表，`Selected = null`，由选择器让用户选 |
+| 同目录多份**同一** id@version | 抛异常 | 抛异常（事实源冲突） |
+
+依据：§10.1 要求选择器「列出可用 profile（base + oem + 项目覆盖）」，复数；而「多份文件 → 报错让用户选」限定在「同 ID/version」。两者不是一回事。
+
+**`BuildRegistry` 的起点必须是选中文件的真实路径**：首版用 `options.ExplicitPath` 当起点，同目录/AppData 命中时它是 null，`extends` 链找不到父级——三条既有 locator 测试因此变红（`TryLoad_ProfileWithExtends_ResolvesParentChain` 等）。改为接收 `selectedPath` 参数后修复。
+
+**两个全局根目录由参数注入而非读环境变量**：Core 层不碰 `Environment.SpecialFolder`，否则测试无法在不污染真实 `%APPDATA%` 的前提下验证「AppData 优先于安装目录」。生产值由 `NmPanelFlow` 提供（`NmAppDataProfilesRoot` / `NmInstallProfilesRoot`，两者都是 internal 可覆写属性）。
+
+#### 四、标定面板（§10.2）
+
+四块全部实现，数据构建放在 Core 的 `NmCalibrationTable`（与 WPF 无关，可不启 UI 测）：
+
+| 方法 | 内容 |
+|---|---|
+| `Build(rules, report)` | 规则三态表：触发 / 未触发 / 未建模 |
+| `BuildComparisons(report)` | 观测 vs 期望（周期中位数/P95 vs `NmCycleStats.ExpectedMs` ± `ToleranceMs`） |
+| `BuildDataQuality(report)` | §9 三态体检表 |
+| `BuildUnmodeledClauses(report)` | 未建模条款（用 `Clauses` 全列表，不用单值 `Clause`） |
+
+**三态映射只看 `RuleId`，不看文案**：finding 的 message 会随措辞调整变化，用它判断会让「触发」在改一句话后静默变成「未触发」。
+
+**「三者皆无」的判定取决于报告是否 partial**（这里修正了首版的一个真缺陷）：
+
+| 报告 | 该规则无 finding / observation / unmodeled | 判定 |
+|---|---|---|
+| 完整 | 求值器返回 true 且未给原因 = **跑过、未违规** | 未触发 |
+| partial | 引擎可能没跑到这条 | 未建模 |
+
+首版把两种情况都判成「未建模」。问题在于 `layout_check` / `cycle_tolerance` / `burst_shape` 这类原语**只在违规时产出、通过时静默**（它们连 `observations` 列表都不接收，见 `NmRuleEvaluators.Bits.cs:36-41` 的分发签名）。于是合规规则会在面板上显示成「未建模」，让用户以为漏了一条本来检查过的规则——把「查过没问题」报成「没查」，是标定面板最不能出的错。测试 `RuleEvaluatedButSilent_IsNotTriggered_NotUnmodeled` 与 `RuleAbsentFromReport_IsUnmodeled` 分别钉住两侧。
+
+**观测 vs 期望只输出「有期望值」且「样本充分」的指标**：没有声明周期的报文拿中位数自比自、或有效间隔 < 5（`InsufficientSamples`）时报一个伪精确的「520ms」，都比不显示更误导。
+
+#### 五、watcher（§10.1.2）
+
+按 advisor 建议抽成三个纯逻辑部件 + 一个真 `FileSystemWatcher` 包装，**测试不靠 `Thread.Sleep`**：
+
+| 部件 | 职责 | 测试方式 |
+|---|---|---|
+| `NmProfileChangeDebounce` | ≥200ms 去抖，判定基于「上次**接受**」而非「上次收到」（滑窗会让持续刷新的目录永不触发） | 注入时间戳 |
+| `NmProfileFileReader.TryRead` | 用 `FileShare.None` 试开，判定「是否正在写」 | 独占句柄模拟写入中 |
+| `NmProfileDependencyGraph.DependentsOf` | `extends` 反向依赖 BFS，父变更 → 整条链失效 | 纯数据结构 |
+| `NmProfileWatcher`（`INmProfileWatcher`） | 真 `FileSystemWatcher` + 去抖 + 可读性检查 | VM 接线用假实现 |
+
+**双条件回写校验改为「CTS + generation」而非「CTS + profile hash」**：首版用哈希比对，但 `ApplyNmReport` 才写入当前哈希，首次运行时它是 null，导致所有首次分析的结果被丢弃（`RunNmAnalysisAsync_SetsAnalyzingFalseAndHasReportTrue` 抓到）。改用 `_nmProfileGeneration` 后没有顺序依赖：watcher 失效时 `Interlocked.Increment`，在途运行启动时记下的代数与之不符即被拒。
+
+**已声明的局限**：watcher 只监听选中 profile 所在目录，不监听 `extends` 父文件所在目录（父级通常在 `profiles/base`，需要多 watcher）。代码注释与 `NmProfileWatcherStatus` 都不谎称父文件变化会自动生效。
+
+#### 六、审查修复（2026-11-24，code-reviewer 两轮）
+
+| 级别 | 问题 | 修法 |
+|---|---|---|
+| HIGH | 移除 `DbcHash` 后，DBC 信号定义改动会命中旧报告（分析器直接消费 `NmSignalSummary` / `NmStsResolver` / `SignalDecode`，而 `NmProfile.Messages` 不含信号） | 新增 `NmDbcSignalHash`：只取影响解码的字段（名/起始位/长度/字节序/类型/因子/偏移），排除 Comment/Unit/Receivers。拼进 key；`OnDbcLoaded` 同时清缓存并重算 |
+| HIGH | `Dispose` 不释放 profile watcher → 关窗后句柄泄漏且继续重算 | `Dispose` 末尾调 `DisposeNmProfileWatcher()` |
+| MED | 去抖把「判定通过但因文件被锁而跳过」的事件也算作已接受 → 保存一次 profile 可能永不触发 | `ShouldRaise` 只判定、`MarkRaised` 才推进；且「不在关注集合」与「文件正在写」两步都前移到推进之前 |
+| MED | 自动发现单份 profile 时选「未选择」不重算（`ExplicitPath` 两侧都是 null） | 新增 `NmProfileOptOut` 独立状态；opt-out 时跳过整个 Search |
+| MED | 规则行无点击 seek、未建模条款不显示条款号（§10.2 两条硬要求） | 规则行加 `MouseBinding` → `SeekToNmTimeOrIgnoreCommand`（`CanSeek` 驱动 Cursor）；`NmUnmodeledClauseRow.ClausesText` |
+| MED | `extends` 父文件变化 → 整链失效未接线 | **明确延期**，`NmProfileWatcherLimitText` 在选中 profile 时始终显示该限制（不静默） |
+| LOW | 显式选择后候选列表塌缩成 1 项 | Explicit 分支仍调 `EnumerateAllCandidates`，显式选中项不在结果里时补进去 |
+| LOW | 同时有 observation 与 unmodeled 的规则显示「未触发」 | 优先序改为 Triggered > **Unmodeled** > NotTriggered |
+
+三条 HIGH/MED 修复均做过反向验证（删实现 → 确认对应测试变红）。
+
+**未修的已知项**：`App.xaml` 里注册的 `NonEmptyStringToVis` / `CountToVis` 目前无 Application 级消费者（面板已在 `UserControl.Resources` 局部注册）。冗余但无害，留给后续统一清理时一并处理。
+
+#### 七、UI
+
+- 选择器常驻顶部（不随 `NmHasReport` 隐藏）：「未选择企标（仅观测）」是第一项且永远可选，用户能退回只观测状态。
+- 重建候选列表时用 `_nmApplyingProfileChoices` 抑制选中回调——清空再填充会让 `SelectedItem` 短暂变 null，不抑制会每次都触发一次「切换到未选择」的重分析。
+- 标定面板默认折叠（`Expander IsExpanded="False"`）：四块表常驻会吃掉 360px 面板绝大部分垂直空间。
+- 两个新转换器（`NonEmptyStringToVisibilityConverter` / `CountToVisibilityConverter`）定义在 **UserControl.Resources** 而不只是 App.xaml：面板级 XAML 冒烟测试会独立实例化 UserControl，依赖全局资源会抛 `XamlParseException`。这个坑在实现时被 `NmViewXamlResourceTests` 与 `NmHoverCardTests` 抓到（首版把资源 key 写成 `NonEmptyToVis` 而注册的是 `NonEmptyStringToVis`）。
 
 **S6 硬依赖 S2**：`NmActivityBuilder.Build` 接收 `NmEffectiveTiming`，该类型由 S2 产出。**S2 必须先合并，S6 才能开工。** 不允许并行会话自行补一份时序实现。
 
