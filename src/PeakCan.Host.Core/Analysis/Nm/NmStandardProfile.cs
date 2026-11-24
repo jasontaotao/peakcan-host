@@ -31,6 +31,20 @@ public sealed record NmStandardProfile
     /// </summary>
     public IReadOnlyList<string> LoadAssumptions { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// 本层声明的「已知未被检查的条款/半边」（spec §9.5）。
+    /// <para>
+    /// <b>这是逐层信息，报告读的是展平后的链级合并结果</b>——与
+    /// <see cref="LoadAssumptions"/> 同一套管线：本层 →
+    /// <see cref="NmStandardFlattener.Flattened.UncoveredClauses"/> →
+    /// <see cref="NmProfile.StandardUncoveredClauses"/> → 报告。
+    /// </para>
+    /// <para>
+    /// null = 本层没声明（不是「声明了空」）。展平期子层同 (Clause, Facet) 覆盖父层。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<NmUncoveredClauseDef>? UncoveredClauses { get; init; }
+
     // 便利访问器：绝大多数调用方只关心「这个 profile 声明的时序/布局/开关」，
     // 不需要知道它们存在 overrides 下。展平逻辑（S1 后续）仍读 Overrides。
     public NmStandardTimings? Timings => Overrides?.Timings;

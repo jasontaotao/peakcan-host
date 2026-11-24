@@ -29,6 +29,9 @@ public static class NmStandardProfileBinding
             StandardLoadAssumptions = flat.LoadAssumptions.Count == 0
                 ? null
                 : flat.LoadAssumptions,
+            // spec §9.5：已知未被检查的条款半边。不接这一步，profile 里写的
+            // uncovered_clauses 到不了报告，NM_03 会继续显示「已覆盖」。
+            StandardUncoveredClauses = flat.UncoveredClauses,
             // 报告要能自述实际判定依据的继承链（base < OEM），否则 resolved_from 会
             // 一直谎报 "dbc"。ProfilePath/Hash 仍来自项目层，保留原值。
             Provenance = projectProfile.Provenance with { ResolvedFrom = flat.Provenance },

@@ -52,6 +52,28 @@ overrides:
   features:
     pn_enabled: false
 
+# spec §9.5：声明「这条条款有一部分已知没有被检查」。
+#
+# 为什么需要这一段：NM_BURST_SHAPE 的 clauses 含 NM_03/NM_16，它验的是**快发形态**
+# （10 帧 × 20ms）。但吉利 §4 表里 NM_03/NM_16 还要求「AWB=1」，而 bit_rule 只支持
+# is_zero，AWB 这半边从未被检查。没有声明时覆盖表会把 NM_03 整条报「已覆盖」，
+# 用户以为规范这一条验完了——这是本工具最不该出的错。
+#
+# 声明后 NM_03/NM_16 降为「部分覆盖」，原因码 unimplemented_primitive。
+# 主动唤醒的降级判定（NM_ACTIVE_WAKEUP_SUSPECT）不进 RuleEvaluations，
+# 因此无法纠正覆盖统计——它报的是「疑似」，不是「验过了」。
+uncovered_clauses:
+  - clause: NM_03
+    facet: awb
+    reason_code: unimplemented_primitive
+  - clause: NM_16
+    facet: awb
+    reason_code: unimplemented_primitive
+  # NM_01 / NM_05 / NM_07 / NM_08 / NM_11 / NM_13 / NM_14 / NM_17 与 §5.8 / §5.9 /
+  # 附录A 是 U 级条款：本工具永远无法验证（§3 可观测性分级）。不在这里逐条列出——
+  # 它们本来就没有规则覆盖，列出会让覆盖表被 13 行「未覆盖」淹没，
+  # 而其中每一行的结论都是同一句「不可观测」。
+
 rules:
   - id: NM_NID_MAPPING
     requirement: NM 报文 ECU 地址（NID）应与 CAN ID 低字节一致（扩展帧）

@@ -105,7 +105,10 @@ public sealed record NmProfile(
     NmStandardFeatures? StandardFeatures = null,
     // 展平链的加载期提示（spec §5.3：旧键 phase 改名）。进报告 Assumptions，
     // 也参与缓存 key——它依赖 YAML 键拼写而非语义，不哈希就会命中旧报告。
-    IReadOnlyList<string>? StandardLoadAssumptions = null);
+    IReadOnlyList<string>? StandardLoadAssumptions = null,
+    // 展平链声明的「已知未被检查的条款/半边」（spec §9.5）。
+    // null = 未声明；进 NmClauseCoverage 把 Covered 降为 Partial，也参与缓存 key。
+    IReadOnlyList<NmUncoveredClauseDef>? StandardUncoveredClauses = null);
 
 /// <summary>用户在补全对话框里填的内容；序列化为 <c>*.nmprofile.json</c>。</summary>
 public sealed record NmUserSupplement(

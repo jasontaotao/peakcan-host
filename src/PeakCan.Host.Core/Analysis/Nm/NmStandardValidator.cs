@@ -285,6 +285,11 @@ public static class NmStandardValidator
         new(@"\A(NM_\d{2}|§\d+(\.\d+)*|附录 ?A)\z",
             System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-    private static bool IsClauseIdShape(string clause)
+    /// <summary>
+    /// 条款号形状校验。<b>internal 而非 private</b>：<c>NmStandardYaml</c> 解析
+    /// <c>uncovered_clauses</c> 时要用同一把尺子——两处形状口径不一致，
+    /// 声明与规则的 <c>clauses</c> 就永远聚合不到一起，写了等于没写。
+    /// </summary>
+    internal static bool IsClauseIdShape(string clause)
         => ClauseIdPattern.IsMatch(clause);
 }

@@ -118,6 +118,65 @@ public static class NmUnmodeledCodes
     /// </para>
     /// </summary>
     public const string InternalInconsistent = "internal_inconsistent";
+
+    /// <summary>
+    /// 全部原因码（闭集）。用于加载期校验 profile 写的原因码是否合法——
+    /// 拼错的值会让 AI 拿到一个查不到的码，指引不出任何修复动作。
+    /// </summary>
+    public static readonly IReadOnlyList<string> All =
+    [
+        NotApplicable,
+        UnimplementedPrimitive,
+        MissingProfileData,
+        Unobservable,
+        PartialEvidence,
+        InternalInconsistent,
+    ];
+
+    /// <summary>原因码是否在闭集内（ordinal 比较，大小写敏感）。</summary>
+    public static bool IsKnown(string code)
+    {
+        ArgumentNullException.ThrowIfNull(code);
+        foreach (var known in All)
+        {
+            if (string.Equals(known, code, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 可用于 <c>uncovered_clauses</c>（profile 静态缺口声明）的原因码。
+    /// <para>
+    /// <b>是 <see cref="All"/> 的真子集，不是笔误</b>：三个码被排除是因为它们描述
+    /// **运行时结论**，不是永久的 profile 缺口——
+    /// </para>
+    /// <list type="bullet">
+    /// <item><c>not_applicable</c>：本条 trace 没有该规则要判的事件。换一条 trace 就可能适用。</item>
+    /// <item><c>internal_inconsistent</c>：引擎缺陷。让用户把它写进 profile 等于把 bug 记成配置。</item>
+    /// <item><c>partial_evidence</c>：trace 字节不足。同样随数据变化，不是永久缺口。</item>
+    /// </list>
+    /// <para>
+    /// 用错码的后果很具体：AI 读到 <c>partial_evidence</c> 会指引用户去补数据，
+    /// 而真相是这条条款本工具永远验不了。
+    /// </para>
+    /// </summary>
+    public static readonly IReadOnlyList<string> StaticGap =
+    [
+        UnimplementedPrimitive,
+        MissingProfileData,
+        Unobservable,
+    ];
+
+    /// <summary>原因码是否是合法的静态缺口声明。</summary>
+    public static bool IsStaticGap(string code)
+    {
+        ArgumentNullException.ThrowIfNull(code);
+        foreach (var known in StaticGap)
+        {
+            if (string.Equals(known, code, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
 }
 
 /// <summary>

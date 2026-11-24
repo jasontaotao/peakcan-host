@@ -29,6 +29,15 @@ public static class NmStandardFlattener
         /// </para>
         /// </summary>
         public IReadOnlyList<string> LoadAssumptions { get; init; } = Array.Empty<string>();
+
+        /// <summary>
+        /// 整条继承链声明的「已知未被检查的条款/半边」（spec §9.5），按链序合并。
+        /// <para>
+        /// null = 整条链都没声明。子层同 (Clause, Facet) 覆盖父层——与位角色按
+        /// (byte,bit) 合并同一语义：子层说的是最新事实。
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<NmUncoveredClauseDef>? UncoveredClauses { get; init; }
     }
 
     public static Flattened Flatten(
@@ -45,6 +54,8 @@ public static class NmStandardFlattener
         // 合并键必须含扩展位：标准帧 0x400 与扩展帧 0x400 是两条不同报文（spec §6.1）。
         var messages = new Dictionary<(string Id, bool Extended), NmStandardMessage>();
         var nodes = new Dictionary<string, NmStandardNode>(StringComparer.Ordinal);
+        // 未覆盖声明按 (Clause, Facet) 合并：子层覆盖父层，与位角色同语义。
+        var uncovered = new Dictionary<(string Clause, string Facet), NmUncoveredClauseDef>();
 
         foreach (var layer in chain)
         {
@@ -58,6 +69,17 @@ public static class NmStandardFlattener
                 messages[(msg.Id, msg.Extended)] = msg;
             foreach (var node in layer.Nodes ?? Array.Empty<NmStandardNode>())
                 nodes[node.Name] = node;
+            foreach (var decl in layer.UncoveredClauses ?? Array.Empty<NmUncoveredClauseDef>())
+            {
+                // 入表时就归一化，不只是键：value 保留原始空白会让 canonical hash
+                // 对语义相同的两份 profile 给出不同值（`"awb"` vs `" awb "`），
+                // 进而命中旧报告。YAML 路径已归一，但这是 public record，
+                // 程序化构造的调用方不该被要求自己保证。
+                var normalized = string.IsNullOrWhiteSpace(decl.Facet)
+                    ? null
+                    : decl.Facet.Trim();
+                uncovered[(decl.Clause, normalized ?? string.Empty)] = decl with { Facet = normalized };
+            }
 
             // 三态 patch 的 remove 半边：显式删除父级项（spec §6.2）。
             ApplyRemove(layer.Overrides?.Remove, layout, rules, messages, nodes, ref layout);
@@ -79,6 +101,13 @@ public static class NmStandardFlattener
                 .SelectMany(l => l.LoadAssumptions)
                 .Distinct(StringComparer.Ordinal)
                 .ToArray(),
+            // 排序保证确定性（§10.1.1 canonicalization 要求按业务 key 排序）。
+            UncoveredClauses = uncovered.Count == 0
+                ? null
+                : uncovered.Values
+                    .OrderBy(d => d.Clause, StringComparer.Ordinal)
+                    .ThenBy(d => d.Facet ?? string.Empty, StringComparer.Ordinal)
+                    .ToArray(),
         };
     }
 

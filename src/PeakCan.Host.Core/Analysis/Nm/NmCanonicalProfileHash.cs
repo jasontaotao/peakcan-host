@@ -122,6 +122,16 @@ public static class NmCanonicalProfileHash
             // 不参与 hash 就会命中旧报告（用户看到「修改没生效」）。排序同 Reasons。
             StandardLoadAssumptions: profile.StandardLoadAssumptions is { Count: > 0 } assumptions
                 ? assumptions.Order(StringComparer.Ordinal).ToArray()
+                : null,
+            // spec §9.5：未覆盖声明直接改变条款覆盖表的结论（Covered → Partial）。
+            // 不参与 hash 的后果最坏——用户改了 profile 却看到「已覆盖」，
+            // 且报告是旧的，无从发现。排序同 Reasons：声明顺序不影响语义。
+            StandardUncoveredClauses: profile.StandardUncoveredClauses is { Count: > 0 } uncovered
+                ? uncovered
+                    .Select(d => new CanonicalUncoveredClause(d.Clause, d.Facet, d.ReasonCode))
+                    .OrderBy(d => d.Clause, StringComparer.Ordinal)
+                    .ThenBy(d => d.Facet ?? string.Empty, StringComparer.Ordinal)
+                    .ToArray()
                 : null);
 
         var json = JsonSerializer.Serialize(payload, Options);
@@ -146,7 +156,12 @@ public static class NmCanonicalProfileHash
         CanonicalRule[]? StandardRules,
         CanonicalStandardLayout? StandardLayout,
         CanonicalFeatures? StandardFeatures,
-        string[]? StandardLoadAssumptions);
+        string[]? StandardLoadAssumptions,
+        CanonicalUncoveredClause[]? StandardUncoveredClauses);
+
+    /// <summary>spec §9.5 未覆盖声明。Facet 为 null 表示整条条款无规则覆盖。</summary>
+    private sealed record CanonicalUncoveredClause(
+        string Clause, string? Facet, string ReasonCode);
 
     private sealed record CanonicalMessage(
         string CanIdHex,

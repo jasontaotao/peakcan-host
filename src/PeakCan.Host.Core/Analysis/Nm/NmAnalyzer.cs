@@ -195,8 +195,12 @@ public static class NmAnalyzer
                 RuleEvaluations = ruleEvaluations,
                 // spec §5.5：覆盖统计由「规则的 clauses」×「逐规则 verdict」聚合。
                 // 引擎没跑时两者都空，覆盖表也是空——不会被误读成「全部未覆盖」。
+                // spec §9.5：profile 声明的「已知未检查半边」在这里把 Covered 降为
+                // Partial——不传下去，NM_03 会继续显示「已覆盖」而 AWB 从未被检查。
                 ClauseCoverage = activeRulesForCoverage is { Count: > 0 }
-                    ? NmClauseCoverage.Build(activeRulesForCoverage, ruleEvaluations)
+                    ? NmClauseCoverage.Build(
+                        activeRulesForCoverage, ruleEvaluations,
+                        request.Profile.StandardUncoveredClauses)
                     : Array.Empty<NmClauseCoverageRow>(),
             };
         }

@@ -234,4 +234,153 @@ public class NmClauseCoverageTests
         // 顺序必须确定：否则同一份报告每次刷新行序都可能变。
         Assert.Equal(["NM_03", "§5.5"], coverage.Select(c => c.Clause));
     }
+
+    // —— 声明式「未覆盖半边」（spec §9.5 的 NM_03/awb 缺口）——
+
+    /// <summary>
+    /// <b>这是本组测试要消灭的静默通过</b>：<c>NM_BURST_SHAPE</c> 的 clauses 是
+    /// <c>[NM_03, NM_04, NM_16]</c>，规则判了快发形态 → NM_03 整条显示「已覆盖」。
+    /// 但 NM_03 还有 AWB=1 这半边，而 <c>bit_rule</c> 只支持 <c>is_zero</c>，
+    /// AWB 从未被检查。用户看到「已覆盖」会以为 NM_03 验完了。
+    /// <para>
+    /// 修法不是把 NM_03 改判 NotCovered（快发半边确实验了），而是降为 Partial
+    /// 并给出 <c>unimplemented_primitive</c>——「验了一部分，另一部分原语没实现」。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void DeclaredUncoveredFacet_DowngradesCoveredClauseToPartial()
+    {
+        var coverage = NmClauseCoverage.Build(
+            [Rule("NM_BURST_SHAPE", "NM_03", "NM_04", "NM_16")],
+            [Eval("NM_BURST_SHAPE", NmRuleVerdict.EvaluatedNoFinding)],
+            [new NmUncoveredClauseDef("NM_03", "awb", NmUnmodeledCodes.UnimplementedPrimitive)]);
+
+        var row = Assert.Single(coverage, c => c.Clause == "NM_03");
+        Assert.Equal(NmClauseStatus.Partial, row.Status);
+        Assert.Equal(NmUnmodeledCodes.UnimplementedPrimitive, row.ReasonCode);
+        // 覆盖它的规则仍要列出来：读者得知道「哪条规则验了这半边」。
+        Assert.Equal(["NM_BURST_SHAPE"], row.RuleIds);
+    }
+
+    /// <summary>
+    /// 同一个声明不得波及别的条款：NM_04 没有 awb 半边，必须仍是 Covered。
+    /// </summary>
+    [Fact]
+    public void DeclaredUncoveredFacet_DoesNotAffectOtherClauses()
+    {
+        var coverage = NmClauseCoverage.Build(
+            [Rule("NM_BURST_SHAPE", "NM_03", "NM_04", "NM_16")],
+            [Eval("NM_BURST_SHAPE", NmRuleVerdict.EvaluatedNoFinding)],
+            [new NmUncoveredClauseDef("NM_03", "awb", NmUnmodeledCodes.UnimplementedPrimitive)]);
+
+        Assert.Equal(NmClauseStatus.Covered, Assert.Single(coverage, c => c.Clause == "NM_04").Status);
+        Assert.Equal(NmClauseStatus.Covered, Assert.Single(coverage, c => c.Clause == "NM_16").Status);
+    }
+
+    /// <summary>
+    /// 声明一个**完全没有规则覆盖**的条款：必须产出一行 <c>NotCovered</c>。
+    /// <para>
+    /// 这是「目录里有、无规则覆盖」的最简形态。没有它，U 级条款
+    /// （NM_01 / NM_05 / NM_08 等）在覆盖表里根本不存在——读者会以为
+    /// 报告只统计了部分条款，而不是「这些条款本工具永远验不了」。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void DeclaredClauseWithNoRule_IsNotCovered()
+    {
+        var coverage = NmClauseCoverage.Build(
+            [Rule("R1", "NM_03")],
+            [Eval("R1", NmRuleVerdict.EvaluatedNoFinding)],
+            [new NmUncoveredClauseDef("NM_01", null, NmUnmodeledCodes.Unobservable)]);
+
+        var row = Assert.Single(coverage, c => c.Clause == "NM_01");
+        Assert.Equal(NmClauseStatus.NotCovered, row.Status);
+        Assert.Equal(NmUnmodeledCodes.Unobservable, row.ReasonCode);
+        Assert.Empty(row.RuleIds);
+    }
+
+    /// <summary>
+    /// 同一条款被多条规则覆盖、其中一条已判，同时又有未覆盖声明 →
+    /// 仍降为 Partial。声明表达的是「还有一半没验」，与规则判了几条无关。
+    /// </summary>
+    [Fact]
+    public void DeclaredUncoveredFacet_BeatsMultipleCoveringRules()
+    {
+        var coverage = NmClauseCoverage.Build(
+            [Rule("R1", "NM_03"), Rule("R2", "NM_03")],
+            [
+                Eval("R1", NmRuleVerdict.EvaluatedNoFinding),
+                Eval("R2", NmRuleVerdict.EvaluatedWithFinding),
+            ],
+            [new NmUncoveredClauseDef("NM_03", "awb", NmUnmodeledCodes.UnimplementedPrimitive)]);
+
+        var row = Assert.Single(coverage, c => c.Clause == "NM_03");
+        Assert.Equal(NmClauseStatus.Partial, row.Status);
+        Assert.Equal(["R1", "R2"], row.RuleIds);
+    }
+
+    /// <summary>
+    /// 未传声明时行为必须与旧实现逐字节一致——这是向后兼容的硬要求，
+    /// 现有 13 条测试都走这条路径。
+    /// </summary>
+    [Fact]
+    public void NoDeclarations_BehavesExactlyAsBefore()
+    {
+        var coverage = NmClauseCoverage.Build(
+            [Rule("R1", "NM_03")], [Eval("R1", NmRuleVerdict.EvaluatedNoFinding)]);
+
+        Assert.Equal(NmClauseStatus.Covered, Assert.Single(coverage).Status);
+        Assert.Null(Assert.Single(coverage).ReasonCode);
+    }
+
+    /// <summary>空声明列表等价于不传：不能因为「传了个空集合」就改变行为。</summary>
+    [Fact]
+    public void EmptyDeclarationList_IsSameAsNull()
+    {
+        var withEmpty = NmClauseCoverage.Build(
+            [Rule("R1", "NM_03")], [Eval("R1", NmRuleVerdict.EvaluatedNoFinding)], []);
+        var withNull = NmClauseCoverage.Build(
+            [Rule("R1", "NM_03")], [Eval("R1", NmRuleVerdict.EvaluatedNoFinding)], null);
+
+        Assert.Equal(withNull.Select(c => c.Clause), withEmpty.Select(c => c.Clause));
+        Assert.Equal(withNull.Select(c => c.Status), withEmpty.Select(c => c.Status));
+    }
+
+    // —— 条款号别名归一 ——
+
+    /// <summary>
+    /// <c>附录 A</c> 与 <c>附录A</c> 是同一条款（<see cref="NmClauseRegistry"/> 两种都收）。
+    /// 聚合必须归一，否则同一条款在表里出现两行——一行 Covered、一行「未覆盖」，
+    /// 读者会以为规范里有两个附录 A。
+    /// </summary>
+    [Fact]
+    public void AliasSpellings_AreMergedIntoOneRow()
+    {
+        var coverage = NmClauseCoverage.Build(
+            [Rule("R1", "附录 A"), Rule("R2", "附录A")],
+            [
+                Eval("R1", NmRuleVerdict.EvaluatedNoFinding),
+                Eval("R2", NmRuleVerdict.EvaluatedNoFinding),
+            ]);
+
+        var row = Assert.Single(coverage);
+        Assert.Equal(["R1", "R2"], row.RuleIds);
+    }
+
+    /// <summary>
+    /// 规则写一种写法、声明写另一种时，声明必须命中同一条款并降级——
+    /// 不归一的话声明落在一个独立的空行上，被声明的条款反而仍是 Covered。
+    /// </summary>
+    [Fact]
+    public void AliasSpellings_DeclarationStillDowngrades()
+    {
+        var coverage = NmClauseCoverage.Build(
+            [Rule("R1", "附录 A")],
+            [Eval("R1", NmRuleVerdict.EvaluatedNoFinding)],
+            [new NmUncoveredClauseDef("附录A", "gw", NmUnmodeledCodes.Unobservable)]);
+
+        var row = Assert.Single(coverage);
+        Assert.Equal(NmClauseStatus.Partial, row.Status);
+        Assert.Equal(NmUnmodeledCodes.Unobservable, row.ReasonCode);
+    }
 }

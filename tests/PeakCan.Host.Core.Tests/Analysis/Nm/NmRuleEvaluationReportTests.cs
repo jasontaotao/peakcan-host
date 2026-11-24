@@ -115,6 +115,41 @@ public class NmRuleEvaluationReportTests
         Assert.Equal(loadedIds, evaluatedIds);
     }
 
+    /// <summary>
+    /// spec §9.5：<b>报告里的</b> NM_03 / NM_16 必须是「部分覆盖」，不是「已覆盖」。
+    /// <para>
+    /// <b>为什么这条必须经过 <see cref="NmAnalyzer.Analyze"/></b>：
+    /// <c>NmClauseCoverage.Build</c> 的单元测试只能证明聚合函数算得对，
+    /// 证明不了 <see cref="NmAnalyzer"/> 把 <c>StandardUncoveredClauses</c> 传下去了。
+    /// 删掉那一个实参，单元测试全绿而用户在真实报告里看到的 NM_03 又回到 Covered——
+    /// 这正是本条要钉住的那一格。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Analyze_ReportClauseCoverage_MarksNm03AndNm16AsPartial()
+    {
+        var flat = LoadGeelyFlattened();
+        var profile = NmStandardProfileBinding.Bind(Profile(), flat);
+        var frames = new[] { Frame(0.0, 0x00, 0x01), Frame(0.5, 0x00, 0x01) };
+
+        var report = NmAnalyzer.Analyze(
+            new NmAnalysisRequest("coverage-report", null, frames, null, profile, 0, 1.0));
+
+        foreach (var clause in new[] { "NM_03", "NM_16" })
+        {
+            var row = Assert.Single(report.ClauseCoverage!, c => c.Clause == clause);
+            Assert.Equal(NmClauseStatus.Partial, row.Status);
+            Assert.Equal(NmUnmodeledCodes.UnimplementedPrimitive, row.ReasonCode);
+        }
+
+        // 对照：NM_04 没有 awb 半边，不得被声明波及。
+        // 注意本场景只有 2 帧、没有快发，所以 NM_04 的运行时结论是
+        // all_rules_not_applicable（Partial）——这里要钉的是**原因码不是声明的码**，
+        // 不能断言 Covered（那会把「运行时判不出来」和「结构性缺口」混为一谈）。
+        var nm04 = Assert.Single(report.ClauseCoverage!, c => c.Clause == "NM_04");
+        Assert.NotEqual(NmUnmodeledCodes.UnimplementedPrimitive, nm04.ReasonCode);
+    }
+
     private static NmStandardFlattener.Flattened LoadGeelyFlattened()
     {
         var geely = NmStandardYaml.LoadFile(RepoPath("profiles/oem/geely-cv@2.0.nmstd.yaml"));

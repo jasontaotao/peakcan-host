@@ -1204,7 +1204,7 @@ public static IReadOnlyList<NmSegment> Build(
 
 Rev 4 列了十项，但其中多项 spec 从未定义判据。Rev 5 按「判据是否可复核」重新划分：
 
-**v1 实现（五项）**：
+**v1 实现（表中五项，其中「窗口首尾截断」因判据未定义实际未实施，落地为四项）**：
 
 | 检查 | 状态 | 依赖 | 判据是否已定义 |
 |---|---|---|---|
@@ -1237,11 +1237,21 @@ Rev 4 列了十项，但其中多项 spec 从未定义判据。Rev 5 按「判�
 > **⚠ 本节有四个未定的强制点，实施前必须补齐（Rev 5 记录）：**
 >
 > 1. **`Code` 是开放字符串** —— 重蹈 spec 自己修过的「未注册 finding code」问题，应建闭集。
-> 2. **「固定五项每项必有一行」没有机制保证** —— 只能靠测试，或改成五个具名属性。
+> 2. **「固定四项每项必有一行」没有机制保证** —— 只能靠测试，或改成四个具名属性。（Rev 5 原文写「五项」，2026-11-24 校正：`truncated_window` 判据未定义不做，实际是四项，见下文。）
 > 3. **`null` vs 空列表表达「不适用 vs 查了没抑制」太脆** —— record 相等性对 `IReadOnlyList` 是引用相等，任何消费方写 `?? Array.Empty<string>()` 就抹掉语义。建议改显式结构（如 `NmRuleSuppression(bool Applicable, IReadOnlyList<string> RuleIds)`）。
 > 4. **抑制映射只定义了两项** —— `unknown_id` / `truncated_window` 抑制谁写了，`dlc_mismatch` / `non_monotonic` / `nid_mapping` 失败时抑制谁**完全没写**。
 >
 > 另外 **DQ 检查哪一份帧集未定义**：`NmFrameSelector` 在多通道未指定时返回空帧集，五项检查会在空集上全部 `Passed`——正是本节要消灭的假通过。必须写明 DQ 看原始帧还是选择后的帧。
+
+> **2026-11-24 实施裁决（四点强制点的落地情况）**：
+>
+> | 强制点 | 落地 |
+> |---|---|
+> | 1 `Code` 闭集 | **未做**。仍是开放字符串，靠 `NmDataQualityAnalyzerTests` 的逐项断言兜底 |
+> | 2 四项必有行 | **已做**（测试保证，非具名属性） |
+> | 3 `null` vs 空列表 | **已绕过**：`SuppressedRuleIds` 字段根本没加，不存在二义性 |
+> | 4 抑制映射 | **未做**，见 §9.4 的论证（无可实施对象） |
+> | DQ 帧集 | **已定**：看选择后的帧（`NmFrameSelector` 输出），且空帧集一律 `NotChecked` 而不是 `Passed`——`NmDataQualityAnalyzer` 每个 `Check*` 方法开头都有「窗口内没有可检查的帧」的 `NotChecked` 分支 |
 
 **Rev 4 的模型实现不了 S5。** 一个「问题列表」无法区分两件事：
 
@@ -1259,10 +1269,11 @@ public sealed record NmDataQualityCheck(
     // 受影响区间可能有多个（non_monotonic 多段），单值装不下。
     // 用具名 record 而非 ValueTuple：后者在 JSON 序列化与 record 相等性上都有坑。
     IReadOnlyList<NmTimeRange> Ranges,
-    IReadOnlyList<string> AffectedCanIds,
-    // null = 该检查不做规则抑制；空列表 = 算了但没抑制任何规则。
-    // 用 null 与空列表区分「不适用」与「查了没抑制」，避免二义性。
-    IReadOnlyList<string>? SuppressedRuleIds);
+    IReadOnlyList<string> AffectedCanIds
+    // ⚠ 下面的 SuppressedRuleIds 在实现中**不存在**（2026-11-24 校正）。
+    // 保留在此仅为记录设计意图；照抄会编译不过。见本节「落地裁决」表。
+    // IReadOnlyList<string>? SuppressedRuleIds
+    );
 
 public sealed record NmTimeRange(double Start, double End);
 
@@ -1275,7 +1286,13 @@ public enum NmDataQualityStatus
 }
 ```
 
-**`NmReport.DataQualityChecks` 是固定五项**（按 §9.1 的 v1 范围），每项必有一行，`Status` 必填。不通过时另附 `Detail` 与区间。
+**`NmReport.DataQualityChecks` 是固定四项**（2026-11-24 校正，见下方说明），每项必有一行，`Status` 必填。不通过时另附 `Detail` 与区间。
+
+**为什么是四项不是五项**：§9.1 列了五项 v1 检查，但同一节又写明 `truncated_window` 的**判据未定义、不得实施**。两项要求互斥——保留它要么造一个永远为真的告警（每一份录制都算「首尾截断」），要么留一个永远 `NotChecked` 的空行。实际实现按 §9.1 的裁决取四项：`unknown_id` / `dlc_mismatch` / `non_monotonic` / `nid_mapping`。
+
+`truncated_window` 一旦补上可计算定义（见 §9.1 给的候选），应作为第五项加入，届时本条恢复为「五项」。
+
+**`SuppressedRuleIds` 字段当前不存在**（2026-11-24 校正）：上面的 record 定义保留了它，是为了记录设计意图；实际 `NmDataQualityCheck` 只有 `Code` / `Status` / `Detail` / `Ranges` / `AffectedCanIds` 五个成员。§9.4 已论证「当前没有一条规则能精确论证该被抑制」，硬造这个字段只会诱导后续实施者按 `AffectedCanIds` 一刀切。**照上面的 record 直接写代码会编译不过**——需要抑制时先回 §9.4 补论证。
 
 **为什么不用「issue 列表 + 空即通过」**：`NotChecked` 会被误读成 `Passed`，而 AI 会据此对未检查项下结论——这正是 §3 要消灭的静默通过。
 
@@ -1352,6 +1369,14 @@ public static class NmDataQualityAnalyzer
 **`NM_03` / `NM_16` 的条款必须拆分（Rev 5）**：§4.0 说 `burst_shape` 覆盖 NM_03/04/16，但 §4 表同时承认 AWB 半边未实现。若目录按 §4 表一行一条，`burst_shape` 会声称覆盖整个 NM_03 并报 `Covered`，而 AWB 从未检查——这是本节要消灭的静默通过换了个入口。
 
 **现在就要拆**：`GEELY:NM_03/burst`（Covered）+ `GEELY:NM_03/awb`（NotCovered，原因 `unimplemented_primitive`）。不能等 AWB 实现。
+
+> **2026-11-24 实施偏离（必须记录）**：实际落地是**一行 `Partial`**，不是两行（`burst` Covered + `awb` NotCovered）。理由：
+>
+> 1. 两行需要复合 `Id`（`GEELY:NM_03/awb`）——那正是 §4.0 值域裁决里**未定**的方案 A，且 `NM_03/awb` 会被条款号形状正则直接拒绝。
+> 2. 一行 `Partial` + 原因码 `unimplemented_primitive` 表达的结论是同一件事：**这条条款只验了一半**。对读者而言，「NM_03 部分覆盖（unimplemented_primitive）」与「NM_03/awb 未覆盖」给出的行动指令相同：**别以为 NM_03 验完了**。
+> 3. 两行版本多出的信息是「哪一半验了」——这确实丢了。补偿手段是 `NmClauseCoverageRow.RuleIds` 仍列出覆盖规则（`NM_BURST_SHAPE`），读者能顺着回到规则名，而规则名 `NM_BURST_SHAPE` 本身就说明了它验的是形态。
+>
+> **待完整目录落地时补两行**。在此之前，`Facet` 字段存在于 `NmUncoveredClauseDef` 里但**不参与聚合**（只用于展平期的子层覆盖判定），这是已知的信息损失。
 
 **缓存必须纳入新数据**：`NmFlow` 的 supplement hash 只拼了 `StandardTimings`/`StandardBitRoles`/`StandardRules`/`StandardLayout`/`StandardFeatures`。条款目录（`StandardClauses`）不在其中 → 改目录不失效缓存，旧报告被复用。**必须把 `StandardClauses` 加进 `NmProfile`、`NmStandardProfileBinding` 和 hash**（按 Id 排序）。
 
@@ -1448,10 +1473,21 @@ Rev 2 的顺序有问题：S2 的原语依赖统一时序，却排在 S3 之前�
 **S1 不产出 `NmProfile`**：展平产物 `NmStandardFlattener.Flattened` 是中间 DTO，转 `NmProfile` 需要位角色合并与 timing 解析，归 S2。
 | **S2** | `NmGlobalTiming`/`NmEffectiveTiming`/`Resolve` + 13 个调用点迁移（**保持 M1 行为不变**，报文级优先语义不得丢） | 四组合回归测试；无 profile 时输出逐字节一致；`NmSpecClosureTests` 全绿 |
 | **S3** | O 级原语（`layout_check`/`nid_id_mapping`/`bit_rule`/`cycle_tolerance`/`burst_shape`/`nmsts_transition`）+ 合成 fixture | 每原语：注入故障必触发、合法场景零误报 |
-| **S4** | P 级原语（`first_frame_latency`/`repeat_message_duration`/`normal_resume_shape`/`stop_sending`）+ episode/静默推断 | **Rev 5 据实修正**：截至 Rev 5，S4 只完成 `first_frame_latency` + `repeat_message_duration`；`normal_resume_shape` / `stop_sending` **未实现**（`TryEvaluate` 无对应 case，走 `default: return false`），验收不含它们。`max_gap_observe` 不做（§7.2）。主动唤醒两阶段判定**未实现**——`bit_rule` 只支持 `is_zero`，AWB=1 需要 `is_one` + wakeup 作用域 |
-| **S5** | 数据体检（§9.1 五项）+ 真实 trace 端到端 | 体检项单测；contract test（必须出现 + 必须不出现）。**Rev 5 收敛**：§9.1 后半五项因判据未定义不做。报告模型见 §9.2（三态检查表） |
+| **S4** | P 级原语（`first_frame_latency`/`repeat_message_duration`/`normal_resume_shape`/`stop_sending`）+ episode/静默推断 | **四项全部实现**（2026-11-24 校正，见下方注）。`max_gap_observe` 不做（§7.2）。主动唤醒两阶段判定未做完整版，只有降级版（§19.8）——`bit_rule` 只支持 `is_zero`，AWB=1 需要 `is_one` + wakeup 作用域 |
+| **S5** | 数据体检（§9.1 五项，实际落地四项）+ 真实 trace 端到端 | 体检项单测；contract test（必须出现 + 必须不出现）。**Rev 5 收敛**：§9.1 后半五项因判据未定义不做，`truncated_window` 同因未实施。报告模型见 §9.2（三态检查表）。**已完成**：四项体检 + `NmRealTraceEndToEndTests`（§19.6 与 §11 的「BLF DIR 位」补记） |
 | **S6** | Activity 段模型（§7.5：NMSts 切段 + 快发子状态 + `Evidence` + 双窗口裁决）+ 笔刷/文案/图例 | §7.5.5 验收；`NmSpecClosureTests` 回归门 |
 | **S7** | 只读选择器 + 标定面板 + 缓存 key + watcher | 面板结构测试；切 profile 必重算；canonical hash 稳定性测试。**已完成**，实施裁决见下方「S7 实施补记」 |
+
+**S4 状态（2026-11-24 校正）**：Rev 5 写的「`normal_resume_shape` / `stop_sending` 未实现，`TryEvaluate` 无对应 case」**在 Rev 5 写作时已过时**，且此后一直未更新，属**假情报**。实际状态：
+
+| 原语 | 实现位置 | 分发表 | 测试 |
+|---|---|---|---|
+| `normal_resume_shape` | `NmRuleEvaluators.Resume.cs:25` | `NmRuleEvaluators.Bits.cs` 的 `case "normal_resume_shape"` | `NmRuleEvaluatorsResumeTests` 共 13 条（12 条 Resume + 1 条 StopSending） |
+| `stop_sending` | `NmRuleEvaluators.Resume.cs:302` | `case "stop_sending"` | 同上 |
+
+`geely-cv@2.0` profile 里 `NM_RESUME_TO_RMS`（含 `expect_nmsts`）与 `NM_STOP_SENDING` 都已启用。**S4 的四项原语全部完成**，唯一未做的是 `max_gap_observe`（§7.2 明确 v1 不实现）与主动唤醒完整版（只有 §19.8 的降级版）。
+
+这条修正的价值在于：读到旧文本的实施者会**重写一遍已存在的原语**，并在重写时与现有 13 条测试冲突。
 
 **S6 状态（2026-11-24 更新）**：已实现并合入 `fix/nm-m2-spec-gaps`。Core 侧（`NmSegment` 三字段 / `NmActivityBuilder` 双窗口 + NMSts 切段 / `NmStsResolver` / 快发子段）与 App 侧（VM 三字段 / hover 证据行 / 笔刷 / 文案 / 图例）同批落地，Core NM 测试 478 绿。§7.5.5 的两条硬冲突裁决见该节末尾的实施补记。
 
@@ -1946,8 +1982,8 @@ Rev 4 之后的 S1–S4 实施与一次独立设计评审，暴露出 Rev 4 内�
 | 3 | **条款目录 ID 模型不成立**：§4 表里 `§5.5` 出现 4 次、`§5.4.4` 出现 2 次，节号不能当唯一键；base 的 `AUTOSAR ... §9` 与吉利 `§5.x` 不在同一命名空间 | HIGH | `NmClauseDef` 改复合键 `Id` + 可重复的 `Clause`；区分文档维度 |
 | 4 | **未覆盖的条款在报告里完全不可见**：引擎只遍历 `rules`，未声明的条款既无 finding 也无 Unmodeled | CRITICAL | `NmStandardProfile.Clauses` 目录（数据驱动，不硬编码进 Core）；引擎把「目录中有、无规则覆盖」写进 `UnmodeledRules` |
 | 5 | 五情形覆盖表漏 7 类，其中 `not_applicable` 最严重：`with_burst` 不匹配时规则返回 success + 观测，按布尔模型算「已覆盖」，实际没验证 | HIGH | 覆盖改三态 `Covered/Partial/NotCovered` + 原因码；补 7 情形 + 继承/remove 语义 |
-| 6 | §9 十项体检中五项判据未定义 | HIGH | §9.1 收敛为五项可实现项，其余标「判据未定义，v1 不做」 |
-| 7 | **§9 的报告模型实现不了 S5**：问题列表无法区分「通过」与「没查」，与 §9.1 自己要求的「无 profile 时明示未检查」矛盾 | HIGH | §9.2 改三态 `NmDataQualityCheck`（Passed/Failed/NotChecked）+ 固定五项；`SuppressedRuleIds` 用 null/空区分 |
+| 6 | §9 十项体检中五项判据未定义 | HIGH | §9.1 收敛为五项可实现项，其余标「判据未定义，v1 不做」。**但收敛后仍有一项（`truncated_window`）判据未定义**，实际落地四项，见 §9.1 与 §9.2 |
+| 7 | **§9 的报告模型实现不了 S5**：问题列表无法区分「通过」与「没查」，与 §9.1 自己要求的「无 profile 时明示未检查」矛盾 | HIGH | §9.2 改三态 `NmDataQualityCheck`（Passed/Failed/NotChecked）+ 固定**四项**（Rev 5 原写五项，`truncated_window` 判据未定义不做，2026-11-24 校正）；`SuppressedRuleIds` 用 null/空区分——**该字段最终未实施**，见 §9.2 的落地裁决 |
 | 8 | §9 未说明体检在哪层算 | HIGH | §9.3 独立 `NmDataQualityAnalyzer`；明确**不做成规则原语**（无 clause 可挂、现有引擎无规则调度模型、非企标条款） |
 | 9 | `NmUnmodeledRule` 没有 `RuleId`/`ReasonCode`，Clause 改成条款号后「哪条规则未实现」在结构化输出里消失 | HIGH | §9.4 新增 `RuleId` + `ReasonCode` 七值枚举 |
 | 10 | §7.2 `max_gap_observe` 无 §4 条款映射，`value` 语义未定义 | MEDIUM | 明确 v1 不实现 |
@@ -1974,7 +2010,7 @@ Rev 5 初稿曾写「`NM_10` 与 NM_02/15 共用一条规则，接受精度损�
 | 问题 | 影响 | 能否留给后续 |
 |---|---|---|
 | `NmRuleContext` 缺 `RawFrames`/`Dbc`/`Selection` | 规则引擎无法做任何需要原始帧的判定 | **可留**——不影响 S5（体检走独立分析器）；但其它需要原始帧的原语仍是硬缺口 |
-| ~~§7.3 主动唤醒两阶段判定整节未实现~~ | ~~`NM_ACTIVE_WAKEUP_SUSPECT` 只有注册无产出者~~ | **2026-11-24 已实现降级版**：`NmActiveWakeupAnalyzer` 产出 `NM_ACTIVE_WAKEUP_SUSPECT`（info + inferred），见 §19.8。**但本行原有的条件「NM_03/NM_16 的 AWB 半边必须保持 Partial/NotCovered」当前未满足**——`NM_BURST_SHAPE` 的 clauses 未拆 `/awb`，`NmClauseCoverage` 会判成 `Covered`，AWB 半边被静默吞掉。这是已知缺口，见 §19.8 第 2 条 |
+| ~~§7.3 主动唤醒两阶段判定整节未实现~~ | ~~`NM_ACTIVE_WAKEUP_SUSPECT` 只有注册无产出者~~ | **2026-11-24 已实现降级版**：`NmActiveWakeupAnalyzer` 产出 `NM_ACTIVE_WAKEUP_SUSPECT`（info + inferred），见 §19.8。本行原附加条件「NM_03/NM_16 的 AWB 半边必须保持 Partial/NotCovered」**已满足**：`uncovered_clauses` 声明机制落地（§19.9），两条条款从 `Covered` 降为 `Partial` + `unimplemented_primitive` |
 | §11.1 的「追溯矩阵完整」CI 校验不存在 | 条款目录靠手工维护，作者忘写就静默失效 | **最低版仍未兑现**。2026-11-24 只做了「条款号存在性」白名单（`NmClauseRegistry`，见 §19.7），它防的是「写了不存在的条款」，**防不住本条要求防的「作者忘写一条规则」**——删掉 profile 里的 `NM_BURST_SHAPE`，白名单照样通过，只是 NM_03/04/16 静默从覆盖表消失。兑现最低版需要一个反向检查：遍历 O/P 条款，断言每条都有规则覆盖或显式列入 `uncovered.json` |
 | `phase` 不驱动求值作用域 | 必填字段却不生效，用户会误以为作用域有效；且会让 S4/S5 的抑制与覆盖统计出错 | **不可留**——必须在 §5.3 的三选一中裁决（删字段/改名/实现作用域） |
 
@@ -1998,7 +2034,7 @@ Rev 5 曾把新机制（条款目录、三态覆盖、DQ 三态）写进 §5.3 /
 |---|---|---|
 | ~~§5.5 三态条款覆盖~~ | ~~引擎无逐规则状态~~ | **2026-11-24 已解锁**：`NmRuleResult.Evaluations` 与 `NmClauseCoverage` 落地，见 §19.6 |
 | §4.0 四条契约测试 | 正则按 `Clause` 写、成员资格按 `Id` 查，两者不自洽；且复合 Id 下「不得是规则 ID」恒真 | 先定 `rule.clauses` 存 `Id` 还是 `Clause` |
-| §9.2 DQ 三态模型 | 四个强制点未定（Code 闭集、五项保证、null/空语义、抑制映射） | 补齐强制点 + 定义 DQ 帧集 |
+| §9.2 DQ 三态模型 | 四个强制点只落地两个（四项保证 ✅、DQ 帧集 ✅；`Code` 闭集 ❌、抑制映射 ❌）。`null`/空列表二义性因**字段未加**而绕开，不是解决 | 建 `Code` 闭集；抑制映射见 §9.4（当前无可实施对象） |
 | 条款目录全链路 | `Flattened`/`ApplyRemove`/`Bind`/`NmProfile`/hash 五处均未打通 | 五处同批改 |
 
 **这四项不是「v1 不做」，是「设计未闭合」。** 写进本节是为了让后续实施者知道：看到 §5.5 / §4.0 / §9.2 时不能直接照着写代码。
@@ -2114,8 +2150,117 @@ spec §9.4 的裁决是「**做不到精确映射时，宁可标 `Partial` 也�
 1. **`bit_rule` 仍只支持 `is_zero`**。§7.3 原本设想用 `bit_rule` + `is_one` 表达 AWB 判定，但那需要给 `bit_rule` 加 `is_one` 与 wakeup 作用域——那是独立的表达式语言扩展，不在本轮范围。降级版绕开了它，代价是 AWB 判定不进规则引擎、不出现在 `RuleEvaluations` 里。
 2. **NM_03 / NM_16 的条款覆盖是 `Covered`，不是 `Partial`——这是一个已知的静默通过**。`NM_BURST_SHAPE` 的 `clauses` 是 `["NM_03","NM_04","NM_16"]`，没有拆出 `/awb` 半边；`NmClauseCoverage` 只看规则的 verdict，不看 `Observability`。于是 `burst_shape` 判 `EvaluatedNoFinding` 时，NM_03 整条显示「已覆盖」——**而 AWB 半边从未被检查**。降级版报的 `NM_ACTIVE_WAKEUP_SUSPECT` 不进 `RuleEvaluations`，无法纠正覆盖统计。
 
-   **要修必须按 §9.5 真拆条款**（`NM_03/burst` Covered + `NM_03/awb` NotCovered），那是条款目录全链路的工作，不在本轮范围。**在此之前，不得把 NM_03 的 `Covered` 当成「AWB 已验证」。** §19.3 的「必须保持 Partial/NotCovered」这一条件**当前未满足**。
+   ~~**要修必须按 §9.5 真拆条款**（`NM_03/burst` Covered + `NM_03/awb` NotCovered），那是条款目录全链路的工作，不在本轮范围。~~ **2026-11-24 已修**，见 §19.9：`uncovered_clauses` 声明机制让 NM_03/NM_16 降为 `Partial` + `unimplemented_primitive`。走的是最小路径（声明式），不是完整条款目录——`rule.clauses` 的值域仍未裁决，追溯矩阵仍未兑现。
 
 3. **不判快发形态合规性**。形态违规由 `burst_shape` 独立负责（`NM_WAKEUP_BURST_MISMATCH`）。AWB=0 且快发不合规时，两条 finding 会同时出现——这是 spec §7.3 表里两个独立检查的正常结果，**不是「已避免重复报」**。
 
 **文案约束**：message 里必须写「疑似」「唤醒源不可观测，仅从行为反推」「未验证主动/被动唤醒」。测试 `NmActiveWakeupTests.BurstWithAwbZero_ReportsSuspect` 断言了「疑似」二字——防止后续有人把文案改成肯定句。
+
+### 19.9 未覆盖条款声明（§9.5 的 NM_03/awb 缺口，2026-11-24）
+
+**修掉了 §19.8 第 2 条记录的静默通过。** 但走的是**最小路径**，不是完整条款目录——范围收窄如实记录如下。
+
+#### 一、问题
+
+`NM_BURST_SHAPE` 的 `clauses` 是 `["NM_03","NM_04","NM_16"]`，规则验的是**快发形态**（10 帧 × 20ms）。而 §4 表里 NM_03/NM_16 还要求「AWB=1」，`bit_rule` 只支持 `is_zero`，AWB 这半边从未被检查。覆盖表按「规则的 clauses × verdict」聚合，规则判了快发 → NM_03 整条报 `Covered`。
+
+**这不是「少做了一件事」，是报告说了假话**：用户看到「已覆盖」会认为规范这一条验完了。
+
+#### 二、为什么不做完整条款目录
+
+§19.5 列的「条款目录全链路」需要 `NmClauseDef` + `StandardClauses` + `Flattened`/`ApplyRemove`/`Bind`/`NmProfile`/hash 五处同批改。本轮**只取它最小的那一半**：
+
+| 完整目录能做的 | 本轮是否做 |
+|---|---|
+| 枚举规范里**每一条**并证明都有覆盖（追溯矩阵） | ❌ 不做 |
+| 声明「这条条款有一部分已知没验」 | ✅ **做了** |
+
+差别的实质：完整目录回答「有没有漏掉一整条规范」，本轮回答「已声明的条款里有没有半边没验」。前者是审计工具，后者是修掉一个具体的假结论。
+
+**`rule.clauses` 的值域仍未裁决**（§4.0 的方案 A/B）。本轮不碰它——聚合仍按字符串相等，只要 `NM_03` 在两个地方写法一致就能对上。
+
+#### 三、实现
+
+新增 `NmUncoveredClauseDef(Clause, Facet, ReasonCode)`，沿 `LoadAssumptions` 的既有管线走六处：
+
+| 层 | 改动 |
+|---|---|
+| `NmStandardProfile` | `UncoveredClauses`（逐层，null = 未声明） |
+| `NmStandardFlattener.Flattened` | 链级合并，按 `(Clause, Facet)` 子层覆盖父层 |
+| `NmProfile` | `StandardUncoveredClauses` |
+| `NmStandardProfileBinding` | `Bind` 透传 |
+| `NmCanonicalProfileHash` | 拼进 canonical DTO（排序同 Reasons） |
+| `NmStandardYaml` | 解析 `uncovered_clauses:` + 形状/闭集校验 |
+| `NmAnalyzer` | 传给 `NmClauseCoverage.Build` |
+
+**`Facet` 不进条款号**：条款号有锚定正则 `\A(NM_\d{2}|§\d+(\.\d+)*|附录 ?A)\z`，`NM_03/awb` 会被校验器直接拒绝。唯一键与展示条款号必须分离——这正是 §5.4 `NmClauseDef(Id, Clause)` 的模型，本轮只借用它的形状，不建完整目录。
+
+**降级只朝一个方向**：`Build` 里声明只把 `Covered` 降为 `Partial`，**从不提升**。声明不能把 `NotCovered` 变成 `Covered`——那等于让 profile 自己给自己发合格证。
+
+**`reason_code` 是闭集**：新增 `NmUnmodeledCodes.All` / `IsKnown`，YAML 加载期拒绝拼错的值。拼错的码会让 AI 拿到一个查不到的标识，指引不出任何修复动作。
+
+#### 四、profile 里的实际声明
+
+`geely-cv@2.0.nmstd.yaml` 新增：
+
+```yaml
+uncovered_clauses:
+  - clause: NM_03
+    facet: awb
+    reason_code: unimplemented_primitive
+  - clause: NM_16
+    facet: awb
+    reason_code: unimplemented_primitive
+```
+
+**U 级条款不在这里逐条列出**（NM_01 / NM_05 / NM_07 / NM_08 / NM_11 / NM_13 / NM_14 / NM_17 / §5.8 / §5.9 / 附录A）。理由：它们本来就没有规则覆盖，列出会让覆盖表被 13 行「未覆盖」淹没，而每行的结论都是同一句「不可观测」。**这是有意的范围控制，不是遗漏**——真要列，应该走完整目录 + 追溯矩阵，而不是靠 profile 手工枚举。
+
+#### 五、验证
+
+新增 `NmUncoveredClausePipelineTests`（11 条），覆盖 YAML 解析（含拒绝坏形状与坏原因码）、展平合并（含子层覆盖父层）、绑定、canonical hash（改声明必变、改顺序不变）、以及**仓库真实 geely profile 的端到端**（NM_03/NM_16 不是 Covered、NM_04 仍 Covered）。
+
+反向验证三组，全部确认能变红：
+
+| 删除的实现 | 变红的测试 |
+|---|---|
+| 降级逻辑（`Covered → Partial`） | 2 条 |
+| 「无规则覆盖但有声明」分支 | 1 条 |
+| profile 里的 `uncovered_clauses` 段 | 端到端 1 条 |
+
+**端到端那条是本轮最重要的测试**：单元测试证明聚合函数算得对，它证明 profile 真的接上了。没有它，链路上任何一处漏接都是「测试全绿但用户看到的行为不变」。
+
+#### 六、仍未做的
+
+| 项 | 状态 |
+|---|---|
+| 完整条款目录（`NmClauseDef` / `StandardClauses`） | ❌ 仍未打通，§19.5 第三项不变 |
+| §4.0 四条契约测试 | ❌ 仍卡在值域裁决 |
+| 追溯矩阵（枚举规范每条并证明有覆盖） | ❌ §19.3 的「最低版仍未兑现」不变 |
+| `remove: clauses[...]` | ❌ 未支持（只有 `bit_roles`/`rules`/`messages`/`nodes` 四个分支） |
+
+**§19.3 的那一行可以更新了**：NM_03/NM_16 的 AWB 半边现在如实标 `Partial`，不再静默通过。但「作者忘写一条规则」仍然检测不出来——那需要追溯矩阵，不是本机制。
+
+#### 七、审查修复（2026-11-24，code-reviewer 一轮）
+
+0 CRITICAL / 0 HIGH / 2 MEDIUM / 4 LOW，全部处理。
+
+| 级别 | 问题 | 修法 |
+|---|---|---|
+| MEDIUM | 声明侧条款号只过形状校验，绕过 `NmClauseRegistry` 白名单 | `MapUncoveredClauses` 加 `NmClauseRegistry.Validate`；测试 `Yaml_ClauseNotInRegistry_Throws` 用 `NM_30`（形状合法、规范里不存在）钉住 |
+| MEDIUM | **唯一生产接线（`NmAnalyzer` → `Build`）无测试**——删掉实参 30 条测试仍全绿 | 新增 `Analyze_ReportClauseCoverage_MarksNm03AndNm16AsPartial`（走 `NmAnalyzer.Analyze`，断言 `report.ClauseCoverage`）。反向验证：删实参 → 1 条红 |
+| LOW | `NmUnmodeledCodes.All` 无同步守卫，且混入运行时码 | 新增反射测试 `AllCodes_ContainsEveryPublicConst`；另建 `StaticGap` 子集（排除 `not_applicable` / `internal_inconsistent` / `partial_evidence`），YAML 校验改用 `IsStaticGap` |
+| LOW | `MapUncoveredClauses` 未防 null 元素 → 畸形 YAML 抛 NRE | 加 `dto is null` 校验，抛 `NmProfileValidationException`；测试 `Yaml_NullListItem_ThrowsValidationNotNre` |
+| LOW | 端到端测试只断言「不是 Covered」，未钉住 Partial | 改 `Assert.Equal(NmClauseStatus.Partial, ...)`；补 `Yaml_MissingReasonCode_Throws` / `Yaml_MissingClause_Throws` |
+| LOW | 展平键归一化 Facet 但 value 未归一 → hash 对 `""` 与 `null` 敏感 | 入表时 `decl with { Facet = normalized }`；测试 `Flatten_NormalizesEmptyFacetToNull` |
+
+**审查没抓到、我自己踩到的一个更深的缺陷**：降级逻辑首版只处理 `Covered` 行，而实测 NM_03 的运行时结论是 `not_applicable`（这条 trace 没有快发段）→ 行已经是 `Partial`，声明的 `unimplemented_primitive` **永远不会出现在报告里**。
+
+这是「结构性缺口」与「运行时判不出来」的优先级问题：`not_applicable` 会让读者以为换个窗口就好了，而 AWB 半边是**本工具永远不验**。修法是把降级条件从 `Status == Covered` 放宽到 `Status != NotCovered`——声明表达的结构性事实优先于任何运行时结论。
+
+**这个缺陷是报告级测试抓到的，不是单元测试**：单元测试的场景里规则都判了 `EvaluatedNoFinding`（Covered），所以走的是首版能处理的那条路径。这正好印证了 MEDIUM-2 那条审查意见的价值——唯一生产接线不测，就等于没测。
+
+#### 八、条款号别名归一（审查 MEDIUM-1 的另一半）
+
+`NmClauseRegistry.KnownClauses` 同时收 `附录 A` 与 `附录A`（形状正则 `附录 ?A` 空格可选）。聚合若按原始字符串比较，规则写一种、声明写另一种就永远对不上——声明落在独立的空行上，被声明的条款反而仍显示 Covered。
+
+新增 `NmClauseCoverage.NormalizeClause`，**只做已知别名的映射**，不做通用空白/大小写折叠：后者会让 `NM_03` 与 `nm_03` 合并，而小写写法根本不该被接受（白名单是 ordinal 比较）。归一的口径必须与白名单一致，否则是另一种不一致。

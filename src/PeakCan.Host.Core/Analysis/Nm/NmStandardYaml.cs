@@ -105,7 +105,70 @@ public static class NmStandardYaml
                     RequireNonEmpty(n.Name, "nodes[].name")!, n.StationAddress)),
             Rules = MapList(dto.Rules, "rules", MapRule),
             LoadAssumptions = CollectLoadAssumptions(dto, $"{std.Id}@{VersionOf(std)}"),
+            UncoveredClauses = MapUncoveredClauses(dto.UncoveredClauses),
         };
+    }
+
+    /// <summary>
+    /// 解析「已知未被检查的条款/半边」（spec §9.5）。
+    /// <para>
+    /// <b>为什么要有这一段</b>：<c>NM_BURST_SHAPE</c> 的 <c>clauses</c> 含 NM_03，
+    /// 但它只验快发形态，AWB 半边从未被检查（<c>bit_rule</c> 只支持 <c>is_zero</c>）。
+    /// 覆盖表会据此把 NM_03 整条报「已覆盖」——这正是 §9.5 要消灭的静默通过。
+    /// 声明让 profile 自己说出「这半边我没验」，而不是让读者去猜。
+    /// </para>
+    /// <para>
+    /// <b>条款号形状与规则的 <c>clauses</c> 同口径</b>：两者按字符串相等聚合，
+    /// 形状不一致就永远对不上，声明写了等于没写。
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<NmUncoveredClauseDef>? MapUncoveredClauses(
+        List<UncoveredClauseDto>? dtos)
+    {
+        if (dtos is not { Count: > 0 }) return null;
+
+        var result = new List<NmUncoveredClauseDef>(dtos.Count);
+        foreach (var dto in dtos)
+        {
+            // 空列表项（YAML 里写 `-`）会反序列化成 null 元素。与相邻 MapList
+            // 同约定：抛校验异常，不让 NRE 逃逸出去。
+            if (dto is null)
+            {
+                throw new NmProfileValidationException(
+                    "uncovered_clauses 含空项；每项至少要写 clause 与 reason_code");
+            }
+
+            var clause = RequireNonEmpty(dto.Clause, "uncovered_clauses[].clause")!;
+            if (!NmStandardValidator.IsClauseIdShape(clause))
+            {
+                throw new NmProfileValidationException(
+                    $"uncovered_clauses 的条款号「{clause}」不是合法条款号。" +
+                    "合法形状：NM_01 / §5.4.2 / 附录A；" +
+                    "「哪一半没验」用 facet 表达，不要拼进条款号（否则与规则的 clauses 对不上）");
+            }
+
+            // 与规则的 clauses 同口径：形状合法 ≠ 规范里存在。
+            // NM_30 能过形状正则，但吉利只有 NM_01–NM_17——只查形状的话，
+            // 覆盖表会多出一行「NM_30 未覆盖」，报一个规范里不存在的条款。
+            if (NmClauseRegistry.Validate([clause]) is { } clauseError)
+            {
+                throw new NmProfileValidationException($"uncovered_clauses 的{clauseError}");
+            }
+
+            var reason = RequireNonEmpty(dto.ReasonCode, "uncovered_clauses[].reason_code")!;
+            // 用 StaticGap 而不是 All：三个运行时码写进静态声明会让 AI 给出
+            // 错误的修复指引（见 NmUnmodeledCodes.StaticGap 的注释）。
+            if (!NmUnmodeledCodes.IsStaticGap(reason))
+            {
+                throw new NmProfileValidationException(
+                    $"uncovered_clauses 的原因码「{reason}」不是合法的静态缺口码。合法值：" +
+                    string.Join(" | ", NmUnmodeledCodes.StaticGap));
+            }
+
+            var facet = string.IsNullOrWhiteSpace(dto.Facet) ? null : dto.Facet.Trim();
+            result.Add(new NmUncoveredClauseDef(clause, facet, reason));
+        }
+        return result;
     }
 
     /// <summary>版本缺省值。提示里的层标识与 profile 实际版本必须同源，不能各写一份。</summary>
@@ -229,6 +292,15 @@ public static class NmStandardYaml
         public List<MessageDto>? Messages { get; set; }
         public List<NodeDto>? Nodes { get; set; }
         public List<RuleDto>? Rules { get; set; }
+        public List<UncoveredClauseDto>? UncoveredClauses { get; set; }
+    }
+
+    /// <summary>spec §9.5：声明「这条条款有一部分已知没被检查」。</summary>
+    private sealed class UncoveredClauseDto
+    {
+        public string? Clause { get; set; }
+        public string? Facet { get; set; }
+        public string? ReasonCode { get; set; }
     }
 
     private sealed class StandardDto
