@@ -402,6 +402,12 @@ public static class NmAnalyzer
         events.AddRange(content.Events);
         truncations.AddRange(content.Truncations);
 
+        // spec §7.3：主动唤醒的降级判定——只报「疑似不一致」，不声称验证唤醒源。
+        // 与 content 同层（不走规则引擎）：它需要 AWB 位角色 + 快发检测，两者都是
+        // 分析器层的能力，不是 profile 规则能表达的闭集原语。
+        findings.AddRange(NmActiveWakeupAnalyzer.Analyze(
+            request.Profile, nmFrames, episodes, globalTiming, window));
+
         if (IsCanceled(NmAnalyzerCheckpoint.AfterContent))
             return Finish(partial: true);
 

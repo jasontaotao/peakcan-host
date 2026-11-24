@@ -1974,7 +1974,7 @@ Rev 5 初稿曾写「`NM_10` 与 NM_02/15 共用一条规则，接受精度损�
 | 问题 | 影响 | 能否留给后续 |
 |---|---|---|
 | `NmRuleContext` 缺 `RawFrames`/`Dbc`/`Selection` | 规则引擎无法做任何需要原始帧的判定 | **可留**——不影响 S5（体检走独立分析器）；但其它需要原始帧的原语仍是硬缺口 |
-| §7.3 主动唤醒两阶段判定整节未实现 | `NM_ACTIVE_WAKEUP_SUSPECT` 只有注册无产出者 | **可留，但有条件**：NM_03/NM_16 的 AWB 半边必须保持 `Partial`/`NotCovered`，**不能因为 `burst_shape` 实现了就报 Covered**（见 §9.5 的条款拆分要求） |
+| ~~§7.3 主动唤醒两阶段判定整节未实现~~ | ~~`NM_ACTIVE_WAKEUP_SUSPECT` 只有注册无产出者~~ | **2026-11-24 已实现降级版**：`NmActiveWakeupAnalyzer` 产出 `NM_ACTIVE_WAKEUP_SUSPECT`（info + inferred），见 §19.8。**但本行原有的条件「NM_03/NM_16 的 AWB 半边必须保持 Partial/NotCovered」当前未满足**——`NM_BURST_SHAPE` 的 clauses 未拆 `/awb`，`NmClauseCoverage` 会判成 `Covered`，AWB 半边被静默吞掉。这是已知缺口，见 §19.8 第 2 条 |
 | §11.1 的「追溯矩阵完整」CI 校验不存在 | 条款目录靠手工维护，作者忘写就静默失效 | **最低版仍未兑现**。2026-11-24 只做了「条款号存在性」白名单（`NmClauseRegistry`，见 §19.7），它防的是「写了不存在的条款」，**防不住本条要求防的「作者忘写一条规则」**——删掉 profile 里的 `NM_BURST_SHAPE`，白名单照样通过，只是 NM_03/04/16 静默从覆盖表消失。兑现最低版需要一个反向检查：遍历 O/P 条款，断言每条都有规则覆盖或显式列入 `uncovered.json` |
 | `phase` 不驱动求值作用域 | 必填字段却不生效，用户会误以为作用域有效；且会让 S4/S5 的抑制与覆盖统计出错 | **不可留**——必须在 §5.3 的三选一中裁决（删字段/改名/实现作用域） |
 
@@ -2091,3 +2091,31 @@ spec §9.4 要求「被体检抑制的规则进 `data_quality_suppressed`」。�
 spec §9.4 的裁决是「**做不到精确映射时，宁可标 `Partial` 也不标 `Suppressed`**——少判一项好过删掉真实结论」。当前正是这种情况：硬造一个抑制机制只会删掉真实结论。
 
 **这不是「v1 不做」，是「没有可实施对象」。** 等 `NmRuleContext` 补上 `Dbc`、或有规则真的依赖 DBC 解码时，`data_quality_suppressed` 才有意义。届时按上表逐项论证，不要按 `AffectedCanIds` 一刀切。
+
+### 19.8 主动唤醒降级版（§7.3，2026-11-24）
+
+`NmActiveWakeupAnalyzer` 产出 `NM_ACTIVE_WAKEUP_SUSPECT`（`info` + `IsInference=true`）。
+
+**实现范围**：两处矛盾各报一次——「有候选快发段但首帧 AWB=0」与「首帧 AWB=1 但无候选快发段」。候选段检测用宽松阈值 `2.0×ImmediateCycleMs`（spec §7.3 阶段 1），与 `burst_shape` 的严格形态判定分开。
+
+**放在分析器层而不是规则引擎**：它需要 AWB 位角色 + 快发检测，两者都是分析器层的能力，不是 profile 规则能表达的闭集原语。挂在 `NmAnalyzer` 的 content 段之后。
+
+**四条不判的边界**（都是「判不了就别猜」）：
+
+| 情形 | 为什么不判 |
+|---|---|
+| profile 没有 `ActiveWakeup` 位角色 | 读不出 AWB，报「疑似」等于凭空断言 |
+| 该报文在 episode 内不足 2 帧 | 单帧没有「间隔」可言 |
+| `episode.BoundaryEnd` 且末帧触到 episode 末帧 | 快发可能延伸到窗口外，形态不可信 |
+| 首帧 DLC 不足 | 读不出状态位，不臆造 0 |
+
+**没有做的**：
+
+1. **`bit_rule` 仍只支持 `is_zero`**。§7.3 原本设想用 `bit_rule` + `is_one` 表达 AWB 判定，但那需要给 `bit_rule` 加 `is_one` 与 wakeup 作用域——那是独立的表达式语言扩展，不在本轮范围。降级版绕开了它，代价是 AWB 判定不进规则引擎、不出现在 `RuleEvaluations` 里。
+2. **NM_03 / NM_16 的条款覆盖是 `Covered`，不是 `Partial`——这是一个已知的静默通过**。`NM_BURST_SHAPE` 的 `clauses` 是 `["NM_03","NM_04","NM_16"]`，没有拆出 `/awb` 半边；`NmClauseCoverage` 只看规则的 verdict，不看 `Observability`。于是 `burst_shape` 判 `EvaluatedNoFinding` 时，NM_03 整条显示「已覆盖」——**而 AWB 半边从未被检查**。降级版报的 `NM_ACTIVE_WAKEUP_SUSPECT` 不进 `RuleEvaluations`，无法纠正覆盖统计。
+
+   **要修必须按 §9.5 真拆条款**（`NM_03/burst` Covered + `NM_03/awb` NotCovered），那是条款目录全链路的工作，不在本轮范围。**在此之前，不得把 NM_03 的 `Covered` 当成「AWB 已验证」。** §19.3 的「必须保持 Partial/NotCovered」这一条件**当前未满足**。
+
+3. **不判快发形态合规性**。形态违规由 `burst_shape` 独立负责（`NM_WAKEUP_BURST_MISMATCH`）。AWB=0 且快发不合规时，两条 finding 会同时出现——这是 spec §7.3 表里两个独立检查的正常结果，**不是「已避免重复报」**。
+
+**文案约束**：message 里必须写「疑似」「唤醒源不可观测，仅从行为反推」「未验证主动/被动唤醒」。测试 `NmActiveWakeupTests.BurstWithAwbZero_ReportsSuspect` 断言了「疑似」二字——防止后续有人把文案改成肯定句。
