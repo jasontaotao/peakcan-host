@@ -1146,4 +1146,80 @@ BA_ "NmStationAddress" BU_ ECU_A 244;
         Assert.Equal("all_nm_silent", root["observations"]![0]!["kind"]!.GetValue<string>());
         Assert.True(root["observations"]![0]!["is_inference"]!.GetValue<bool>());
     }
+
+    /// <summary>
+    /// spec §7.1.1：逐规则求值状态必须发给 AI。
+    /// <para>
+    /// <b>为什么这对 AI 特别重要</b>：合规规则零输出。若 AI 只看到 findings 为空，
+    /// 它会说「没有违规」——但真相可能是「这些规则根本没跑」。只有显式的
+    /// <c>evaluated_no_finding</c> 才能让 AI 说出「查过，没问题」。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task NmOverview_EmitsRuleEvaluations()
+    {
+        var report = Report() with
+        {
+            RuleEvaluations =
+            [
+                new NmRuleEvaluation("NM_RESERVED_B1_6", NmRuleVerdict.EvaluatedNoFinding,
+                    null, Array.Empty<string>()),
+                new NmRuleEvaluation("NM_RMS_DURATION_BURST",
+                    NmRuleVerdict.EvaluatedWithFinding, null,
+                    ["finding:NM_REPEAT_MESSAGE_DURATION_EXCEEDED#0"]),
+                new NmRuleEvaluation("NM_RESUME_TO_RMS", NmRuleVerdict.Unmodeled,
+                    NmUnmodeledCodes.Unobservable, Array.Empty<string>()),
+            ],
+        };
+
+        var ctx = new FakeChatToolContext { NmSnapshotValue = Snapshot() with { Report = report } };
+        var tool = new GetNmOverviewTool(ctx, NullLogger<GetNmOverviewTool>.Instance);
+        var root = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
+
+        var evals = root["rule_evaluations"]!.AsArray();
+        Assert.Equal(3, evals.Count);
+
+        Assert.Equal("NM_RESERVED_B1_6", evals[0]!["rule_id"]!.GetValue<string>());
+        Assert.Equal("evaluated_no_finding", evals[0]!["status"]!.GetValue<string>());
+        Assert.Null(evals[0]!["reason_code"]);
+
+        Assert.Equal("evaluated_with_finding", evals[1]!["status"]!.GetValue<string>());
+        Assert.Single(evals[1]!["evidence_refs"]!.AsArray());
+
+        Assert.Equal("unmodeled", evals[2]!["status"]!.GetValue<string>());
+        Assert.Equal("unobservable", evals[2]!["reason_code"]!.GetValue<string>());
+    }
+
+    /// <summary>
+    /// spec §5.5：条款覆盖必须发给 AI，且三态可区分。
+    /// AI 最需要这一项来判断「哪些规范要求这次根本没验」。
+    /// </summary>
+    [Fact]
+    public async Task NmOverview_EmitsClauseCoverage()
+    {
+        var report = Report() with
+        {
+            ClauseCoverage =
+            [
+                new NmClauseCoverageRow("NM_03", NmClauseStatus.Covered,
+                    ["NM_BURST_SHAPE"], null),
+                new NmClauseCoverageRow("NM_09", NmClauseStatus.Partial,
+                    ["NM_STOP_SENDING"], NmUnmodeledCodes.NotApplicable),
+            ],
+        };
+
+        var ctx = new FakeChatToolContext { NmSnapshotValue = Snapshot() with { Report = report } };
+        var tool = new GetNmOverviewTool(ctx, NullLogger<GetNmOverviewTool>.Instance);
+        var root = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
+
+        var coverage = root["clause_coverage"]!.AsArray();
+        Assert.Equal(2, coverage.Count);
+        Assert.Equal("NM_03", coverage[0]!["clause"]!.GetValue<string>());
+        Assert.Equal("covered", coverage[0]!["status"]!.GetValue<string>());
+        Assert.Null(coverage[0]!["reason_code"]);
+        Assert.Equal("NM_BURST_SHAPE", coverage[0]!["rule_ids"]![0]!.GetValue<string>());
+
+        Assert.Equal("partial", coverage[1]!["status"]!.GetValue<string>());
+        Assert.Equal("not_applicable", coverage[1]!["reason_code"]!.GetValue<string>());
+    }
 }

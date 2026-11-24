@@ -148,6 +148,50 @@ public sealed class GetNmOverviewTool : ChatToolBase
                 ["affected_can_ids"] = new JsonArray(
                     c.AffectedCanIds.Select(i => (JsonNode?)JsonValue.Create(i)).ToArray()),
             }).ToArray());
+        // spec §7.1.1：逐规则求值状态。合规规则**零输出**——只看 findings 为空，
+        // AI 会说「没有违规」，但真相可能是「这些规则根本没跑」。
+        // 只有显式的 evaluated_no_finding 才能让 AI 说出「查过，没问题」。
+        root["rule_evaluations"] = new JsonArray(
+            (report.RuleEvaluations ?? Array.Empty<NmRuleEvaluation>())
+            .Select(e => (JsonNode?)new JsonObject
+            {
+                ["rule_id"] = e.RuleId,
+                // 枚举改名时线上格式不变。
+                ["status"] = e.Status switch
+                {
+                    NmRuleVerdict.EvaluatedNoFinding => "evaluated_no_finding",
+                    NmRuleVerdict.EvaluatedWithFinding => "evaluated_with_finding",
+                    NmRuleVerdict.Partial => "partial",
+                    NmRuleVerdict.NotApplicable => "not_applicable",
+                    NmRuleVerdict.Unmodeled => "unmodeled",
+                    // 显式列全，不用 `_ =>` 兜底：将来新增枚举值时编译期就暴露，
+                    // 而不是静默归一到「未建模」让线上格式悄悄漂移。
+                    _ => throw new InvalidOperationException(
+                        $"未映射的规则求值状态：{e.Status}"),
+                },
+                ["reason_code"] = e.ReasonCode,
+                ["evidence_refs"] = new JsonArray(
+                    e.EvidenceRefs.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray()),
+            }).ToArray());
+        // spec §5.5：条款覆盖。AI 最需要这一项判断「哪些规范要求这次根本没验」——
+        // 只看 findings 无法区分「验过没问题」与「没验」。
+        root["clause_coverage"] = new JsonArray(
+            (report.ClauseCoverage ?? Array.Empty<NmClauseCoverageRow>())
+            .Select(c => (JsonNode?)new JsonObject
+            {
+                ["clause"] = c.Clause,
+                ["status"] = c.Status switch
+                {
+                    NmClauseStatus.Covered => "covered",
+                    NmClauseStatus.Partial => "partial",
+                    NmClauseStatus.NotCovered => "not_covered",
+                    _ => throw new InvalidOperationException(
+                        $"未映射的条款覆盖状态：{c.Status}"),
+                },
+                ["rule_ids"] = new JsonArray(
+                    c.RuleIds.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray()),
+                ["reason_code"] = c.ReasonCode,
+            }).ToArray());
         root["findings"] = new JsonArray(findings.ToArray());
         // spec §7.1.1：观测事实独立于违规结论输出，AI 不得据此直接断言故障。
         root["observations"] = report.Observations is null

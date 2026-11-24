@@ -484,4 +484,64 @@ public class NmReportWriterTests
         NmReportWriter.WriteMarkdown(Snapshot(report))
             .Should().Contain("Secret_Message").And.Contain("ECU_A");
     }
+
+    /// <summary>
+    /// spec §7.1.1：导出必须带逐规则求值状态，让读者分清「查过没问题」与「没查」。
+    /// 合规规则零 finding，没有这一节它在导出里完全不存在。
+    /// </summary>
+    [Fact]
+    public void Markdown_IncludesRuleEvaluations()
+    {
+        var report = Report() with
+        {
+            RuleEvaluations =
+            [
+                new NmRuleEvaluation("NM_RESERVED_B1_6", NmRuleVerdict.EvaluatedNoFinding,
+                    null, Array.Empty<string>()),
+                new NmRuleEvaluation("NM_RESUME_TO_RMS", NmRuleVerdict.Unmodeled,
+                    NmUnmodeledCodes.Unobservable, Array.Empty<string>()),
+                new NmRuleEvaluation("NM_RMS_DURATION_BURST", NmRuleVerdict.Partial,
+                    NmUnmodeledCodes.PartialEvidence, Array.Empty<string>()),
+            ],
+        };
+
+        var text = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        text.Should().Contain("NM_RESERVED_B1_6");
+        text.Should().Contain("NM_RESUME_TO_RMS");
+        text.Should().Contain("unobservable");
+        // 三种状态必须可区分，不能都写成一句「未触发」。
+        // 断言中文状态文案而不是原因码：原因码 "partial_evidence" 里也含 "partial"，
+        // 状态映射写错时那条断言仍会绿。
+        text.Should().Contain("部分求值");
+        text.Should().Contain("未建模");
+    }
+
+    /// <summary>
+    /// spec §5.5：导出必须带条款覆盖表。没有它，读者无法回答
+    /// 「吉利规范的 NM_03 这次到底验没验」。
+    /// </summary>
+    [Fact]
+    public void Markdown_IncludesClauseCoverage()
+    {
+        var report = Report() with
+        {
+            ClauseCoverage =
+            [
+                new NmClauseCoverageRow("NM_03", NmClauseStatus.Covered,
+                    ["NM_BURST_SHAPE"], null),
+                new NmClauseCoverageRow("NM_09", NmClauseStatus.Partial,
+                    ["NM_STOP_SENDING"], NmUnmodeledCodes.NotApplicable),
+            ],
+        };
+
+        var text = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        text.Should().Contain("NM_03");
+        text.Should().Contain("NM_09");
+        text.Should().Contain("NM_BURST_SHAPE");
+        // 三态必须可区分。
+        text.Should().Contain("已覆盖");
+        text.Should().Contain("部分覆盖");
+    }
 }

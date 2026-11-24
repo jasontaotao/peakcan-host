@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Diagnostics;
 
 namespace PeakCan.Host.Core.Analysis.Nm;
@@ -24,7 +25,56 @@ public sealed record NmRuleResult(
     IReadOnlyList<NmFinding> Findings,
     IReadOnlyList<NmObservation> Observations,
     IReadOnlyList<NmUnmodeledRule> Unmodeled,
-    IReadOnlyList<NmTruncation> Truncations);
+    IReadOnlyList<NmTruncation> Truncations)
+{
+    /// <summary>
+    /// 逐规则求值状态（spec §7.1.1）。每条规则恰好一项，顺序与输入规则一致。
+    /// <para>
+    /// <b>为什么必须有它</b>：合规规则**零输出**——<c>BitRule</c> / <c>NidIdMapping</c> /
+    /// <c>LayoutCheck</c> / <c>CycleTolerance</c> / <c>BurstShape</c> 在合法场景下
+    /// <c>return true</c> 就结束，既不产 finding 也不产 observation。
+    /// 按「findings/observations 是否非空」反推覆盖，会让**真实合规且充分求值的规则
+    /// 永远不是 Covered**（spec §5.5）。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<NmRuleEvaluation> Evaluations { get; init; }
+        = Array.Empty<NmRuleEvaluation>();
+}
+
+/// <summary>
+/// 一条规则的求值结论（spec §7.1.1）。
+/// <para>
+/// <b>与 <see cref="NmRuleStatus"/> 的区别</b>：那个是标定面板的**呈现**三态
+/// （触发/未触发/未建模），由报告反推；本枚举是引擎的**求值**结论，
+/// 由求值过程直接产出。两者名称相近但语义不同，故分开命名。
+/// </para>
+/// </summary>
+public enum NmRuleVerdict
+{
+    /// <summary>求值成功、未发现违规。这是最常见的合法情形，也是零输出的那些。</summary>
+    EvaluatedNoFinding = 0,
+
+    /// <summary>求值成功、产出了 finding。</summary>
+    EvaluatedWithFinding = 1,
+
+    /// <summary>部分报文/段有结论，其余不可判（同一规则既覆盖又未覆盖）。</summary>
+    Partial = 2,
+
+    /// <summary>本条 trace 上不适用（如 with_burst 不匹配、没有可分析的 episode）。</summary>
+    NotApplicable = 3,
+
+    /// <summary>没给出可判定的结论；原因码见 <see cref="NmRuleEvaluation.ReasonCode"/>。</summary>
+    Unmodeled = 4,
+}
+
+/// <summary>一条规则的求值结论与证据（spec §7.1.1）。</summary>
+public sealed record NmRuleEvaluation(
+    string RuleId,
+    NmRuleVerdict Status,
+    // 与 NmUnmodeledRule.ReasonCode 同一词表（NmUnmodeledCodes）。
+    string? ReasonCode,
+    // 产出的 finding/observation 标识，供报告回溯到具体证据。
+    IReadOnlyList<string> EvidenceRefs);
 
 /// <summary>
 /// 未建模原因码（spec §9.4）。<c>missing_profile_data</c> 会让 AI 让用户去改 profile；
@@ -81,6 +131,7 @@ public static class NmRuleEngine
         var findings = new List<NmFinding>();
         var observations = new List<NmObservation>();
         var unmodeled = new List<NmUnmodeledRule>();
+        var evaluations = new List<NmRuleEvaluation>(rules.Count);
 
         foreach (var rule in rules)
         {
@@ -90,6 +141,11 @@ public static class NmRuleEngine
             var firstClause = rule.Clauses.Count > 0
                 ? rule.Clauses.Order(StringComparer.Ordinal).First()
                 : null;
+
+            // 记录本规则开始前的产出数，用增量判断它产了什么。
+            // 不能靠「规则跑完后列表非空」——前一条规则的产出会污染后一条。
+            var findingsBefore = findings.Count;
+            var observationsBefore = observations.Count;
 
             // spec §3：不可观测条款只能进 Unmodeled。
             if (rule.Observability == NmObservability.Unobservable)
@@ -102,12 +158,24 @@ public static class NmRuleEngine
                     Clauses = rule.Clauses,
                     ReasonCode = NmUnmodeledCodes.Unobservable,
                 });
+                evaluations.Add(new NmRuleEvaluation(
+                    rule.Id, NmRuleVerdict.Unmodeled, NmUnmodeledCodes.Unobservable,
+                    Array.Empty<string>()));
                 continue;
             }
 
-            var implemented = NmRuleEvaluators.TryEvaluate(
+            var implemented = NmRuleEvaluators.TryEvaluateWithJudgement(
                 rule, context, findings, observations,
-                out var unmodeledReason, out var unmodeledCode);
+                out var unmodeledReason, out var unmodeledCode, out var judged);
+
+            var producedFindings = findings.Count - findingsBefore;
+            var producedObservations = observations.Count - observationsBefore;
+
+            // 「本规则是否真的判过至少一个样本」由原语显式给出，**不能靠观测种类反推**：
+            // repeat_message_duration 对每一段都先无条件产事实观测、再在形态不匹配时
+            // 追加 _not_applicable，所以「有 not_applicable」必然「也有事实观测」——
+            // 按种类推断会让「全部段被跳过」永远得不出 NotApplicable。
+            var notApplicableOnly = !judged && producedFindings == 0;
 
             if (!implemented)
             {
@@ -119,6 +187,9 @@ public static class NmRuleEngine
                     Clauses = rule.Clauses,
                     ReasonCode = NmUnmodeledCodes.UnimplementedPrimitive,
                 });
+                evaluations.Add(new NmRuleEvaluation(
+                    rule.Id, NmRuleVerdict.Unmodeled, NmUnmodeledCodes.UnimplementedPrimitive,
+                    EvidenceRefs(findings, observations, findingsBefore, observationsBefore)));
             }
             else if (unmodeledReason is not null)
             {
@@ -133,6 +204,41 @@ public static class NmRuleEngine
                     $"规则 {rule.Id} 给出了 unmodeledReason 却没有 unmodeledCode");
                 unmodeled.Add(BuildEvaluatedUnmodeled(
                     rule, firstClause, unmodeledReason, unmodeledCode));
+
+                // 「已实现但本条不可求值」有两种性质，必须分开：
+                //  - 同时产出了 finding/observation：部分成功 → Partial
+                //    （RepeatMessageDuration 按报文收集 reasons，典型场景）
+                //  - 什么都没产：整条不适用 → Unmodeled
+                // 把部分成功报成 Unmodeled 会丢掉已确证的结论；反过来会把
+                // 「没判成」报成「判过了」。
+                var verdict = producedFindings > 0 || (producedObservations > 0 && !notApplicableOnly)
+                    ? NmRuleVerdict.Partial
+                    : NmRuleVerdict.Unmodeled;
+                evaluations.Add(new NmRuleEvaluation(
+                    rule.Id, verdict, unmodeledCode ?? NmUnmodeledCodes.InternalInconsistent,
+                    EvidenceRefs(findings, observations, findingsBefore, observationsBefore)));
+            }
+            else if (notApplicableOnly)
+            {
+                // 原语明确表示「一段都没判」（形态全被 with_burst 选择器跳过、
+                // 或全部段无法定界）：本条 trace 上不适用。
+                // 既不是「合规」也不是「未建模」——是「这次碰不到」。
+                // 判成 EvaluatedNoFinding 会让条款覆盖把该条款算成 Covered。
+                evaluations.Add(new NmRuleEvaluation(
+                    rule.Id, NmRuleVerdict.NotApplicable, NmUnmodeledCodes.NotApplicable,
+                    EvidenceRefs(findings, observations, findingsBefore, observationsBefore)));
+            }
+            else
+            {
+                // 求值成功。有 finding 就是违规，否则是「跑过了、没违规」——
+                // 后者正是那些零输出的合规规则，绝不能因为「没输出」就当没跑。
+                evaluations.Add(new NmRuleEvaluation(
+                    rule.Id,
+                    producedFindings > 0
+                        ? NmRuleVerdict.EvaluatedWithFinding
+                        : NmRuleVerdict.EvaluatedNoFinding,
+                    null,
+                    EvidenceRefs(findings, observations, findingsBefore, observationsBefore)));
             }
         }
 
@@ -155,7 +261,44 @@ public static class NmRuleEngine
         }
 
         return new NmRuleResult(findings, observations, unmodeled,
-            Array.Empty<NmTruncation>());
+            Array.Empty<NmTruncation>())
+        {
+            Evaluations = evaluations,
+        };
+    }
+
+    /// <summary>
+    /// 取本规则新增的 finding/observation 标识。
+    /// <para>
+    /// <b>序号是「本规则内第几条」，不是全局下标。</b>全局下标在报告里对不上：
+    /// <c>NmAnalyzer</c> 在调用引擎前已加了 trace 边界 / 空档 / 内容 finding，
+    /// 引擎结果之后才合并；去重还会再改偏移。拿全局下标当 <c>report.Findings</c>
+    /// 的索引会指向完全无关的条目，而这个字符串是发给 AI 的——AI 会照着去对照。
+    /// </para>
+    /// <para>
+    /// 同一规则可能产多条同码 finding（真实 trace 的两段 RMS 都产
+    /// <c>NM_REPEAT_MESSAGE_DURATION_EXCEEDED</c>），所以序号必须保留。
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<string> EvidenceRefs(
+        List<NmFinding> findings, List<NmObservation> observations,
+        int findingsBefore, int observationsBefore)
+    {
+        var count = findings.Count - findingsBefore + observations.Count - observationsBefore;
+        if (count == 0) return Array.Empty<string>();
+
+        var refs = new List<string>(count);
+        for (var i = findingsBefore; i < findings.Count; i++)
+        {
+            refs.Add(string.Create(CultureInfo.InvariantCulture,
+                $"finding:{findings[i].Code}#{i - findingsBefore}"));
+        }
+        for (var i = observationsBefore; i < observations.Count; i++)
+        {
+            refs.Add(string.Create(CultureInfo.InvariantCulture,
+                $"observation:{observations[i].Kind}#{i - observationsBefore}"));
+        }
+        return refs;
     }
 
     /// <summary>

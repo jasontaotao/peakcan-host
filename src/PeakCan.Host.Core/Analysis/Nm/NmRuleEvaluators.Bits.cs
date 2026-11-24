@@ -24,6 +24,48 @@ public static partial class NmRuleEvaluators
         // 所有原语都必须填充 unmodeledReason：无法求值的规则进 Unmodeled，不得静默通过。
         unmodeledReason = null;
         unmodeledCode = null;
+        var implemented = Dispatch(rule, ctx, findings, observations,
+            out unmodeledReason, out unmodeledCode, out _);
+        return implemented;
+    }
+
+    /// <summary>
+    /// 同 <see cref="TryEvaluate"/>，额外给出「本规则是否**真的判过至少一个样本**」。
+    /// <para>
+    /// <b>为什么必须有这个信号</b>：引擎无法从观测种类反推。以
+    /// <c>repeat_message_duration</c> 为例，它对每一段都先无条件产一条事实观测，
+    /// 再在形态不匹配时追加一条 <c>_not_applicable</c>——「有 not_applicable 观测」
+    /// 时必然「也有事实观测」。按种类推断会让「全部段被跳过」误判成 Partial，
+    /// 进而让 spec §5.5 的条款覆盖把「本条不适用」算成「部分验证」。
+    /// </para>
+    /// <para>
+    /// <paramref name="judged"/> 为 false 时，规则对本次数据没有任何结论，
+    /// 调用方应记 <see cref="NmRuleVerdict.NotApplicable"/>。
+    /// </para>
+    /// </summary>
+    internal static bool TryEvaluateWithJudgement(
+        NmRuleDef rule, NmRuleContext ctx,
+        List<NmFinding> findings, List<NmObservation> observations,
+        out string? unmodeledReason, out string? unmodeledCode, out bool judged)
+    {
+        unmodeledReason = null;
+        unmodeledCode = null;
+        return Dispatch(rule, ctx, findings, observations,
+            out unmodeledReason, out unmodeledCode, out judged);
+    }
+
+    private static bool Dispatch(
+        NmRuleDef rule, NmRuleContext ctx,
+        List<NmFinding> findings, List<NmObservation> observations,
+        out string? unmodeledReason, out string? unmodeledCode, out bool judged)
+    {
+        // 默认 true：除 repeat_message_duration 外，其余原语只要跑到这里就已经判了
+        // （它们要么产 finding、要么在有观测时确实判过每个样本）。
+        judged = true;
+        // 未实现的原语走 default 分支；out 参数必须在此先赋值，
+        // 否则编译器拒绝（CS0177）。语义上「未实现」= 什么都没判。
+        unmodeledReason = null;
+        unmodeledCode = null;
         switch (rule.When.Kind)
         {
             case "bit_rule":
@@ -44,7 +86,8 @@ public static partial class NmRuleEvaluators
                     rule, ctx, observations, out unmodeledReason, out unmodeledCode);
             case "repeat_message_duration":
                 return RepeatMessageDuration(
-                    rule, ctx, findings, observations, out unmodeledReason, out unmodeledCode);
+                    rule, ctx, findings, observations,
+                    out unmodeledReason, out unmodeledCode, out judged);
             case "first_frame_latency":
                 return FirstFrameLatency(
                     rule, ctx, findings, observations, out unmodeledReason, out unmodeledCode);

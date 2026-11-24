@@ -38,10 +38,15 @@ public static partial class NmRuleEvaluators
     private static bool RepeatMessageDuration(
         NmRuleDef rule, NmRuleContext ctx,
         List<NmFinding> findings, List<NmObservation> observations,
-        out string? unmodeledReason, out string? unmodeledCode)
+        out string? unmodeledReason, out string? unmodeledCode, out bool judged)
     {
         unmodeledReason = null;
         unmodeledCode = null;
+        // 「本规则是否真的判过至少一段」。形态被 with_burst 选择器跳过、
+        // 或被截断/无法定界而 continue 的段都不算判过——它们只产了诊断观测。
+        // 引擎不能靠观测种类反推（每段都先产事实观测再产 not_applicable），
+        // 必须由这里显式给出。
+        judged = false;
 
         // 期望必须是时长窗口；其它期望静默跳过会让用户误以为条款已被校验。
         if (!string.Equals(rule.Expect.Kind, "duration_within_ms", StringComparison.Ordinal))
@@ -232,6 +237,8 @@ public static partial class NmRuleEvaluators
 
                 if (durationMs > maxMs + DurationMsEpsilon)
                 {
+                    // 走到这里说明这一段真的判了（超上限是明确结论）。
+                    judged = true;
                     if (string.IsNullOrEmpty(rule.FindingCode))
                     {
                         reasons.Add("RMS 超差，但规则未声明 finding code");
@@ -255,7 +262,13 @@ public static partial class NmRuleEvaluators
                 // 造成的假象，必须跳过（review HIGH）。
                 if (startCut) continue;
 
-                if (durationMs >= minMs - DurationMsEpsilon) continue;
+                // 时长落在允许窗内：这一段判过且合规。
+                // 必须在 continue 之前置位——否则「全部段合规」会被误判成「一段都没判」。
+                if (durationMs >= minMs - DurationMsEpsilon)
+                {
+                    judged = true;
+                    continue;
+                }
 
                 if (string.IsNullOrEmpty(rule.FindingCode))
                 {

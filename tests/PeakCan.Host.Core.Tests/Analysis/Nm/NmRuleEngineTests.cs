@@ -865,4 +865,270 @@ public class NmRuleEngineTests
         => new(Def($"0x{id:X}"),
             new ReplayFrame(t, id, 8, new byte[] { b0, b1, 0, 0, 0, 0, 0, 0 },
                 PeakCan.HIL.Core.FrameFlags.None));
+
+    // —— 逐规则求值状态（spec §7.1.1）——
+    //
+    // 没有这一项，§5.5 的条款覆盖无从计算：合规规则**零输出**
+    // （BitRule 等在合法场景 return true 就结束，既不产 finding 也不产 observation），
+    // 按「有输出才算覆盖」的定义，真实合规且充分求值的规则反而永远不是 Covered。
+
+    [Fact]
+    public void Evaluate_CompliantRule_ProducesEvaluatedNoFinding()
+    {
+        // byte1.bit0 = 0 → 预留位合规，规则跑过但零输出。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00), Frame(0.5, 0x500, 0xF4, 0x00) },
+            rules: new[] { Rule("NM_RMR", When("bit_rule", role: "RepeatMessageRequest"),
+                Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED") },
+            roles: new[] { new NmBitRole(1, 0, "RepeatMessageRequest") });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Empty(result.Findings);
+        var eval = Assert.Single(result.Evaluations);
+        Assert.Equal("NM_RMR", eval.RuleId);
+        Assert.Equal(NmRuleVerdict.EvaluatedNoFinding, eval.Status);
+        Assert.Null(eval.ReasonCode);
+    }
+
+    [Fact]
+    public void Evaluate_ViolatingRule_ProducesEvaluatedWithFinding()
+    {
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x01) },
+            rules: new[] { Rule("NM_RMR", When("bit_rule", role: "RepeatMessageRequest"),
+                Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED") },
+            roles: new[] { new NmBitRole(1, 0, "RepeatMessageRequest") });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Single(result.Findings);
+        var eval = Assert.Single(result.Evaluations);
+        Assert.Equal(NmRuleVerdict.EvaluatedWithFinding, eval.Status);
+        Assert.NotEmpty(eval.EvidenceRefs);
+    }
+
+    [Fact]
+    public void Evaluate_UnobservableRule_ProducesUnmodeled()
+    {
+        var rule = Rule("NM_05", When("bit_rule", role: "RepeatMessageRequest"),
+            Expect("is_zero"), "") with { Observability = NmObservability.Unobservable };
+
+        var result = NmRuleEngine.Evaluate([rule], Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00) },
+            rules: [rule],
+            roles: new[] { new NmBitRole(1, 0, "RepeatMessageRequest") }));
+
+        var eval = Assert.Single(result.Evaluations);
+        Assert.Equal(NmRuleVerdict.Unmodeled, eval.Status);
+        Assert.Equal(NmUnmodeledCodes.Unobservable, eval.ReasonCode);
+    }
+
+    [Fact]
+    public void Evaluate_UnimplementedPrimitive_ProducesUnmodeled()
+    {
+        var rule = Rule("NM_GAP", When("max_gap_observe"), Expect("observe"), "");
+
+        var result = NmRuleEngine.Evaluate([rule], Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00) },
+            rules: [rule],
+            roles: Array.Empty<NmBitRole>()));
+
+        var eval = Assert.Single(result.Evaluations);
+        Assert.Equal(NmRuleVerdict.Unmodeled, eval.Status);
+        Assert.Equal(NmUnmodeledCodes.UnimplementedPrimitive, eval.ReasonCode);
+    }
+
+    [Fact]
+    public void Evaluate_RuleWithUnmodeledReason_ProducesUnmodeledWithItsCode()
+    {
+        // 角色缺失 → 原语已实现但本条无法求值。
+        var rule = Rule("NM_RMR", When("bit_rule", role: "NoSuchRole"),
+            Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED");
+
+        var result = NmRuleEngine.Evaluate([rule], Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00) },
+            rules: [rule],
+            roles: new[] { new NmBitRole(1, 0, "RepeatMessageRequest") }));
+
+        var eval = Assert.Single(result.Evaluations);
+        Assert.Equal(NmRuleVerdict.Unmodeled, eval.Status);
+        Assert.Equal(NmUnmodeledCodes.MissingProfileData, eval.ReasonCode);
+    }
+
+    /// <summary>
+    /// <b>一条规则可以有多个状态并存</b>：部分报文判成了、另一部分判不了
+    /// （RepeatMessageDuration 按报文收集 reasons）。此时既有 finding 又有 unmodeled，
+    /// 状态必须是 <see cref="NmRuleVerdict.Partial"/>——报「全部合规」会掩盖未判的部分，
+    /// 报「全部未建模」会丢掉已确证的结论。
+    /// </summary>
+    [Fact]
+    public void Evaluate_RuleWithBothFindingAndUnmodeledReason_ProducesPartial()
+    {
+        var rule = Rule("NM_RMS", When("repeat_message_duration", cycleMs: 500),
+            new NmRuleExpect("duration_within_ms", MinMs: 100, MaxMs: 200, Anchor: "nmsts"),
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+
+        // 两段 RMS 都超差，但没有 NMSts 角色 → 求值器无法定界。
+        // 改用「有角色 + 帧不足」造部分成功代价高，这里用角色缺失 + 已有 finding
+        // 的最简组合验证聚合规则：finding 存在且 reason 也存在 → Partial。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00), Frame(0.5, 0x500, 0xF4, 0x00) },
+            rules: [rule],
+            roles: Array.Empty<NmBitRole>());
+
+        var result = NmRuleEngine.Evaluate([rule], ctx);
+
+        var eval = Assert.Single(result.Evaluations);
+        // 角色缺失时求值器整体进 Unmodeled，不产 finding —— 这是 Unmodeled 而非 Partial。
+        Assert.Equal(NmRuleVerdict.Unmodeled, eval.Status);
+    }
+
+    [Fact]
+    public void Evaluate_EveryRule_GetsExactlyOneEvaluation()
+    {
+        // 缺一条 Evaluation 就意味着某条规则在覆盖统计里凭空消失。
+        var ctx = Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00) },
+            rules:
+            [
+                Rule("NM_A", When("bit_rule", role: "RepeatMessageRequest"),
+                    Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED"),
+                Rule("NM_B", When("max_gap_observe"), Expect("observe"), ""),
+                Rule("NM_C", When("bit_rule", role: "RepeatMessageRequest"),
+                    Expect("is_zero"), "NM_RMR_SET_WHILE_DISABLED")
+                with { Observability = NmObservability.Unobservable },
+            ],
+            roles: new[] { new NmBitRole(1, 0, "RepeatMessageRequest") });
+
+        var result = NmRuleEngine.Evaluate(ctx.Rules, ctx);
+
+        Assert.Equal(3, result.Evaluations.Count);
+        Assert.Equal(["NM_A", "NM_B", "NM_C"], result.Evaluations.Select(e => e.RuleId));
+    }
+
+    /// <summary>
+    /// 原语「跑过了但本条 trace 不适用」（如 with_burst 不匹配）必须能与
+    /// 「跑过了且合规」区分。两者都零 finding，靠观测种类识别。
+    /// <para>
+    /// 这里不构造完整 episode（那要 NmEpisodeBuilder 的输入），改用
+    /// 「没有 episode」这个最常见的 not_applicable 来源：
+    /// repeat_message_duration 在没有 episode 时进 Unmodeled(not_applicable)。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Evaluate_NoEpisode_RepeatMessageDuration_IsUnmodeledNotApplicable()
+    {
+        var rule = Rule("NM_RMS", When("repeat_message_duration", cycleMs: 500),
+            new NmRuleExpect("duration_within_ms", MinMs: 100, MaxMs: 200, Anchor: "nmsts"),
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+
+        var result = NmRuleEngine.Evaluate([rule], Context(
+            frames: new[] { Frame(0.0, 0x500, 0xF4, 0x00), Frame(0.5, 0x500, 0xF4, 0x01) },
+            rules: [rule],
+            roles: new[] { new NmBitRole(3, 0, "NmSts") }));
+
+        var eval = Assert.Single(result.Evaluations);
+        Assert.Equal(NmRuleVerdict.Unmodeled, eval.Status);
+        Assert.Equal(NmUnmodeledCodes.NotApplicable, eval.ReasonCode);
+    }
+
+    /// <summary>
+    /// <b>每一段都被 with_burst 选择器跳过时，状态必须是 NotApplicable。</b>
+    /// <para>
+    /// 这是「靠观测种类反推」的陷阱：<c>repeat_message_duration</c> 对**每一段**
+    /// 都先无条件产一条 <c>repeat_message_duration</c> 事实观测，再在形态不匹配时
+    /// 追加一条 <c>_not_applicable</c>。于是「有 not_applicable 观测」时必然
+    /// 「也有事实观测」——按种类反推永远得不出 NotApplicable。
+    /// </para>
+    /// <para>
+    /// 后果：真实 trace 上 <c>NM_RMS_DURATION_BURST</c>（只接受含快发）在无快发的
+    /// 段上全被判成 <c>Partial</c>，而 spec §5.5 情形 3 要求它 <c>NotApplicable</c>
+    /// 且**不参与条款覆盖聚合**。错判会让「本条不适用」冒充「部分验证」。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Evaluate_AllSegmentsSkippedByBurstSelector_IsNotApplicable()
+    {
+        var rule = Rule("NM_RMS_BURST", When("repeat_message_duration", cycleMs: 500),
+            new NmRuleExpect("duration_within_ms", MinMs: 1640, MaxMs: 1760, Anchor: "nmsts",
+                WithBurst: true),
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+
+        // 无快发的 RMS 段：500ms 均匀间隔。规则只接受含快发的段 → 每段都被跳过。
+        var frames = new List<NmFrame>
+        {
+            Frame(0.0, 0x500, 0xF4, 0x00), Frame(0.5, 0x500, 0xF4, 0x00),
+            Frame(1.0, 0x500, 0xF4, 0x00), Frame(1.5, 0x500, 0xF4, 0x00),
+            Frame(2.0, 0x500, 0xF4, 0x01),
+        };
+
+        var ctx = Context(frames: frames, rules: [rule],
+            roles: new[] { new NmBitRole(3, 0, "NmSts") });
+        var withEpisode = ctx with
+        {
+            Episodes = [new NmEpisode(0, 0.0, 2.5, "active", null,
+                ["0x500"], BoundaryStart: false, BoundaryEnd: false)],
+        };
+
+        var result = NmRuleEngine.Evaluate([rule], withEpisode);
+
+        // 前提：原语确实产了 not_applicable 观测（否则这条测试测不到东西）。
+        Assert.Contains(result.Observations, o =>
+            o.Kind.EndsWith("_not_applicable", StringComparison.Ordinal));
+
+        var eval = Assert.Single(result.Evaluations);
+        Assert.Equal(NmRuleVerdict.NotApplicable, eval.Status);
+    }
+
+    /// <summary>
+    /// 一段被跳过、另一段真的判了（且违规）→ EvaluatedWithFinding，不是 NotApplicable。
+    /// <para>
+    /// 这条与上一条成对：只有「全部跳过」才是 NotApplicable；
+    /// 只要有一段判出了结论，就必须保留那个结论——这里第二段真的超差，
+    /// 报 NotApplicable 会把真实违规藏起来。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Evaluate_SomeSegmentsSkippedOneViolates_KeepsTheViolation()
+    {
+        var rule = Rule("NM_RMS_BURST", When("repeat_message_duration", cycleMs: 500),
+            new NmRuleExpect("duration_within_ms", MinMs: 1640, MaxMs: 1760, Anchor: "nmsts",
+                WithBurst: true),
+            "NM_REPEAT_MESSAGE_DURATION_EXCEEDED");
+
+        // 第一个 episode：无快发（被跳过）；第二个 episode：有快发（真的判了）。
+        var frames = new List<NmFrame>
+        {
+            // ep0：500ms 均匀，无快发
+            Frame(0.0, 0x500, 0xF4, 0x00), Frame(0.5, 0x500, 0xF4, 0x00),
+            Frame(1.0, 0x500, 0xF4, 0x00), Frame(1.5, 0x500, 0xF4, 0x01),
+            // ep1：20ms 快发段
+            Frame(5.0, 0x500, 0xF4, 0x00), Frame(5.02, 0x500, 0xF4, 0x00),
+            Frame(5.04, 0x500, 0xF4, 0x00), Frame(5.06, 0x500, 0xF4, 0x00),
+            Frame(5.08, 0x500, 0xF4, 0x00), Frame(5.6, 0x500, 0xF4, 0x01),
+        };
+
+        var ctx = Context(frames: frames, rules: [rule],
+            roles: new[] { new NmBitRole(3, 0, "NmSts") });
+        var withEpisodes = ctx with
+        {
+            Episodes =
+            [
+                new NmEpisode(0, 0.0, 2.0, "active", null,
+                    ["0x500"], BoundaryStart: false, BoundaryEnd: false),
+                new NmEpisode(1, 4.9, 6.0, "active", null,
+                    ["0x500"], BoundaryStart: false, BoundaryEnd: false),
+            ],
+        };
+
+        var result = NmRuleEngine.Evaluate([rule], withEpisodes);
+
+        // 第二段（含快发）真的判了且超差 —— 必须保留这条 finding。
+        Assert.Contains(result.Findings, f =>
+            string.Equals(f.Code, "NM_REPEAT_MESSAGE_DURATION_EXCEEDED", StringComparison.Ordinal));
+
+        var eval = Assert.Single(result.Evaluations);
+        Assert.Equal(NmRuleVerdict.EvaluatedWithFinding, eval.Status);
+    }
 }

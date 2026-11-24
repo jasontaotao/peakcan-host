@@ -123,6 +123,10 @@ public static class NmAnalyzer
         var observations = new List<NmObservation>();
         // 未建模条款（spec §7.1.1）：只有规则引擎实际运行过才可能有内容。
         var unmodeled = new List<NmUnmodeledRule>();
+        // 逐规则求值状态（spec §7.1.1）：合规规则零输出，只能由引擎显式给出。
+        var ruleEvaluations = new List<NmRuleEvaluation>();
+        // 覆盖统计要用到实际求值的规则集；引擎没跑时保持 null，覆盖表为空而不是「全部未覆盖」。
+        IReadOnlyList<NmRuleDef>? activeRulesForCoverage = null;
         var nmFrames = new List<NmFrame>();
         IReadOnlyList<NmEpisode> episodes = Array.Empty<NmEpisode>();
         IReadOnlyList<string>? gapUnknowns = null;
@@ -184,7 +188,17 @@ public static class NmAnalyzer
                 IsPartial: partial,
                 Observations: observations.Count == 0 ? null : observations,
                 UnmodeledRules: unmodeled.Count == 0 ? null : unmodeled,
-                DataQualityChecks: dataQuality);
+                DataQualityChecks: dataQuality)
+            {
+                // 空列表 = 没有企标规则可跑；null 会让「没选中 profile」与
+                // 「选中了但没有规则」不可区分，故统一给空列表。
+                RuleEvaluations = ruleEvaluations,
+                // spec §5.5：覆盖统计由「规则的 clauses」×「逐规则 verdict」聚合。
+                // 引擎没跑时两者都空，覆盖表也是空——不会被误读成「全部未覆盖」。
+                ClauseCoverage = activeRulesForCoverage is { Count: > 0 }
+                    ? NmClauseCoverage.Build(activeRulesForCoverage, ruleEvaluations)
+                    : Array.Empty<NmClauseCoverageRow>(),
+            };
         }
 
         // 选择阶段（含能力/缺项）完成后即检查取消：此时报告至少带有选择诊断与能力矩阵。
@@ -396,6 +410,7 @@ public static class NmAnalyzer
         // 以便条款追溯。传全局时序，evaluator 按报文自行 Resolve 生效时序。
         if (request.Profile.StandardRules is { Count: > 0 } activeRules)
         {
+            activeRulesForCoverage = activeRules;
             var ruleResult = NmRuleEngine.Evaluate(activeRules,
                 new NmRuleContext(nmFrames, episodes, request.Profile, globalTiming, window)
                 {
@@ -426,6 +441,7 @@ public static class NmAnalyzer
             observations.AddRange(ruleResult.Observations);
             unmodeled.AddRange(ruleResult.Unmodeled);
             truncations.AddRange(ruleResult.Truncations);
+            ruleEvaluations.AddRange(ruleResult.Evaluations);
         }
 
         if (request.Dbc is not null)

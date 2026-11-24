@@ -226,7 +226,35 @@ public sealed record NmReport(
     IReadOnlyList<NmObservation>? Observations = null,
     IReadOnlyList<NmUnmodeledRule>? UnmodeledRules = null,
     // spec §9.2：规则求值前的数据体检结果；null 表示未执行体检。
-    IReadOnlyList<NmDataQualityCheck>? DataQualityChecks = null);
+    IReadOnlyList<NmDataQualityCheck>? DataQualityChecks = null)
+{
+    /// <summary>
+    /// 逐规则求值状态（spec §7.1.1）。空列表 = 规则引擎没跑（未选中企标 profile）。
+    /// <para>
+    /// <b>为什么报告必须有它</b>：合规规则**零输出**（<c>BitRule</c> / <c>LayoutCheck</c>
+    /// 等在合法场景 <c>return true</c> 就结束，不产 finding 也不产 observation）。
+    /// 只看 <see cref="Findings"/> / <see cref="Observations"/> 时，
+    /// 「跑了且合规」与「压根没跑」在报告里长得一模一样——用户无法判断
+    /// 空着的那条是「没问题」还是「没检查」。
+    /// </para>
+    /// <para>
+    /// 非可空：空列表已能表达「没跑」，再加一层 null 只会让消费方多写一个
+    /// 永远走不到的兜底分支。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<NmRuleEvaluation> RuleEvaluations { get; init; }
+        = Array.Empty<NmRuleEvaluation>();
+
+    /// <summary>
+    /// 条款覆盖统计（spec §5.5）。由 <see cref="RuleEvaluations"/> 与规则的
+    /// <c>Clauses</c> 聚合而来，回答「吉利规范的每一条，这次到底验没验」。
+    /// <para>
+    /// 空列表 = 没有规则声明任何条款（如未选企标 profile）。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<NmClauseCoverageRow> ClauseCoverage { get; init; }
+        = Array.Empty<NmClauseCoverageRow>();
+}
 
 /// <summary>数据体检的三态结果（spec §9.2）。</summary>
 public enum NmDataQualityStatus

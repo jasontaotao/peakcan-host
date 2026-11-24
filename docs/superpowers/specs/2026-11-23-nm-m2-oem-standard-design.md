@@ -1996,9 +1996,47 @@ Rev 5 曾把新机制（条款目录、三态覆盖、DQ 三态）写进 §5.3 /
 
 | 设计 | 阻断原因 | 解锁条件 |
 |---|---|---|
-| §5.5 三态条款覆盖 | 引擎无逐规则状态，合规规则不产任何输出（§7.1.1） | `NmRuleResult.Evaluations` 落地 |
+| ~~§5.5 三态条款覆盖~~ | ~~引擎无逐规则状态~~ | **2026-11-24 已解锁**：`NmRuleResult.Evaluations` 与 `NmClauseCoverage` 落地，见 §19.6 |
 | §4.0 四条契约测试 | 正则按 `Clause` 写、成员资格按 `Id` 查，两者不自洽；且复合 Id 下「不得是规则 ID」恒真 | 先定 `rule.clauses` 存 `Id` 还是 `Clause` |
 | §9.2 DQ 三态模型 | 四个强制点未定（Code 闭集、五项保证、null/空语义、抑制映射） | 补齐强制点 + 定义 DQ 帧集 |
 | 条款目录全链路 | `Flattened`/`ApplyRemove`/`Bind`/`NmProfile`/hash 五处均未打通 | 五处同批改 |
 
 **这四项不是「v1 不做」，是「设计未闭合」。** 写进本节是为了让后续实施者知道：看到 §5.5 / §4.0 / §9.2 时不能直接照着写代码。
+
+### 19.6 逐规则状态与条款覆盖的实施记录（2026-11-24）
+
+**解锁了 §19.5 的第一项**，但只到「有规则覆盖的条款」为止，**不是完整的三态覆盖**。范围收窄如实记录如下。
+
+#### 一、逐规则求值状态（§7.1.1）
+
+`NmRuleResult` 新增 `Evaluations`，`Evaluate` 为每条规则产出一项。**没有改 51 个 `return` 点**——状态由引擎按「本规则产出增量」推导，`TryEvaluate` 的 `implemented` 标志已足够。
+
+枚举命名为 `NmRuleVerdict` 而非 spec 写的 `NmRuleStatus`：后者已被标定面板的呈现三态（`Triggered`/`NotTriggered`/`Unmodeled`）占用。两者语义不同——一个是**求值**结论，一个是由报告反推的**呈现**状态。
+
+**`*_not_applicable` 观测是判定的陷阱**（实现时踩到）：`repeat_message_duration` 在形态不匹配时产一条 `repeat_message_duration_not_applicable` 观测然后 `continue`，既不产 finding 也不给 `unmodeledReason`。首版按「有观测 = 判过了」把它判成 `EvaluatedNoFinding`，而真相是**这一段压根没判**——后果是条款覆盖把它算成 `Covered`。
+
+正确判定要区分三种情形：
+
+| 本规则的观测构成 | 状态 |
+|---|---|
+| 只有 `*_not_applicable` | `NotApplicable` |
+| `*_not_applicable` 与事实观测并存 | `Partial`（有的段判了、有的没判） |
+| 全是事实观测 | `EvaluatedNoFinding` / `EvaluatedWithFinding` |
+
+第二条最容易漏：一条 episode 里同时有快发段与非快发段时，原语会对两段各产一条观测。首版测试构造的场景恰好是这种混合，暴露后补了 `ClassifyObservations`。
+
+#### 二、条款覆盖（§5.5）
+
+`NmClauseCoverage.Build(rules, evaluations)` 聚合出 `Covered` / `Partial` / `NotCovered`。
+
+**聚合不取最差**：吉利的 `NM_RMS_DURATION_BURST` / `NM_RMS_DURATION_NOBURST` 是一对 `with_burst` 变体，每条 trace 必然有一条 `NotApplicable`。取最差会让真实违规稳定降级成 `Partial`——§14.6 要求检出的两段 RMS 违规全部失效。正确做法是先剔除 `NotApplicable`，再看剩余结果里有没有 `Pass`/`Violation`。
+
+**范围收窄（必须明确）**：本实现只统计**有规则覆盖的条款**。spec §5.5 要求的「目录里有但无规则覆盖 → `NotCovered`」**做不到**——profile 没有独立的条款目录（`NmClauseDef` / `StandardClauses`），那需要 §19.5 第四项「条款目录全链路」的 `Flattened`/`ApplyRemove`/`Bind`/`NmProfile`/hash 五处同批改。
+
+因此 `NmClauseStatus.NotCovered` 目前**永远不会产出**。这个枚举值保留是为了将来打通目录后直接可用，不是「已实现」。代码注释里已如实写明。
+
+**`clauses` 值域仍未裁决**：profile 里 `§5.4.2`（章节号）与 `NM_03`（条款编号）混用。本轮**没有统一**——统一会改动全部现有 profile 与 478 条既有断言，而当前统计按「字符串相等」聚合仍可用（只是 `§5.5` 会在多条规则里重复出现，无法定位到具体条款行）。这是有意的范围控制，不是遗漏。
+
+#### 三、输出
+
+`NmReport` 新增 `RuleEvaluations` 与 `ClauseCoverage`，两处消费方（`GetNmOverviewTool` 的 JSON、`NmReportWriter` 的 Markdown）都输出。AI 侧尤其重要：只看 `findings` 为空，AI 会说「没有违规」，而真相可能是「这些规则根本没跑」。

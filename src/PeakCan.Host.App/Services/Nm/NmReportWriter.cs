@@ -120,6 +120,46 @@ public static class NmReportWriter
             }
             sb.AppendLine();
         }
+        // spec §5.5：条款覆盖表。回答「吉利规范的每一条，这次到底验没验」。
+        // 放在逐规则状态之前：读者先关心条款层面，再下钻到规则。
+        if (r.ClauseCoverage is { Count: > 0 } coverage)
+        {
+            sb.AppendLine("## Clause Coverage");
+            foreach (var c in coverage)
+            {
+                var rules = c.RuleIds.Count == 0 ? "—" : string.Join(", ", c.RuleIds);
+                var reason = c.ReasonCode is null ? "" : $"（{c.ReasonCode}）";
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"- `{c.Clause}` {c.StatusText}{reason}：{rules}"));
+            }
+            sb.AppendLine();
+        }
+        // spec §7.1.1：逐规则求值状态。合规规则零 finding——没有这一节，
+        // 「查过没问题」在导出里完全不存在，读者会以为规则没配。
+        if (r.RuleEvaluations is { Count: > 0 } evaluations)
+        {
+            sb.AppendLine("## Rule Evaluations");
+            foreach (var e in evaluations)
+            {
+                var status = e.Status switch
+                {
+                    NmRuleVerdict.EvaluatedNoFinding => "已求值，无违规",
+                    NmRuleVerdict.EvaluatedWithFinding => "已求值，有违规",
+                    NmRuleVerdict.Partial => "部分求值",
+                    NmRuleVerdict.NotApplicable => "本条不适用",
+                    NmRuleVerdict.Unmodeled => "未建模",
+                    // 显式列全：新增枚举值时编译期暴露，不静默归一到「未建模」。
+                    _ => throw new InvalidOperationException(
+                        $"未映射的规则求值状态：{e.Status}"),
+                };
+                // 原因码用英文原样输出：它是结构化标识，与 §9.4 的词表一一对应，
+                // 翻译成中文会让 AI 与测试对不上。
+                var reason = e.ReasonCode is null ? "" : $"（{e.ReasonCode}）";
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"- `{e.RuleId}` {status}{reason}"));
+            }
+            sb.AppendLine();
+        }
         sb.AppendLine("## Findings");
         foreach (var f in r.Findings)
         {
