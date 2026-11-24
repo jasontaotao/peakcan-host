@@ -433,6 +433,37 @@ overrides:
         Assert.Contains("phase", ex.Message, StringComparison.Ordinal);
     }
 
+    // spec §4 / §19.2：expect_nmsts 区分 NM_02/15（RMS=0）与 NM_10（NOS=1）。
+    // 不写该键时必须是 null（不校验），不能缺省成 0——否则现有 profile 会集体
+    // 开始校验「恢复后必须进 RMS」，在本地唤醒场景上大量误报。
+    [Fact]
+    public void Load_ExpectNmsts_ParsesAndDefaultsToNull()
+    {
+        var withKey = WithParams.Replace(
+            "      kind: within_pct",
+            "      kind: within_pct\n      expect_nmsts: 1", StringComparison.Ordinal);
+
+        Assert.Equal(1, Assert.Single(NmStandardYaml.Load(withKey).Rules!).Expect.ExpectNmsts);
+        Assert.Null(Assert.Single(NmStandardYaml.Load(WithParams).Rules!).Expect.ExpectNmsts);
+    }
+
+    // 取值只能是 0/1：吉利 §5.4.4 的 NMSts 是单 bit。写成 2 会让求值期
+    // (expectedNmsts == 1) 恒为 false，规则变成「永远要求 NMSts=0」——
+    // 一个从字面看不出来的语义翻转。
+    [Theory]
+    [InlineData(2)]
+    [InlineData(-1)]
+    public void Load_ExpectNmstsOutOfRange_IsRejected(int value)
+    {
+        var bad = WithParams.Replace(
+            "      kind: within_pct",
+            $"      kind: within_pct\n      expect_nmsts: {value}", StringComparison.Ordinal);
+
+        var ex = Assert.Throws<NmProfileValidationException>(() => NmStandardYaml.Load(bad));
+
+        Assert.Contains("expect_nmsts", ex.Message, StringComparison.Ordinal);
+    }
+
     // 反向守卫：用新键时不得凭空产出提示，否则提示会变成恒真噪音，
     // 用户学会忽略它，旧键那条也就失效了。
     [Fact]

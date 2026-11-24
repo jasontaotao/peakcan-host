@@ -45,6 +45,16 @@ public static class NmUnmodeledCodes
     public const string Unobservable = "unobservable";
 
     /// <summary>
+    /// 规则部分成功：已确证的部分照常产出结论，但有一部分因**数据本身**不可判
+    /// （如某帧 DLC 不足读不出状态位）而未判定。
+    /// <para>
+    /// 与 <see cref="MissingProfileData"/> 的区别是根因归属：这里 profile 声明齐全，
+    /// 缺的是 trace 里的字节。用错码会让 AI 指引用户去改一份本来没问题的 profile。
+    /// </para>
+    /// </summary>
+    public const string PartialEvidence = "partial_evidence";
+
+    /// <summary>
     /// 引擎内部不一致：evaluator 给出了原因却没有给出原因码。
     /// <para>
     /// 这是**代码缺陷**，不是 profile 问题，也不是数据问题，因此不能复用

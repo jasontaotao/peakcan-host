@@ -344,6 +344,8 @@ public static class NmStandardYaml
         public int? MaxMs { get; set; }
         public string? Anchor { get; set; }
         public bool? WithBurst { get; set; }
+        /// <summary>normal_resume_shape 的目标 NMSts（0=RMS / 1=NOS，spec §4）。</summary>
+        public int? ExpectNmsts { get; set; }
     }
 
     private static NmRuleDef MapRule(RuleDto r)
@@ -399,7 +401,7 @@ public static class NmStandardYaml
                 w.MinSilenceMs, w.CycleMs, w.Pct, w.MinFrames, w.TimeoutMs,
                 w.MinId, w.MaxId, w.Extended),
             new NmRuleExpect(e.Kind!, e.Value, e.Byte, e.Bit, e.Count, e.IntervalMs,
-                e.Pct, e.MinMs, e.MaxMs, e.Anchor, e.WithBurst),
+                e.Pct, e.MinMs, e.MaxMs, e.Anchor, e.WithBurst, e.ExpectNmsts),
             finding)
         {
             SourceRef = r.SourceRef,

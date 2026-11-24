@@ -60,9 +60,21 @@ public static partial class NmRuleEvaluators
         // 取小值不会凭空造出错误结论，只是降低证明力。
         var minFrames = rule.When.MinFrames ?? 2;
 
+        // spec §4 / §19.2：规则可要求「恢复后的目标状态」（NM_02/15 → RMS=0，NM_10 → NOS=1）。
+        // 声明了就必须能读到 NMSts；读不出不能当成「一致」。
+        var nmstsRole = rule.Expect.ExpectNmsts is null
+            ? null
+            : FindNmstsRole(ctx.Profile.StandardBitRoles);
+
         var violations = new List<ResumeViolation>();
         var observed = new List<double>();
         var messagesAnalysed = 0;
+        // 目标状态未判定的两种原因，都必须显式上报，不能让「没判过的恢复点」静默通过。
+        // 但**都不能提前 return**：周期判据与目标状态判据相互独立，
+        // 因状态位缺失而放弃整条规则，会把已经确证的周期违规一起吞掉
+        // （spec §9.4：宁可标 Partial 也不标 Suppressed，少判一项好过删掉真实结论）。
+        var nmstsRoleMissing = rule.Expect.ExpectNmsts is not null && nmstsRole is null;
+        var nmstsUnreadable = false;
 
         // 逐报文扫**完整时间序列**：episode 恰好按「全网络静默 ≥ timeout」切分，
         // 单报文的静默通常与 episode 边界重合，按 episode 切片反而看不到静默本身。
@@ -107,7 +119,39 @@ public static partial class NmRuleEvaluators
                     }
                 }
 
-                if (bad) violations.Add(new ResumeViolation(def.CanIdHex, resumeAt));
+                if (bad)
+                {
+                    violations.Add(new ResumeViolation(def.CanIdHex, resumeAt));
+                    continue;
+                }
+
+                // 目标状态校验（spec §4）：只看「恢复后的第一帧」——它代表节点进入的目标状态。
+                // 逐帧比会让 NOS 中途转 RSS 的正常释放被误判成目标状态不符。
+                //
+                // 周期已判违规时不再查状态：该恢复点已被点名，再叠一条只会让同一个
+                // 位置报两遍。两者的排查方向不同（查调度 vs 查状态机），
+                // 但同一点上先报更根本的那条即可。
+                if (rule.Expect.ExpectNmsts is { } expectedNmsts)
+                {
+                    // 缺位角色时无从读起：跳过目标状态校验，但不放弃周期结论。
+                    if (nmstsRole is null) continue;
+
+                    var actual = ReadNmsts(messageFrames[resumeIndex], nmstsRole);
+                    if (actual is null)
+                    {
+                        // 恢复帧本身读不出状态位：这条恢复点的目标状态不可判。
+                        // 只记下事实，不在这里 return——同一条 trace 的其它恢复点
+                        // 仍可判定，整条降级会丢掉它们的结论（见下方 unreadableReason）。
+                        nmstsUnreadable = true;
+                        continue;
+                    }
+
+                    if (actual != (expectedNmsts == 1))
+                    {
+                        violations.Add(new ResumeViolation(
+                            def.CanIdHex, resumeAt, NmstsMismatch: true));
+                    }
+                }
             }
         }
 
@@ -129,6 +173,26 @@ public static partial class NmRuleEvaluators
             return true;
         }
 
+        // 目标状态未判定的两种情况，都要显式上报（见方法上方 nmstsRoleMissing 的注释）。
+        // 两者同时成立时优先报「缺角色」——那是用户可执行的根因（改 profile），
+        // 而 DLC 不足只是这批 trace 的性质。
+        string? unreadableReason = null;
+        string? unreadableCode = null;
+        if (nmstsRoleMissing)
+        {
+            unreadableReason =
+                "规则要求校验恢复后的 NMSts 目标状态，但 profile 未声明 NmSts 位角色；" +
+                "目标状态未判定（周期判据照常执行）";
+            unreadableCode = NmUnmodeledCodes.MissingProfileData;
+        }
+        else if (nmstsUnreadable)
+        {
+            unreadableReason =
+                "部分恢复帧 DLC 不足，无法读取 NMSts；这些恢复点的目标状态未判定";
+            // 根因是 trace 帧太短，不是 profile 缺声明。
+            unreadableCode = NmUnmodeledCodes.PartialEvidence;
+        }
+
         if (violations.Count > 0)
         {
             // 超差却无 finding code：不静默当作通过。
@@ -143,16 +207,34 @@ public static partial class NmRuleEvaluators
             // 多报文时点名本 finding 覆盖了哪些节点，否则用户无法定位。
             var ids = string.Join(", ",
                 violations.Select(v => v.CanIdHex).Distinct(StringComparer.Ordinal));
-            findings.Add(new NmFinding(
-                rule.FindingCode, "warn",
+            // 两类违规的判据不同，混在一句话里会让人分不清该查什么：
+            // 周期不符查调度，目标状态不符查状态机迁移。
+            var cycleBad = violations.Count(v => !v.NmstsMismatch);
+            var nmstsBad = violations.Count(v => v.NmstsMismatch);
+            var details = new List<string>(2);
+            if (cycleBad > 0)
+            {
                 // 不报 pct：P0 是文化相关的格式（部分区域会带不换行空格），
                 // 且规则未配 pct 时「±0%」与实际采用的报文级容差不一致。
-                $"{ids}：{violations.Count} 处静默恢复后未以 {cycleMs}ms 正常周期持续发送" +
-                $"（最少 {minFrames} 帧）",
+                details.Add($"未以 {cycleMs}ms 正常周期持续发送（最少 {minFrames} 帧）");
+            }
+            if (nmstsBad > 0)
+            {
+                var expected = rule.Expect.ExpectNmsts == 1
+                    ? "NOS（NMSts=1）"
+                    : "RMS（NMSts=0）";
+                details.Add($"恢复后目标状态不是 {expected}");
+            }
+
+            findings.Add(new NmFinding(
+                rule.FindingCode, "warn",
+                $"{ids}：{violations.Count} 处静默恢复形态不符——{string.Join("；", details)}",
                 violations.Select(v => v.At).Take(10).ToArray(),
                 // P 级：唤醒源不可观测，只能从行为反推。
                 IsInference: true,
-                SuggestedNextCheck: "核对唤醒后的 Repeat Message State 与发送周期配置",
+                SuggestedNextCheck: nmstsBad > 0
+                    ? "核对唤醒源（本地/远程）与进入的目标网络管理状态"
+                    : "核对唤醒后的 Repeat Message State 与发送周期配置",
                 RuleId: rule.Id,
                 // 条款归因只取 Clauses；为空时宁可无归因，不能拿 rule.Id 冒充条款号。
                 // 取 ordinal-first 而非 Clauses[0]：与 NmRuleEngine 的统一回填同口径，
@@ -163,11 +245,38 @@ public static partial class NmRuleEvaluators
                 SourceRef: rule.SourceRef));
         }
 
+        // 未判定部分在产出 finding 之后单独上报：finding 说「这几处确证违规」，
+        // Unmodeled 说「这几处没判成」——两者并存，互不吞并。
+        if (unreadableReason is not null)
+        {
+            unmodeledReason = unreadableReason;
+            unmodeledCode = unreadableCode;
+        }
+
         return true;
     }
 
-    /// <summary>一处恢复形态违规：归属报文 + 恢复时刻。</summary>
-    private readonly record struct ResumeViolation(string CanIdHex, double At);
+    /// <summary>
+    /// 一处恢复形态违规：归属报文 + 恢复时刻。
+    /// <paramref name="NmstsMismatch"/> 区分「周期不符」与「目标状态不符」——
+    /// 两者判据不同，报告需要给出不同的排查方向。
+    /// </summary>
+    private readonly record struct ResumeViolation(
+        string CanIdHex, double At, bool NmstsMismatch = false);
+
+    /// <summary>
+    /// 读一帧的 NMSts 原始值：true = NMSts=1，false = NMSts=0，null = 读不出。
+    /// <para>
+    /// DLC 不足时返回 null 而不是 false——「读不出」与「读到 0」是两件事，
+    /// 把前者当后者会让目标状态校验在缺数据的帧上凭空通过。
+    /// </para>
+    /// </summary>
+    private static bool? ReadNmsts(NmFrame frame, NmBitRole role)
+    {
+        var data = frame.Frame.Data;
+        if (data.Length <= role.Byte) return null;
+        return ((data[role.Byte] >> role.Bit) & 1) != 0;
+    }
 
     /// <summary>
     /// 逐个产出「静默结束后的第一个帧」的下标：所有相邻间隔 ≥minSilenceSec 的位置。

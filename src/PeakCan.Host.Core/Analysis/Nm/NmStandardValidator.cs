@@ -262,6 +262,17 @@ public static class NmStandardValidator
                 throw new NmProfileValidationException(
                     $"规则 {rule.Id} 的 stop_sending 的 when.timeout_ms 必须为正数，实际 {stopTimeoutMs}");
             }
+
+            // expect_nmsts 只能是 0/1（spec §4 / 吉利 §5.4.4：NMSts 是单 bit）。
+            // 写成 2 时求值期的 (expectedNmsts == 1) 恒为 false，规则悄悄变成
+            // 「永远要求 NMSts=0」——语义翻转且从字面看不出来，必须在加载期拦住。
+            if (rule.Expect.ExpectNmsts is { } expectNmsts
+                && expectNmsts is not (0 or 1))
+            {
+                throw new NmProfileValidationException(
+                    $"规则 {rule.Id} 的 expect_nmsts 只能是 0 或 1，实际 {expectNmsts}" +
+                    "（吉利 §5.4.4：0=Repeat Message State，1=Normal Operation State）");
+            }
         }
     }
 

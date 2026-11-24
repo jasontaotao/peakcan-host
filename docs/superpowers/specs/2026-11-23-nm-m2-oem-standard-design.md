@@ -803,7 +803,7 @@ public enum NmSilenceVerdict
 
 **Rev 5 补正**：上句只写了 NM_02/NM_15，实际 §4 表里 **NM_10 也挂 `normal_resume_shape`**。但三者目标状态不同——NM_02/15 恢复后进入 **RMS（NMSts=0）**，NM_10 恢复后进入 **NOS（NMSts=1）**。
 
-**这个差异是可以判定的，不是能力限制。** NMSts 已被三处读取（`RepeatMessageDuration` 的 `FindNmstsRole`、`NmstsTransition`、静默分类器），加一个参数就能区分：
+**NM_10 的目标状态差异可以判定，但这不等于「规则可以启用」。** NMSts 已被三处读取（`RepeatMessageDuration` 的 `FindNmstsRole`、`NmstsTransition`、静默分类器），加一个参数就能区分：
 
 | 规则 | `expect_nmsts` | 覆盖条款 |
 |---|---|---|
@@ -811,6 +811,14 @@ public enum NmSilenceVerdict
 | `NM_RESUME_TO_NOS` | `1` | NM_10 |
 
 `expect_nmsts` 缺省为 null = 不检查目标状态（此时该规则对三条条款都标 `Partial`，原因码 `target_state_unverified`）。
+
+**`expect_nmsts` 的判别力边界（Rev 5 之后实测补正，2026-11-24）**：上表容易读成「加了参数就能区分三条」，**这是错的**。
+
+- NMSts 分得出 NM_10（`=1`）。
+- **NMSts 分不出 NM_02/15 与 NM_03/16**：本地唤醒的快发（NM_03/16）与远程唤醒的正常发送（NM_02/15）**NMSts 同为 0**，因为两者都处于 Repeat Message State。区分它们靠的是快发形态（20ms vs 500ms），不是状态位。
+- 真实 trace（§14.6）的恢复段正是 **20ms 快发**，即 NM_03/16 的合规形态。因此把 `NM_RESUME_TO_RMS` 设成 `expect_nmsts: 0` 并启用，它**仍会因周期不符而误报**。
+
+**结论：真正的阻塞点是 §7.3 主动唤醒判定（AWB + episode 首帧作用域），不是 `expect_nmsts`。** 后者已实现并有测试钉住（`Resume_ExpectNmstsZero_StillRejectsLocalWakeupBurst` 专门证明它替代不了唤醒源判定），但吉利 profile 的 `NM_RESUME_TO_RMS` 必须**继续标 `unobservable`**，直到 §7.3 落地。
 
 **不要用「一条规则覆盖三条、报告加个 caveat」糊过去**：finding 是单次产出的结构化数据，caveat 写在 message 里 AI 读不到，写在目录里又落不到 finding 上。
 
@@ -1289,6 +1297,9 @@ public static class NmDataQualityAnalyzer
 | `partial_evidence` | 规则部分成功 |
 | `data_quality_suppressed` | 被体检抑制 |
 | `not_applicable` | 本条 trace 不适用 |
+| `internal_inconsistent` | **引擎缺陷**：evaluator 给了原因却没给原因码。不是 profile 问题，不能让用户去改 profile（2026-11-24 补） |
+
+**`partial_evidence` 的首个实际用途（2026-11-24）**：`normal_resume_shape` 声明了 `expect_nmsts`、但恢复帧 DLC 不足读不出状态位时用它。根因是 trace 字节不够，不是 profile 缺声明——用 `missing_profile_data` 会让 AI 指引用户去改一份没问题的 profile。该情形下**周期判据照常执行并产出 finding**，`partial_evidence` 只说明「目标状态这部分没判成」，两者并存。
 
 **`AffectedCanIds → SuppressedRuleIds` 的映射不能自动算**：`NmRuleDef` 没有 message/node scope（`phase` 也不驱动作用域）。要么给规则加 scope，要么由 `NmDataQualityAnalyzer` 手工映射。**v1 选后者**。
 
@@ -1726,6 +1737,8 @@ Rev 4 之后的 S1–S4 实施与一次独立设计评审，暴露出 Rev 4 内�
 ### 19.2 Rev 5 撤回的一个错误判断
 
 Rev 5 初稿曾写「`NM_10` 与 NM_02/15 共用一条规则，接受精度损失」——**这个判断是错的**。NMSts 可观测且已被多处读取，区分 RMS/NOS 只需加一个 `expect_nmsts` 参数。撤回。
+
+**但撤回的理由只说对了一半（2026-11-24 补记）**：`expect_nmsts` 确实实现了（`NmRuleExpect.ExpectNmsts`，加载期校验 0/1，求值期按恢复帧首帧比对，位不可读时进 Unmodeled），但它只解决了 **NM_10 的目标状态**，**没有**让 `NM_RESUME_TO_RMS` 变得可启用。原因是 NM_02/15 与 NM_03/16 的 NMSts 同为 0，只能靠快发形态区分，而唤醒源判别属于 §7.3。详见 §7.2 的「判别力边界」段。
 
 ### 19.3 未解决、留给后续切片的问题
 

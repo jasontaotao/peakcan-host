@@ -195,7 +195,19 @@ public sealed record NmRuleExpect(
     /// false = 只适用于无快发段的 RMS（吉利 1440–1560）；
     /// null = 不做区分，用 min_ms/max_ms 的并集（向后兼容）。
     /// </summary>
-    bool? WithBurst = null);
+    bool? WithBurst = null,
+    /// <summary>
+    /// normal_resume_shape 恢复后的**目标状态**（spec §4 / §19.2）。
+    /// <para>
+    /// 0 = RMS（NM_02 / NM_15），1 = NOS（NM_10）。吉利 §5.4.4 的 NMSts：
+    /// 0 = Repeat Message State，1 = Normal Operation State。
+    /// </para>
+    /// <para>
+    /// <b>null = 不校验目标状态</b>（现有 profile 全部不写该键，行为不变）。
+    /// 声明了但 NMSts 位不可读时必须进 Unmodeled——不能把「读不出」当成「一致」。
+    /// </para>
+    /// </summary>
+    int? ExpectNmsts = null);
 
 /// <summary>
 /// 原语闭集（spec §7.2）。不在集合内的 kind 在加载期报错——

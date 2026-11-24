@@ -194,6 +194,27 @@ public class NmSupplementHashTests
         Assert.NotEqual(without, with);
     }
 
+    // spec §4 / §19.2：expect_nmsts 改变判据（是否校验恢复后的目标状态）。
+    // 它走 NmRuleExpect 的 JSON 序列化进 key——但「自动纳入」是推断，不是证据：
+    // 若哪天换成手写序列化或加了 [JsonIgnore]，只有这条测试能发现。
+    [Fact]
+    public void Hash_ExpectNmsts_ChangesHash()
+    {
+        var a = Hash(rules: [RuleWithNmsts(expectNmsts: null)]);
+        var b = Hash(rules: [RuleWithNmsts(expectNmsts: 1)]);
+
+        Assert.NotEqual(a, b);
+    }
+
+    private static NmRuleDef RuleWithNmsts(int? expectNmsts)
+        => new("NM_RESUME", "requirement", "wakeup",
+            new NmRuleWhen("normal_resume_shape", MinSilenceMs: 2000, CycleMs: 500),
+            new NmRuleExpect("equals", ExpectNmsts: expectNmsts),
+            "CODE")
+        {
+            Clauses = ["NM_10"],
+        };
+
     private static string Hash(
         IReadOnlyList<NmRuleDef>? rules = null,
         IReadOnlyList<NmBitRole>? roles = null)
