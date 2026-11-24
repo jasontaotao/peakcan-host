@@ -310,7 +310,8 @@ BO_ 1280 NM_Message: 8 ECU_A
     [Fact]
     public void Analyze_GeelyProfileWithoutPniRole_DoesNotClaimPniInterpretation()
     {
-        // 吉利 remove 了 (1,6) PNI 位：检查不执行，报告也不得再声称“按 bit6 解读 PNI”。
+        // 吉利把 (1,6) 覆盖成预留位（无 PartialNetworkInfo 角色）：检查不执行，
+        // 报告也不得再声称“按 bit6 解读 PNI”。
         var roles = new[] { new NmBitRole(3, 0, "NmSts") };
         var profile = Profile() with
         {

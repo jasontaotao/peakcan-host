@@ -27,11 +27,13 @@ public static partial class BlfParser
         var rawId = frameId & idMask;
         var data = frameData.Slice(8, 8).ToArray();
         // Trailer (IBBH = 4+2+1+1 = 8 bytes) at offset 16 — skipped (debug info)
-        // v3.51.0 T6.5 PATCH: same flag-mapping as CanMessageFlow —
-        // (flags & 0x01) → Rtr. Sister of CanMessageFlow review fix.
+        // can_flags 位语义同 CanMessageFlow（python-can can/io/blf.py:93-98）：
+        //   bit 0 (0x01) = DIR，bit 7 (0x80) = REMOTE_FLAG。
         var ff = FrameFlags.None;
-        if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended, channel);
+        if ((flags & 0x80) != 0) ff |= FrameFlags.Rtr;
+        var isTransmit = (flags & 0x01) != 0;
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended,
+            channel, isTransmit);
     }
 }
 

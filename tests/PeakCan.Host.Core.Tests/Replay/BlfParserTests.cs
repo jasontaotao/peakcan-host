@@ -626,6 +626,150 @@ public class BlfParserTests
             "after sort, _frames[^1] is the max — TotalDuration invariant restored");
     }
 
+    // —— can_flags 位语义（对齐 python-can / vblf 的权威定义）——
+    //
+    // Vector 的 1 字节 can_flags 里：
+    //   bit0 (0x01) = DIR（方向位，1=Tx）
+    //   bit7 (0x80) = REMOTE_FLAG（RTR 远程帧）
+    // 早期实现把 bit0 当成 RTR，导致所有 Tx 帧被误判成远程帧丢弃。
+    // 真实 trace（微卡26商改网络测试NM_16测试Log.blf）里 PMS 帧 flags=0x01
+    // 就是 Tx 帧，有 8 字节有效数据——被丢弃后 NM_NID_MISMATCH 永远不产出。
+
+    [Fact]
+    public async Task BlfParser_CanMessage_DirBitIsNotRtr()
+    {
+        // flags=0x01 是 DIR（Tx），不是 RTR。RTR 帧不可能带 8 字节非零数据。
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteObject(ms, BlfFormat.ObjTypeCanMessage, BlfFormat.CanMessageDataSize, w =>
+        {
+            w.Write((ushort)1);   // channel
+            w.Write((byte)0x01);  // flags = DIR
+            w.Write((byte)8);     // dlc
+            w.Write((uint)0x18FFFA27);
+            w.Write(new byte[] { 0x08, 0x01, 0, 0, 0, 0, 0, 0 });
+        });
+        ms.Position = 0;
+
+        var frames = await BlfParser.ParseAsync(ms, DefaultOptions());
+
+        var f = frames.Should().ContainSingle().Subject;
+        f.Flags.Should().NotHaveFlag(FrameFlags.Rtr,
+            "can_flags 的 bit0 是 DIR（方向位），RTR 是 bit7（0x80）");
+        f.IsTransmit.Should().BeTrue("DIR=1 表示这是本机发送的帧");
+        f.Data.Should().Equal(0x08, 0x01, 0, 0, 0, 0, 0, 0);
+    }
+
+    [Fact]
+    public async Task BlfParser_CanMessage_RemoteFlagBitIsRtr()
+    {
+        // flags=0x80 才是 RTR。
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteObject(ms, BlfFormat.ObjTypeCanMessage, BlfFormat.CanMessageDataSize, w =>
+        {
+            w.Write((ushort)1);
+            w.Write((byte)0x80);  // flags = REMOTE_FLAG
+            w.Write((byte)0);     // dlc
+            w.Write((uint)0x123);
+            w.Write(new byte[8]);
+        });
+        ms.Position = 0;
+
+        var frames = await BlfParser.ParseAsync(ms, DefaultOptions());
+
+        frames.Should().ContainSingle().Subject.Flags.Should().HaveFlag(FrameFlags.Rtr);
+    }
+
+    [Fact]
+    public async Task BlfParser_CanMessage_DirZeroIsReceive()
+    {
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteObject(ms, BlfFormat.ObjTypeCanMessage, BlfFormat.CanMessageDataSize, w =>
+        {
+            w.Write((ushort)1);
+            w.Write((byte)0x00);  // DIR=0 → Rx
+            w.Write((byte)8);
+            w.Write((uint)0x123);
+            w.Write(new byte[8]);
+        });
+        ms.Position = 0;
+
+        var frames = await BlfParser.ParseAsync(ms, DefaultOptions());
+
+        frames.Should().ContainSingle().Subject.IsTransmit.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task BlfParser_CanMessage2_RemoteFlagBitIsRtr()
+    {
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteObject(ms, BlfFormat.ObjTypeCanMessage2, BlfFormat.CanMessage2DataSize, w =>
+        {
+            w.Write((ushort)1);
+            w.Write((byte)0x80);  // REMOTE_FLAG
+            w.Write((byte)0);
+            w.Write((uint)0x1ABCDEF);
+            w.Write(new byte[8]);
+            w.Write((uint)0);
+            w.Write((ushort)0);
+            w.Write((byte)0);
+            w.Write((byte)0);
+        });
+        ms.Position = 0;
+
+        var frames = await BlfParser.ParseAsync(ms, DefaultOptions());
+
+        frames.Should().ContainSingle().Subject.Flags.Should().HaveFlag(FrameFlags.Rtr);
+    }
+
+    /// <summary>
+    /// 端到端回归：真实 trace 的 PMS 帧（flags=0x01、8 字节数据）经**选择器**后仍在。
+    /// 前四条只验解析器的 flag 位；这条验「Tx 帧不会被 NmFrameSelector 当 RTR 丢掉」——
+    /// NID 映射与 RMR 两条基线 finding 全靠这一帧产出（spec §14.4 / §14.6）。
+    /// </summary>
+    [Fact]
+    public async Task BlfParser_TxFrameWithData_SurvivesSelectorRtrFilter()
+    {
+        var ms = new MemoryStream();
+        WriteFileHeader(ms);
+        WriteObject(ms, BlfFormat.ObjTypeCanMessage, BlfFormat.CanMessageDataSize, w =>
+        {
+            w.Write((ushort)1);
+            w.Write((byte)0x01);  // DIR=1（Tx），不是 RTR
+            w.Write((byte)8);
+            w.Write((uint)0x18FFFA27);
+            w.Write(new byte[] { 0x08, 0x01, 0, 0, 0, 0, 0, 0 });
+        });
+        ms.Position = 0;
+
+        var frames = await BlfParser.ParseAsync(ms, DefaultOptions());
+        frames.Should().ContainSingle();
+
+        // 真的走一遍选择器：它按 Flags & Rtr 丢弃远程帧。
+        var request = new PeakCan.Host.Core.Analysis.Nm.NmAnalysisRequest(
+            "tx-frame", null, frames, null, TxFrameProfile(), 0, 1.0);
+        var selected = PeakCan.Host.Core.Analysis.Nm.NmFrameSelector.Select(request, out _);
+
+        selected.Should().ContainSingle(
+            "Tx 帧不是远程帧，选择器不得丢弃它——丢了 NID/RMR 两条基线 finding 就永远不产出");
+    }
+
+    private static PeakCan.Host.Core.Analysis.Nm.NmProfile TxFrameProfile() => new(
+        PeakCan.Host.Core.Analysis.Nm.NmProfileSource.Dbc,
+        [
+            new PeakCan.Host.Core.Analysis.Nm.NmMessageDef(
+                "0x18FFFA27", true, "PMS_NWM", "PMS", 8, true, ["MsgType=CANNM"],
+                CycleMs: 500, TimeoutMs: 2000),
+        ],
+        new PeakCan.Host.Core.Analysis.Nm.NmTimings(CycleMs: 500, TimeoutMs: 2000),
+        Array.Empty<PeakCan.Host.Core.Analysis.Nm.NmNodeDef>(),
+        Array.Empty<PeakCan.Host.Core.Analysis.Nm.NmConfigConflict>(),
+        Array.Empty<string>(),
+        new PeakCan.Host.Core.Analysis.Nm.NmProvenance());
+
     private static byte[] CompressZlib(byte[] data)
     {
         using var output = new MemoryStream();

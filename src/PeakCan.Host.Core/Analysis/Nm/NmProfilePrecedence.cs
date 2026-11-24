@@ -32,7 +32,7 @@ internal static class NmProfilePrecedence
         => profile.Features?.PnEnabled ?? profile.StandardFeatures?.PnEnabled;
 
     /// <summary>
-    /// 企标声明的 PNI 位角色；未声明（如吉利显式 remove <c>bit_roles[1.6]</c>）时返回 null。
+    /// 企标声明的 PNI 位角色；未声明（如吉利把 (1,6) 覆盖成 <c>Reserved_B1_6</c>）时返回 null。
     /// <para>
     /// 位语义只能来自 profile 的 bit_roles（plan Global Constraints）：调用方必须据此决定
     /// 是否解释 (cbv_byte, bit6) 为 PNI，不得回落到硬编码的 bit6。

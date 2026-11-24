@@ -67,7 +67,7 @@ public static class NmAnalyzer
 
         // PNI 只在 profile 声明了 (cbv_byte, bit6) 的 PNI 位角色时才会被解释
         // （与 NmContentAnalyzer.CheckCbv 同源）；未声明却仍写这条假设，
-        // 会让报告声称一个实际不执行的解读（如吉利 remove 了该位）。
+        // 会让报告声称一个实际不执行的解读（如吉利把该位覆盖成 Reserved_B1_6）。
         if (NmProfilePrecedence.EffectivePnEnabled(request.Profile) == false
             && NmProfilePrecedence.EffectivePniRole(request.Profile) is not null)
         {

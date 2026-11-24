@@ -29,20 +29,22 @@ public static partial class BlfParser
         var isExtended = (frameId & extendedBit) != 0;
         var rawId = frameId & idMask;
         var data = frameData.Slice(8, 8).ToArray();
-        // v3.51.0 T6.5 PATCH (reviewer finding #3 — HIGH): map Vector's
-        // 1-byte can_flags to our FrameFlags enum. Per vblf_can.py the
-        // canonical layout is:
-        //   bit 0 = RTR (CAN 2.0 remote transmission request)
-        //   bit 1 = BRS (CAN FD bit-rate switch — only meaningful on FD;
-        //              ignored on classic CAN because the bus hadn't
-        //              switched dataphase baud)
-        // We deliberately do NOT set FrameFlags.Fd here even when
-        // (flags & 0x02) is set — the canfd-ness comes from ObjType
-        // (100/101), not from this byte. Sister of CanFdMessageFlow
-        // which hard-codes Fd regardless of can_flags.
+        // can_flags 位语义（权威来源：python-can 的 can/io/blf.py:93-98 与
+        // vblf_constants.py 的 CanFdFlags）：
+        //   bit 0 (0x01) = DIR         — 1 = 本机 Tx
+        //   bit 7 (0x80) = REMOTE_FLAG — 1 = RTR 远程帧
+        //
+        // 早期实现把 bit0 当 RTR，后果是**每个 Tx 帧都被当成远程帧丢弃**：
+        // 真实 trace（微卡26商改网络测试NM_16测试Log.blf）里 PMS 帧 flags=0x01
+        // 且带 8 字节有效数据，被丢弃后 NM_NID_MISMATCH / NM_RMR_SET_WHILE_DISABLED
+        // 两条基线 finding 永远不产出（spec §14.4 / §14.6）。
+        //
+        // 不设 FrameFlags.Fd：FD 与否由 ObjType（100/101）决定，不是这个字节。
         var ff = FrameFlags.None;
-        if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr;
-        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended, channel);
+        if ((flags & 0x80) != 0) ff |= FrameFlags.Rtr;
+        var isTransmit = (flags & 0x01) != 0;
+        return new ReplayFrame(timestamp / BlfFormat.TimestampScale, rawId, dlc, data, ff, isExtended,
+            channel, isTransmit);
     }
 }
 

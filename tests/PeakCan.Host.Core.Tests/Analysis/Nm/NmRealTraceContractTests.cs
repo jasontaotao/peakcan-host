@@ -24,7 +24,7 @@ public class NmRealTraceContractTests
     // CA1861：预留位规则 ID 在多处复用，抽成静态字段避免每次构造都分配。
     private static readonly string[] ReservedB1RuleIds =
         ["NM_RESERVED_B1_1", "NM_RESERVED_B1_2", "NM_RESERVED_B1_3",
-         "NM_RESERVED_B1_5", "NM_RESERVED_B1_7"];
+         "NM_RESERVED_B1_5", "NM_RESERVED_B1_6", "NM_RESERVED_B1_7"];
 
     [Fact]
     public void Analyze_GeelyProfileOnRealTraceShape_RunsRulesWithoutFalsePositives()

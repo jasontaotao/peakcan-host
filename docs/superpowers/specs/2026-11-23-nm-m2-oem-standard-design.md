@@ -1571,6 +1571,81 @@ public sealed record NmCacheKey(
 - 标定面板默认折叠（`Expander IsExpanded="False"`）：四块表常驻会吃掉 360px 面板绝大部分垂直空间。
 - 两个新转换器（`NonEmptyStringToVisibilityConverter` / `CountToVisibilityConverter`）定义在 **UserControl.Resources** 而不只是 App.xaml：面板级 XAML 冒烟测试会独立实例化 UserControl，依赖全局资源会抛 `XamlParseException`。这个坑在实现时被 `NmViewXamlResourceTests` 与 `NmHoverCardTests` 抓到（首版把资源 key 写成 `NonEmptyToVis` 而注册的是 `NonEmptyStringToVis`）。
 
+#### 八、CBV byte1.bit6 预留位漏检（2026-11-24 补修）
+
+**这是既有缺陷，不是 S7 引入的**，但它与 §10.2 的标定面板直接相关——标定面板会把「没建模」如实显示出来，而这一位的真实问题是**建模了却不检查**，面板无从反映。
+
+§5.4.3 的表格里 Byte1 的 Bit1/2/3/5/6/7 都是「预留位填充 0」。吉利 profile 的 `bit_roles` 声明了 1/2/3/5/7，**独缺 bit6**：
+
+- base profile（AUTOSAR CanNm）把 bit6 声明为 `PartialNetworkInfo`（PNI）
+- 吉利 profile 用 `overrides.remove: bit_roles[1.6]` 删掉它（吉利 §5.4.3 确实没有 PNI 概念）
+- **但删完没有补回「bit6 必须为 0」** → 该位处于「无角色、无规则」状态
+
+后果：某个 ECU 在 byte1.bit6 填 1 时，报告里完全没有痕迹。这是漏检，不是误报，且没有任何信号。
+
+**修复的两个坑**：
+
+1. **不能只加角色声明**。展平器 `ApplyRemove` 在 `MergeLayout` **之后**执行，`remove: bit_roles[1.6]` 会把子层刚声明的 `Reserved_B1_6` 一并删掉。正解是**删掉 remove 行**：`MergeLayout` 本来就按 `(byte,bit)` 合并，同位子覆盖父，子层声明已足够覆盖 PNI。
+2. **PNI 检查按角色名定位**（`NmProfilePrecedence.EffectivePniRole` 找 `PartialNetworkInfo`），改名成 `Reserved_B1_6` 后 PNI 检查自然不执行，不需要额外处理。
+
+**反向验证时抓到的测试假绿**：首版测试只断言「(1,6) 有位角色」，删掉 `Reserved_B1_6` 后仍绿——因为 base 的 `PartialNetworkInfo` 也占 (1,6)，`Assert.Contains` 匹配到了它。判据必须**同时断言 `Constraint == MustBeZero`**，否则「父层角色顶替子层预留位」这种正是要防的情况测不出来。
+
+新增 `tests/PeakCan.Host.Core.Tests/Analysis/Nm/NmReservedBitCoverageTests.cs`（5 条），钉住 §5.4.3 的 byte1 bit1/2/3/5/6/7 与 §5.4.4 的 byte3 bit1–7 逐位覆盖，并反向守卫 bit0（RMR）/ bit4（AWB）不得被误判成预留位。
+
+#### 九、BLF 解析器把 DIR 位当成了 RTR 位（2026-11-24 补修）
+
+**这是既有缺陷，与 S4/S5 无关，但卡住了 S5 的「真实 trace 端到端」验收。**
+
+§11 的 S5 验收要求「真实 trace 端到端」，而 §14.6 的「必须出现」表里有两条依赖 PMS 帧（`0x18FFFA27`）：
+
+| finding | 依据 |
+|---|---|
+| `NM_NID_MISMATCH` | PMS 帧 byte0=0x08 ≠ 0x27 |
+| `NM_RMR_SET_WHILE_DISABLED` | 同一帧 byte1.bit0=1 |
+
+这帧在真实 trace 里是 **Tx 帧**（`can_flags` bit0=DIR=1），带 8 字节有效数据。而三个 BLF 解析器都写成 `if ((flags & 0x01) != 0) ff |= FrameFlags.Rtr`——把 **DIR 位当成了 RTR 位**。于是这一帧被 `NmFrameSelector` 当远程帧丢弃，两条基线 finding 永远不产出。
+
+**权威依据**（python-can `can/io/blf.py:93-98` 与 `vblf_constants.py` 的 `CanFdFlags`）：
+
+| 位 | 常量 | 含义 |
+|---|---|---|
+| `0x01` | `DIR` | 方向位，1 = 本机 Tx |
+| `0x80` | `REMOTE_FLAG` | RTR 远程帧 |
+
+用 python-can 交叉验证真实 trace：5671 帧里 **0 个 `is_remote_frame`**，`is_rx` 除 1 帧外全为 True——与「PMS 帧是唯一的 Tx 帧」完全吻合。
+
+**同时修正的两处**：
+
+1. **`CanMessageFlow` / `CanMessage2Flow`**：RTR 改读 `0x80`，并补上 `IsTransmit`（此前从不设置，方向信息全丢）。这两个 flow 的字段偏移（`HBBI8s` / `HBBI8sIBBH`：flags@2、id@4、data@8）经 vblf 与 python-can 双向核对无误。
+
+2. **`CanFdMessageFlow` / `CanFdMessage64Flow` 未改**——它们的**字段偏移整体是错的**，属于既存债（`BlfFormat.cs` 已标注「test-compatible layout，v3.52.0 再对齐」），不能在错误地基上修位语义：
+
+| 字段 | vblf `HBBIIBBBBI64sI` 真实 offset | `CanFdMessageFlow` 当前读取 |
+|---|---|---|
+| `flags` | 2（1 字节） | 2 ✓ |
+| `frame_id` | **4** | 8 ✗（读到 frame_length） |
+| `frame_length` | **8** | 16 ✗ |
+| `canfd_flags` | **13（1 字节）** | 4（4 字节）✗（读到 frame_id） |
+| `data` 起点 | **20** | 22 ✗ |
+
+后果：真实 obj100 帧 payload 是 88 字节，而 `CanFdMessageDataSize=90` 会直接抛 `ReplayFormatException` 并整帧丢弃——**任何含 CAN FD 帧的 BLF 目前都在静默丢帧**，只表现为 corruption 计数。这不是本次引入的，但必须明确记录：**FD 路径不可用，不是「已修正」**。
+
+**为什么本轮不在错误地基上顺手改位语义**：在 `fdFlags = frame_id` 的前提下，`fdFlags & 0x2` 实际是在读 CAN ID 的 bit1，把 ID 的位当成 BRS——改动只会让「看起来修了」比「明显没修」更危险。偏移与位语义必须同批修（v3.52.0）。
+
+**修复后真实 trace 的输出**：`NM_NID_MISMATCH` 与 `NM_RMR_SET_WHILE_DISABLED` 都产出，`nid_mapping` 体检从 `Passed` 变 `Failed`，§14.6「必须不出现」的四条仍全部守住。真实 trace 全部是经典 CAN（python-can 核对：5671 帧、`is_fd` 全 False），所以 FD 路径的缺陷不影响本次验收。
+
+**新增测试**：`BlfParserTests` 加 5 条（DIR 位不是 RTR、`0x80` 才是 RTR、DIR=0 是 Rx、CanMessage2 同理、Tx 帧带数据不被丢弃）；新增 `NmRealTraceEndToEndTests`（2 条，`[Trait("Manual")]`，CI 无 fixture 时跳过）把 §14.6 的「必须出现 / 必须不出现」在**真实** BLF 上钉住。
+
+**为什么合成 fixture 兜不住**：`NmRealTraceContractTests` 用手搓时间戳数组，根本不经过 BLF 解析器。这正是这个缺陷能潜伏至今的原因——两个 contract test 分工不同，缺一不可。
+
+**遗留：FD 路径的既存缺陷（不在本轮范围）**。`CanFdMessageFlow` 与 `CanFdMessage64Flow` 的字段偏移整体错误（见上表），且 `CanFdMessage64Flow` 的 `frame_id` 读自 offset 16（真实 offset 4），也不读 direction 字节。`BlfFormat.cs` 已把这两处标为「test-compatible layout，v3.52.0 再对齐」。本轮**不动**，理由：
+
+- 真实 trace 无 FD 帧，不影响 S5 验收；
+- 偏移与位语义必须同批修，单独修位语义会在错误地基上造出更隐蔽的错；
+- 现有 FD 测试（`BlfParser_CanFdMessage_Parsed` 等）用的是 90 字节伪造 fixture，改真实布局会同时要求改测试，属于独立一轮。
+
+**不得把 FD 路径记作「已修正」**——它目前会丢帧。
+
 **S6 硬依赖 S2**：`NmActivityBuilder.Build` 接收 `NmEffectiveTiming`，该类型由 S2 产出。**S2 必须先合并，S6 才能开工。** 不允许并行会话自行补一份时序实现。
 
 **文件所有权**（S2 与 S6 涉及同一批文件，必须划分）：
@@ -1724,8 +1799,8 @@ payload `08 01 00 00 00 00 00 00`，ID `0x18FFFA27`（低字节 0x27）：
 |---|---|
 | `NM_NID_MISMATCH` | PMS 帧 byte0=0x08 ≠ 0x27 |
 | `NM_RMR_SET_WHILE_DISABLED` | 同一帧 byte1.bit0=1 |
-| **`NM_REPEAT_MESSAGE_DURATION_EXCEEDED`（第一段）** | RMS 实测 2.121s，无快发允许 1.440–1.560s，**超 +561ms** |
-| **`NM_REPEAT_MESSAGE_DURATION_EXCEEDED`（第二段）** | RMS 实测 2.325s，有快发允许 1.640–1.760s，**超 +565ms** |
+| **`NM_REPEAT_MESSAGE_DURATION_EXCEEDED`（第一段）** | RMS 实测 1.584s，无快发允许 1.440–1.560s，**超 +24ms** |
+| **`NM_REPEAT_MESSAGE_DURATION_EXCEEDED`（第二段）** | RMS 实测 1.789s，有快发允许 1.640–1.760s，**超 +29ms** |
 | observation `all_nm_silent` | 9.713674–12.677179，且标 `inferred`（原因未知） |
 
 **必须不出现**：
@@ -1737,7 +1812,20 @@ payload `08 01 00 00 00 00 00 00`，ID `0x18FFFA27`（低字节 0x27）：
 | `NM_WAKEUP_BURST_MISMATCH` | 快发段 10 帧 × 19–21 ms 合规 |
 | `NM_RESERVED_BIT_SET` | 除 PMS 帧外，BMS 帧预留位均为 0 |
 
-**两段 RMS 超差是真实违规**，不是基线噪声。第三轮评审发现：这两段都超出吉利的 RMS 上限约 560ms，说明这份 trace 的网络确实存在问题——这正是「真实 trace 可能有故障」的实例。contract test 必须断言这两条 finding 存在，否则 `repeat_message_duration` 实现了也验不出来。
+**两段 RMS 超差是真实违规**，不是基线噪声。两段都超出吉利的 RMS 上限（+24ms / +29ms），说明这份 trace 的网络确实存在问题——这正是「真实 trace 可能有故障」的实例。contract test 必须断言这两条 finding 存在，否则 `repeat_message_duration` 实现了也验不出来。
+
+**口径修正（2026-11-24，真实 trace 实测）**：本表原先写「2.121s / 2.325s，超 +561ms / +565ms」，那是**状态切换时刻**的口径（首个 NMSts=1 帧减首个 NMSts=0 帧）。实现采用的口径是**最后一个 NMSts=0 帧**作为 RMS 终点，得到 1584ms / 1789ms。
+
+两个口径都不是错的，但含义不同，必须说清：
+
+| 口径 | 第一段 | 第二段 | 含义 |
+|---|---|---|---|
+| 状态切换（首个 NMSts=1） | 2.121s | 2.325s | 节点**离开** RMS 的时刻；含切换前最后一个周期的等待 |
+| 末个 RMS 帧（实现采用） | 1.584s | 1.789s | 能观测到的**最后一个处于 RMS 的帧**；是真实持续时长的**下界** |
+
+实现取下界是刻意的：NMSts=1 的帧证明状态**已**切换，但「最后一个 NMSts=0 帧」与「首个 NMSts=1 帧」之间那段时间里，节点是否仍在 RMS 不可观测（可能早已切换但没发帧，也可能一直发到切换）。用上界会**凭空多算约一个周期**（本例 537ms / 536ms）——一个恰好合规在 1560ms 上限的 RMS，按上界量就成了约 2097ms，被误判超差；用下界最多漏判一个周期，但不会冤枉合规段。
+
+**这也是为什么两段的超差只有 +24ms / +29ms**——真实 trace 的 RMS 只是略微超出，而原文档写的 +560ms 会让读者以为网络问题很严重。修正后的数字更接近事实，但结论（两段都超差）不变。
 
 ## 15. 未决项
 

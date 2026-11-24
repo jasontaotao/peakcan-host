@@ -264,7 +264,8 @@ public static class NmContentAnalyzer
         if (NmProfilePrecedence.EffectivePnEnabled(input.Profile) != false) return;
 
         // PNI 只在 profile 真的把 (cbv_byte, bit6) 声明为 PNI 位时才解释；
-        // 吉利 profile 显式 remove 了该位角色，此时 byte1.6 不是 PNI，不得据此报违规。
+        // 吉利把该位覆盖成 Reserved_B1_6（预留位必须为 0），按名字找不到
+        // PartialNetworkInfo，此时 byte1.6 不是 PNI，不得据此报违规。
         if (NmProfilePrecedence.EffectivePniRole(input.Profile) is not { } pniRole) return;
 
         // 掩码从命中的位角色推导，不写裸位掩码常量：位语义只能来自 profile 的 bit_roles。

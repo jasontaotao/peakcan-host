@@ -24,7 +24,6 @@ overrides:
     user_data_offset: 4
     user_data_length: 4
     bit_roles:
-      # 吉利 §5.4.3 无 PNI：删除 base 的 bit6 声明。
       - byte: 3
         bit: 0
         name: NmSts
@@ -37,6 +36,11 @@ overrides:
       - { byte: 1, bit: 2, name: Reserved_B1_2, constraint: must_be_zero }
       - { byte: 1, bit: 3, name: Reserved_B1_3, constraint: must_be_zero }
       - { byte: 1, bit: 5, name: Reserved_B1_5, constraint: must_be_zero }
+      # bit6 在 base 是 AUTOSAR 的 PNI（PartialNetworkInfo），吉利 §5.4.3 没有 PNI
+      # 概念，这一位是「预留位填充 0」——不是「没有这一位」。
+      # 用同位子覆盖（(byte,bit) 相同 → 子层角色替换父层）而不是 overrides.remove：
+      # remove 在 MergeLayout 之后执行，会把这里刚声明的角色一并删掉。
+      - { byte: 1, bit: 6, name: Reserved_B1_6, constraint: must_be_zero }
       - { byte: 1, bit: 7, name: Reserved_B1_7, constraint: must_be_zero }
       - { byte: 3, bit: 1, name: Reserved_B3_1, constraint: must_be_zero }
       - { byte: 3, bit: 2, name: Reserved_B3_2, constraint: must_be_zero }
@@ -47,8 +51,6 @@ overrides:
       - { byte: 3, bit: 7, name: Reserved_B3_7, constraint: must_be_zero }
   features:
     pn_enabled: false
-  remove:
-    - bit_roles[1.6]
 
 rules:
   - id: NM_NID_MAPPING
@@ -231,6 +233,19 @@ rules:
     observability: observed
     clauses: ["§5.4.3"]
     when: { kind: bit_rule, byte: 1, bit: 5 }
+    expect: { kind: is_zero }
+    finding: NM_RESERVED_BIT_SET
+    source_ref: §5.4.3
+
+  # bit6 在 AUTOSAR 是 PNI，吉利 §5.4.3 把它归入「预留位填充 0」。
+  # 这一条不能省：PNI 检查按角色名 PartialNetworkInfo 定位，改名成 Reserved_B1_6
+  # 后 PNI 检查自然不执行，但「必须为 0」的约束需要这条规则来兑现。
+  - id: NM_RESERVED_B1_6
+    requirement: CBV byte1.bit6 为预留位，必须填 0
+    declared_phase: normal
+    observability: observed
+    clauses: ["§5.4.3"]
+    when: { kind: bit_rule, byte: 1, bit: 6 }
     expect: { kind: is_zero }
     finding: NM_RESERVED_BIT_SET
     source_ref: §5.4.3
