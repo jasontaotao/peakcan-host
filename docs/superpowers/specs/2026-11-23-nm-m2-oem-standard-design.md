@@ -390,7 +390,7 @@ public sealed record NmRuleDef(
 | C# 属性 | `Phase` → `DeclaredPhase`（编译器强制 34 个构造点更新，不静默漏改） |
 | YAML 首选键 | `declared_phase` |
 | YAML 兼容键 | `phase` 仍接受，但加载期产一条 assumption：「`phase` 已改名 `declared_phase`，且该字段不驱动求值作用域」 |
-| 报告 | `NmReport.Assumptions` 固定输出一条：「规则 phase 为声明性元数据，引擎全窗口求值」——只要选中的 profile 有非 `normal` 的 `DeclaredPhase` |
+| 报告 | `NmReport.Assumptions` 固定输出一条：「规则 declared_phase 为声明性元数据，它不驱动求值作用域，引擎对全部规则在全窗口求值」——只要引擎实际求值的规则集（`NmProfile.StandardRules`）里有非 `normal` 的 `DeclaredPhase`。文案用 YAML 键名而非 C# 属性名，与加载期提示同一口径 |
 | 语义 | 仅展示与筛选，**不参与求值作用域** |
 
 **为什么不选 A（删字段）**：现有 profile 已用 `phase: wakeup` / `sleep` 表达设计意图，删掉会丢信息；且删字段的破坏面与改名相同，收益更小。
@@ -423,8 +423,12 @@ public sealed record NmStandardProfile
     public IReadOnlyList<NmStandardNode>? Nodes { get; init; }
     public IReadOnlyList<NmRuleDef>? Rules { get; init; }
 
-    // Rev 5 新增：条款目录。见 §4.0 / §5.5。
-    public IReadOnlyList<NmClauseDef>? Clauses { get; init; }
+    // 加载期提示（§5.3 旧键 phase 改名）。逐文件产生；报告读的是展平后
+    // NmStandardFlattener.Flattened.LoadAssumptions（链级合并去重），不是这一层。
+    public IReadOnlyList<string> LoadAssumptions { get; init; } = Array.Empty<string>();
+
+    // 条款目录（见 §4.0 / §5.5）——**尚未落地**：`NmClauseDef` 在 Core 中不存在，
+    // 条款目前只以字符串形式挂在 NmRuleDef.Clauses 上。见 §19.5「条款目录全链路」。
 
     // 便利访问器：绝大多数调用方只关心展平后的值，不需要知道它们在 Overrides 下。
     public NmStandardTimings? Timings => Overrides?.Timings;
@@ -560,7 +564,7 @@ public sealed record NmStandardFeatures(
 **继承与删除语义（Rev 4 未定义）**：
 
 - 子 profile `remove: rules[<id>]` 删掉父规则后，父的条款目录仍在 → 该条款变 `NotCovered`。这是正确行为，但**必须可区分于「从未声明」**，故 `NotCovered` 的原因码要写明「规则已被 remove」。
-- `ApplyRemove` 当前对不存在的 key **静默无效**（`rules.Remove(key)` 无返回值检查）。规则重命名后旧的 `remove:` 会变成 no-op。**必须改为：remove 的 key 不存在时报错**——这是独立于本设计的既有缺陷，但规则重命名会放大它。
+- ~~`ApplyRemove` 对不存在的 key 静默无效~~ **已修**：`rules` / `messages` / `nodes` / `bit_roles` 四个分支在 key 不存在时一律抛 `NmProfileValidationException`，空项同样报错（`NmStandardFlattener.ApplyRemove`）。规则重命名后旧的 `remove:` 不再变成 no-op。
 - 条款目录本身支持 `remove: clauses[<id>]`，语义同 rules。
 
 **注意（含一个实现阻碍）**：U 级条款不必在 profile 的 `rules:` 里造一条不产 finding 的假规则——只在 `clauses:` 目录里声明 `level: U` 即可。
@@ -628,7 +632,7 @@ overrides:
 
 **为什么这个形态能区分「缺失」与「删除」**：删除必须写进 `remove:` 列表，而不是靠「把字段设为 null」——后者与「字段缺失」在反序列化后无法区分。这与 §6.2 开头的要求一致。
 
-**已知实现缺陷**：`remove` 的 key 不存在时静默无效（见 §5.4 的 `ApplyRemove` 缺陷记录）。
+**`remove` 的 key 不存在时必须报错**（此前是静默无效，已修，见 §5.5 的 `ApplyRemove` 记录）：静默 no-op 会让「写了 remove 却没删掉」毫无迹象，规则改名后尤其危险。
 
 **继承差异不记冲突**。冲突只发生在**同一事实的多个独立来源**（DBC / sidecar / project profile）给出不同值且都非空时，记 `NmConfigConflict`。
 
@@ -1710,7 +1714,7 @@ Rev 4 之后的 S1–S4 实施与一次独立设计评审，暴露出 Rev 4 内�
 | 11 | §11 S4 验收含「主动唤醒两阶段判定」，但 `bit_set` 不是闭集原语（闭集里是 `bit_rule`，只支持 `is_zero`） | HIGH | S4 验收删去此项；诊断改为「缺 `is_one` + wakeup 作用域」 |
 | 12 | NM_10 的「不区分目标状态」被当成能力限制 | MEDIUM | 实际可判定（NMSts 已被三处读取）：加 `expect_nmsts`，拆成 `NM_RESUME_TO_RMS` / `NM_RESUME_TO_NOS` |
 | 13 | 条款目录不进缓存 hash | HIGH | `StandardClauses` 加进 `NmProfile` / `NmStandardProfileBinding` / `NmFlow` hash |
-| 14 | `ApplyRemove` 对不存在的 key 静默无效，规则重命名后旧 `remove:` 变 no-op | MEDIUM | 规则重命名必须同批修；remove 不存在的 key 改为报错 |
+| 14 | `ApplyRemove` 对不存在的 key 静默无效，规则重命名后旧 `remove:` 变 no-op | MEDIUM | **已修**：四个分支 + 空项一律抛 `NmProfileValidationException` |
 | 15 | `NmReportWriter` 从未输出 `RequirementId`，§4.0 声称的「Markdown 追溯出口」不成立 | MEDIUM | writer 需新增 clause 输出（与 DQ 字段同批） |
 | 16 | §11 声称 S6 归并行会话 `claude-proj2-1a`，无法核实 | MEDIUM | 不改所有权划分，但要求动这些文件前必须向用户确认归属 |
 

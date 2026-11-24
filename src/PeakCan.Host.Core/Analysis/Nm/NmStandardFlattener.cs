@@ -98,7 +98,11 @@ public static class NmStandardFlattener
 
         foreach (var entry in remove)
         {
-            if (string.IsNullOrWhiteSpace(entry)) continue;
+            // 空项不得静默跳过：用户写了 remove 却什么都没删，报告毫无迹象。
+            // 与「指向不存在的目标必须报错」同一语义。
+            if (string.IsNullOrWhiteSpace(entry))
+                throw new NmProfileValidationException(
+                    "remove 列表含空项，应为 <字段>[<键>]（如 rules[NM_CYCLE]）");
 
             var bracket = entry.IndexOf('[', StringComparison.Ordinal);
             if (bracket < 0 || !entry.EndsWith(']'))
@@ -111,7 +115,11 @@ public static class NmStandardFlattener
             switch (field)
             {
                 case "bit_roles":
-                    if (roles is null) break;
+                    // 与 rules/messages/nodes 同语义：指向不存在的目标必须报错，
+                    // 不能静默无效（spec §19.4 #14 的同一缺陷在四个分支上是同一种）。
+                    if (roles is null)
+                        throw new NmProfileValidationException(
+                            $"remove 项「{entry}」指向位角色，但继承链上没有声明任何位角色");
                     var parts = key.Split('.');
                     if (parts.Length != 2
                         || !byte.TryParse(parts[0], out var rb)
@@ -120,21 +128,35 @@ public static class NmStandardFlattener
                         throw new NmProfileValidationException(
                             $"bit_roles remove 键格式非法「{key}」，应为 byte.bit（如 1.6）");
                     }
-                    roles.RemoveAll(r => r.Byte == rb && r.Bit == rbit);
+                    if (roles.RemoveAll(r => r.Byte == rb && r.Bit == rbit) == 0)
+                        throw new NmProfileValidationException(
+                            $"remove 项「{entry}」指向不存在的位角色 byte{rb}.bit{rbit}");
                     break;
 
                 case "rules":
-                    rules.Remove(key);
+                    // spec §19.4 #14：key 不存在时静默无效。规则改名后旧的
+                    // remove: rules[NM_06] 会变成 no-op——profile 看起来删了规则，
+                    // 实际还在跑，且报告没有任何迹象。必须报错。
+                    if (!rules.Remove(key))
+                        throw new NmProfileValidationException(
+                            $"remove 项「{entry}」指向不存在的规则「{key}」；" +
+                            "规则改名后旧的 remove 会静默失效，请同步更新");
                     break;
 
                 case "messages":
                     // 不区分扩展位：remove 一个 ID 即删除该 ID 的全部格式。
-                    foreach (var k in messages.Keys.Where(k => k.Item1 == key).ToList())
+                    var matchedMessages = messages.Keys.Where(k => k.Item1 == key).ToList();
+                    if (matchedMessages.Count == 0)
+                        throw new NmProfileValidationException(
+                            $"remove 项「{entry}」指向不存在的报文「{key}」");
+                    foreach (var k in matchedMessages)
                         messages.Remove(k);
                     break;
 
                 case "nodes":
-                    nodes.Remove(key);
+                    if (!nodes.Remove(key))
+                        throw new NmProfileValidationException(
+                            $"remove 项「{entry}」指向不存在的节点「{key}」");
                     break;
 
                 default:
