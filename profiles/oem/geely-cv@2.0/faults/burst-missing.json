@@ -1,0 +1,14 @@
+{
+  "_comment": "快发帧数不足（§5.5 / NM_03）：AWB=1 声称主动唤醒，但只发了 4 帧快发（要求 10 帧），随后直接转 500ms 稳态。",
+  "_expect": "NM_WAKEUP_BURST_MISMATCH",
+  "frames": [
+    { "t": 0.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.02, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.04, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.06, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.56, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 1.06, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 1.56, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 2.06, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000100000000" }
+  ]
+}

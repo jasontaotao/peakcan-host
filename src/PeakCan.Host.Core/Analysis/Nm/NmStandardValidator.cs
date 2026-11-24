@@ -27,6 +27,10 @@ public static class NmStandardValidator
         ValidateLayout(flat.Layout);
         ValidateRules(flat.Rules);
         ValidateMessages(flat.Messages);
+        // spec §19.3「追溯矩阵最低版」：clauses 引用的条款必须真实存在。
+        // 放在加载期而不是分析期——坏 profile 越早暴露越好，否则用户看到的是
+        // 一份带查不到条款号的报告，追溯链断在源头却毫无提示。
+        NmClauseRegistry.ValidateFlattened(flat);
     }
 
     private static void ValidateMessages(IReadOnlyList<NmStandardMessage>? messages)

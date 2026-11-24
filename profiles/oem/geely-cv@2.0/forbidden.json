@@ -1,0 +1,40 @@
+{
+  "_comment": "每个 fixture 必须不出现的 finding。golden 场景必须有内容——否则「合法场景零误报」（spec §12）没有被验证。fault 场景列出的码是「这个故障不该顺带触发别的结论」。",
+  "passive-wakeup": [
+    "NM_CYCLE_DEVIATION",
+    "NM_RESERVED_BIT_SET",
+    "NM_RMR_SET_WHILE_DISABLED",
+    "NM_NID_MISMATCH",
+    "NM_WAKEUP_BURST_MISMATCH",
+    "NM_LAYOUT_VIOLATION"
+  ],
+  "active-wakeup": [
+    "NM_CYCLE_DEVIATION",
+    "NM_RESERVED_BIT_SET",
+    "NM_RMR_SET_WHILE_DISABLED",
+    "NM_NID_MISMATCH",
+    "NM_WAKEUP_BURST_MISMATCH",
+    "NM_LAYOUT_VIOLATION"
+  ],
+  "release-to-sleep": [
+    "NM_SENDER_SILENT_BEYOND_TIMEOUT",
+    "NM_CYCLE_DEVIATION",
+    "NM_RESERVED_BIT_SET",
+    "NM_NID_MISMATCH"
+  ],
+  "cycle-deviation": [
+    "NM_RESERVED_BIT_SET",
+    "NM_NID_MISMATCH",
+    "NM_WAKEUP_BURST_MISMATCH"
+  ],
+  "burst-missing": [
+    "NM_RESERVED_BIT_SET",
+    "NM_NID_MISMATCH",
+    "NM_CYCLE_DEVIATION"
+  ],
+  "reserved-bit-set": [
+    "NM_RMR_SET_WHILE_DISABLED",
+    "NM_NID_MISMATCH",
+    "NM_CYCLE_DEVIATION"
+  ]
+}

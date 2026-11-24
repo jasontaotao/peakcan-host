@@ -1,0 +1,16 @@
+{
+  "_comment": "合法被动唤醒（NM_02）：RMS 段 0→1.5s 以 500ms 周期发送（NMSts=0，落在无快发允许窗 1440–1560ms 内），随后转 NOS（NMSts=1）。CBV=0x00 表示 AWB=0（被动唤醒），预留位全 0，NID 0xF4 与 ID 低字节一致。",
+  "_expect": "无 finding：周期在 450–550ms 内、RMS 时长合规、预留位全 0、NID 映射正确",
+  "frames": [
+    { "t": 0.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000000000000" },
+    { "t": 0.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000000000000" },
+    { "t": 1.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000000000000" },
+    { "t": 1.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000000000000" },
+    { "t": 2.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 2.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 3.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 3.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 4.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 4.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" }
+  ]
+}

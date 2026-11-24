@@ -1975,7 +1975,7 @@ Rev 5 初稿曾写「`NM_10` 与 NM_02/15 共用一条规则，接受精度损�
 |---|---|---|
 | `NmRuleContext` 缺 `RawFrames`/`Dbc`/`Selection` | 规则引擎无法做任何需要原始帧的判定 | **可留**——不影响 S5（体检走独立分析器）；但其它需要原始帧的原语仍是硬缺口 |
 | §7.3 主动唤醒两阶段判定整节未实现 | `NM_ACTIVE_WAKEUP_SUSPECT` 只有注册无产出者 | **可留，但有条件**：NM_03/NM_16 的 AWB 半边必须保持 `Partial`/`NotCovered`，**不能因为 `burst_shape` 实现了就报 Covered**（见 §9.5 的条款拆分要求） |
-| §11.1 的「追溯矩阵完整」CI 校验不存在 | 条款目录靠手工维护，作者忘写就静默失效 | **完整版可留，最低版不能留**：至少要有「目录中每条 O/P 条款必须有规则覆盖或明确 Partial/NotCovered」的 machine-readable 自检，否则漏写仍然静默 |
+| §11.1 的「追溯矩阵完整」CI 校验不存在 | 条款目录靠手工维护，作者忘写就静默失效 | **最低版仍未兑现**。2026-11-24 只做了「条款号存在性」白名单（`NmClauseRegistry`，见 §19.7），它防的是「写了不存在的条款」，**防不住本条要求防的「作者忘写一条规则」**——删掉 profile 里的 `NM_BURST_SHAPE`，白名单照样通过，只是 NM_03/04/16 静默从覆盖表消失。兑现最低版需要一个反向检查：遍历 O/P 条款，断言每条都有规则覆盖或显式列入 `uncovered.json` |
 | `phase` 不驱动求值作用域 | 必填字段却不生效，用户会误以为作用域有效；且会让 S4/S5 的抑制与覆盖统计出错 | **不可留**——必须在 §5.3 的三选一中裁决（删字段/改名/实现作用域） |
 
 ### 19.4 契约对齐：Rev 4 类型草案与实现不符的六处
@@ -2040,3 +2040,54 @@ Rev 5 曾把新机制（条款目录、三态覆盖、DQ 三态）写进 §5.3 /
 #### 三、输出
 
 `NmReport` 新增 `RuleEvaluations` 与 `ClauseCoverage`，两处消费方（`GetNmOverviewTool` 的 JSON、`NmReportWriter` 的 Markdown）都输出。AI 侧尤其重要：只看 `findings` 为空，AI 会说「没有违规」，而真相可能是「这些规则根本没跑」。
+
+### 19.7 追溯矩阵最低版与测试产物（2026-11-24）
+
+#### 一、条款白名单（§19.3「最低版不能留」的兑现）
+
+`NmClauseRegistry.KnownClauses` 是 spec §4 条款表的机器可读副本，`ValidateFlattened` 在加载期拒绝不存在的条款号。
+
+**能挡什么**：profile 写了规范里没有的条款号（`§9.9`）。这会让 finding 带一个查不到的条款，追溯链断在源头。**加载期拒绝而不是分析期**——坏 profile 越早暴露越好。
+
+**挡不住什么（必须明确）**：只查「条款号存在」，**不查「规则与条款语义是否匹配」**。仓库里的活反例：`NM_STOP_SENDING` 曾写 `source_ref: §5.9`，而 §5.9 是「诊断报文不唤醒」（U 级、M3），NM_09 是「RSS 停发」——§5.9 确实存在，白名单放行。语义错挂只能靠人工 review。`NmClauseRegistryTests.Registry_DoesNotClaimSemanticCorrectness` 专门记录这个边界，防止有人以为有了白名单就有了语义正确性保证。
+
+**白名单必须与 spec §4 表手工同步**。同步失效的后果是新条款被误判为「不存在」——比静默接受好，至少会报错。
+
+#### 二、profile 测试产物（§11.1）
+
+`profiles/oem/geely-cv@2.0/` 下：
+
+| 路径 | 内容 |
+|---|---|
+| `golden/*.json` | 三个合法场景：被动唤醒、主动唤醒、释放到睡眠 |
+| `faults/*.json` | 三个注入故障：周期偏差、快发不足、预留位置位 |
+| `expected.json` | 每个 fixture 必须出现的 finding |
+| `forbidden.json` | 每个 fixture 必须不出现的 finding |
+
+fixture 用 JSON 描述帧序列，不提交 BLF（spec §11.1 要求）。`NmProfileFixtureContractTests` 分两层校验：
+
+1. **契约层**：文件存在、格式合法、时间戳单调、DLC 与数据长度一致、≤200 帧、每个 fixture 至少被一个 manifest 覆盖。
+2. **端到端层**：fixture 真的跑一遍 `NmAnalyzer`，`expected` 里的码必须出现、`forbidden` 里的码必须不出现。
+
+**两条关键契约**（防止假绿）：
+
+- **每个 fault fixture 必须在 `expected.json` 里至少有一条**。只有 forbidden 的 fault 证明不了规则真的触发了——规则没跑也会绿。
+- **每个 golden fixture 必须在 `forbidden.json` 里至少有一条**。只写 expected 的 golden 证明不了「合法场景零误报」（spec §12）。
+
+**未做**：`calibration.json`（标定报告导出）。§11.1 要求它落盘，但静态快照会随报告字段演进而漂移。更好的做法是**不提交静态文件**，而是加一个测试断言「每个 fixture 经 `NmCalibrationTable` 产出的行（条款、verdict、原因码）符合预期」——这样既覆盖 §11.1 的意图，又没有漂移成本。**该测试本轮未写，§11.1 因此没有完全满足。**
+
+**文件名与 §11.1 的差异**：§11.1 写 `passive-wakeup.blf-fixture.json`，实现用 `passive-wakeup.json`（`blf-` 前缀在 JSON 描述帧序列时是误导）。这是有意的偏离，不是遗漏。
+
+#### 三、规则抑制（§9.4）——无可实施对象，不做
+
+spec §9.4 要求「被体检抑制的规则进 `data_quality_suppressed`」。逐条论证后**当前没有一条规则能精确论证该被抑制**：
+
+| DQ 项 | 该抑制谁 | 结论 |
+|---|---|---|
+| `unknown_id` | 只抑制**依赖 DBC 解码**的规则 | 当前 `NmRuleContext` 没有 `Dbc` 字段，**没有任何规则依赖 DBC 解码**——该抑制集为空 |
+| `truncated_window` | 携带 start/end 方向的精确降级 | 现有代码已做精确降级（段首截断仍判超上限），统一抑制会退掉这个能力。且该项判据未定义、未实现 |
+| `dlc_mismatch` / `non_monotonic` / `nid_mapping` | spec 明确写「抑制谁完全没写」 | 无判据可依 |
+
+spec §9.4 的裁决是「**做不到精确映射时，宁可标 `Partial` 也不标 `Suppressed`**——少判一项好过删掉真实结论」。当前正是这种情况：硬造一个抑制机制只会删掉真实结论。
+
+**这不是「v1 不做」，是「没有可实施对象」。** 等 `NmRuleContext` 补上 `Dbc`、或有规则真的依赖 DBC 解码时，`data_quality_suppressed` 才有意义。届时按上表逐项论证，不要按 `AffectedCanIds` 一刀切。

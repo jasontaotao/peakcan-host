@@ -1,0 +1,14 @@
+{
+  "_comment": "合法释放（NM_09）：NOS 段（NMSts=1）持续发送，末帧后停止。停发是合规释放而非违规——spec §3.1 明确「停止发送不等于违规」，所以不得产 NM_SENDER_SILENT_BEYOND_TIMEOUT。",
+  "_expect": "无 NM_SENDER_SILENT_BEYOND_TIMEOUT：停发是合规释放，单节点静默不判违规",
+  "frames": [
+    { "t": 0.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000000000000" },
+    { "t": 0.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000000000000" },
+    { "t": 1.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000000000000" },
+    { "t": 1.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000000000000" },
+    { "t": 2.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 2.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 3.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 3.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" }
+  ]
+}

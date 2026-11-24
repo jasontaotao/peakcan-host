@@ -1,0 +1,20 @@
+{
+  "_comment": "合法主动唤醒（NM_03/NM_16）：CBV=0x10 表示 AWB=1，随后 10 帧 20ms 快发（9 个间隔，跨度 180ms），再转 500ms 稳态。快发形态与周期都合规。",
+  "_expect": "无 finding：快发 10 帧 × 20ms 在 ±10% 内、稳态 500ms 合规",
+  "frames": [
+    { "t": 0.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.02, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.04, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.06, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.08, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.10, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.12, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.14, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.16, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.18, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 0.68, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 1.18, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 1.68, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000000000000" },
+    { "t": 2.18, "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F410000100000000" }
+  ]
+}

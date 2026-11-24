@@ -1,0 +1,9 @@
+{
+  "_comment": "每个 fixture 必须出现的 finding。golden 场景允许为空（合法场景本就零 finding），fault 场景必须非空——否则规则没跑也会绿。",
+  "cycle-deviation": ["NM_CYCLE_DEVIATION"],
+  "burst-missing": ["NM_WAKEUP_BURST_MISMATCH"],
+  "reserved-bit-set": ["NM_RESERVED_BIT_SET"],
+  "passive-wakeup": [],
+  "active-wakeup": [],
+  "release-to-sleep": []
+}

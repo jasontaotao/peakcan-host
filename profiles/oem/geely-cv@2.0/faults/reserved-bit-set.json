@@ -1,0 +1,10 @@
+{
+  "_comment": "预留位违规（§5.4.3）：CBV=0x42 表示 bit6=1（预留位）与 bit1=1（预留位），两者都必须为 0。bit0（RMR）与 bit4（AWB）仍为 0，确保报的是预留位而非 RMR。",
+  "_expect": "NM_RESERVED_BIT_SET",
+  "frames": [
+    { "t": 0.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F442000001000000" },
+    { "t": 0.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F442000001000000" },
+    { "t": 1.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F442000001000000" },
+    { "t": 1.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F442000001000000" }
+  ]
+}

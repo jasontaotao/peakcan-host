@@ -1,0 +1,13 @@
+{
+  "_comment": "周期偏差（§5.5 / NM_CYCLE）：稳态间隔 700ms，超出 500ms ±10%（450–550ms）。",
+  "_expect": "NM_CYCLE_DEVIATION",
+  "frames": [
+    { "t": 0.0,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 0.7,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 1.4,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 2.1,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 2.8,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 3.5,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" },
+    { "t": 4.2,  "id": "18FFFAF4", "ext": true, "dlc": 8, "data": "F400000100000000" }
+  ]
+}
