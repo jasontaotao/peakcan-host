@@ -682,6 +682,41 @@ public class NmRuleEngineTests
         Assert.Equal("§5.5", u.RequirementId);
     }
 
+    // 引擎缺陷路径：evaluator 给了原因却没给原因码。
+    // 生产 evaluator 全部成对赋值，公开入口造不出这种规则，所以直接测构造接缝。
+    // 这条必须是**运行期可见**的独立原因码：Debug.Assert 在 Release 下整句消失，
+    // 若退回 missing_profile_data 兜底，Release 报告会指控一份没问题的 profile。
+    [Fact]
+    public void BuildEvaluatedUnmodeled_MissingReasonCode_IsInternalInconsistentNotProfileData()
+    {
+        var rule = Rule("NM_BROKEN", When("bit_rule"), Expect("is_zero"), "");
+
+        var u = NmRuleEngine.BuildEvaluatedUnmodeled(
+            rule, "§5.5", "原语已实现但无法求值", unmodeledCode: null);
+
+        Assert.Equal("internal_inconsistent", u.ReasonCode);
+        Assert.NotEqual("missing_profile_data", u.ReasonCode);
+        // 报告里必须看得出这是引擎缺陷，而不是让用户去改 profile。
+        Assert.Contains("引擎缺陷", u.Reason, StringComparison.Ordinal);
+        // 原始原因不能被吞掉：它是定位问题的唯一线索。
+        Assert.Contains("原语已实现但无法求值", u.Reason, StringComparison.Ordinal);
+    }
+
+    // 反向守卫：正常路径不得产出 internal_inconsistent，否则它变成恒真噪音，
+    // 真出问题时用户已经学会忽略它。
+    [Fact]
+    public void BuildEvaluatedUnmodeled_WithReasonCode_KeepsItVerbatim()
+    {
+        var rule = Rule("NM_OK", When("bit_rule"), Expect("is_zero"), "");
+
+        var u = NmRuleEngine.BuildEvaluatedUnmodeled(
+            rule, "§5.5", "缺 bit_roles", NmUnmodeledCodes.MissingProfileData);
+
+        Assert.Equal("missing_profile_data", u.ReasonCode);
+        Assert.Equal("缺 bit_roles", u.Reason);
+        Assert.DoesNotContain("引擎缺陷", u.Reason, StringComparison.Ordinal);
+    }
+
     // spec §4.0 / R18：多条款时 RequirementId 取 ordinal 排序后的第一个，
     // 与 YAML 声明顺序无关。列表故意乱序：[0] 是 §5.6，正确值是 §5.4.2。
     [Fact]

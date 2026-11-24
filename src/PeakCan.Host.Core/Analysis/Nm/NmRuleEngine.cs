@@ -43,6 +43,21 @@ public static class NmUnmodeledCodes
 
     /// <summary>U 级条款：规则本身不可观测。</summary>
     public const string Unobservable = "unobservable";
+
+    /// <summary>
+    /// 引擎内部不一致：evaluator 给出了原因却没有给出原因码。
+    /// <para>
+    /// 这是**代码缺陷**，不是 profile 问题，也不是数据问题，因此不能复用
+    /// <see cref="MissingProfileData"/>——那会让 AI 指引用户去改一份本来没问题的 profile。
+    /// 生产路径上 evaluator 全部成对赋值（原因与码同时给），本码只在实现被改坏时出现。
+    /// </para>
+    /// <para>
+    /// 之所以必须有这个码：原实现用 <c>unmodeledCode ?? MissingProfileData</c> 兜底，
+    /// 而 <c>Debug.Assert</c> 在 Release 下整句消失——两条合起来的效果是
+    /// 「Release 下把引擎缺陷伪装成 profile 缺数据」，正是本仓库禁止的静默降级。
+    /// </para>
+    /// </summary>
+    public const string InternalInconsistent = "internal_inconsistent";
 }
 
 /// <summary>
@@ -101,16 +116,13 @@ public static class NmRuleEngine
                 // 必须显式进 Unmodeled，否则用户会把「没检查」误读成「通过了」。
                 // 原因码由 evaluator 给出——「trace 里没有该事件」与「profile 缺数据」
                 // 必须可区分，否则 AI 会让用户去改一份本来没问题的 profile。
+                //
+                // 断言是开发期护栏：Release 下整句消失，所以兜底原因码不能依赖它
+                // （见 BuildEvaluatedUnmodeled 的注释）。
                 Debug.Assert(unmodeledCode is not null,
                     $"规则 {rule.Id} 给出了 unmodeledReason 却没有 unmodeledCode");
-                unmodeled.Add(new NmUnmodeledRule(
-                    firstClause ?? "", unmodeledReason,
-                    RequirementId: firstClause, SourceRef: rule.SourceRef)
-                {
-                    RuleId = rule.Id,
-                    Clauses = rule.Clauses,
-                    ReasonCode = unmodeledCode ?? NmUnmodeledCodes.MissingProfileData,
-                });
+                unmodeled.Add(BuildEvaluatedUnmodeled(
+                    rule, firstClause, unmodeledReason, unmodeledCode));
             }
         }
 
@@ -135,4 +147,36 @@ public static class NmRuleEngine
         return new NmRuleResult(findings, observations, unmodeled,
             Array.Empty<NmTruncation>());
     }
+
+    /// <summary>
+    /// 构造「原语已实现、但本条规则无法求值」的 Unmodeled 条目。
+    /// <para>
+    /// 独立成方法是为了让「evaluator 给了原因却没给原因码」这条分支**可被测试直接覆盖**：
+    /// 生产 evaluator 的每个 reason 都成对给出 code，从公开入口
+    /// 造不出缺码的规则，只靠断言等于把这条分支排除在测试之外。
+    /// </para>
+    /// <para>
+    /// 缺码是**代码缺陷**，不是 profile 问题：Debug 下由调用点的断言暴露，Release 下
+    /// 断言整句消失，所以这里必须给出一个运行期可见的独立原因码。若退回
+    /// <see cref="NmUnmodeledCodes.MissingProfileData"/> 兜底，Release 报告会指控
+    /// 一份本来没问题的 profile——这正是本仓库禁止的静默降级。
+    /// </para>
+    /// <para>
+    /// 断言**不放在本方法内**：测试宿主会把 <c>Debug.Assert</c> 转成异常，放在这里
+    /// 会让这条分支永远测不到。断言属于调用点的开发期护栏，本方法只负责映射。
+    /// </para>
+    /// </summary>
+    internal static NmUnmodeledRule BuildEvaluatedUnmodeled(
+        NmRuleDef rule, string? firstClause, string unmodeledReason, string? unmodeledCode)
+        => new(
+            firstClause ?? "",
+            unmodeledCode is null
+                ? unmodeledReason + "（引擎缺陷：未给出原因码，请报 issue）"
+                : unmodeledReason,
+            RequirementId: firstClause, SourceRef: rule.SourceRef)
+        {
+            RuleId = rule.Id,
+            Clauses = rule.Clauses,
+            ReasonCode = unmodeledCode ?? NmUnmodeledCodes.InternalInconsistent,
+        };
 }
