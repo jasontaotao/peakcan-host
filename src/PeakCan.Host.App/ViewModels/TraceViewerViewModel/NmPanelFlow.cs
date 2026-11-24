@@ -405,6 +405,14 @@ public sealed partial class TraceViewerViewModel
     /// </summary>
     [ObservableProperty] private string _nmCalibrationSummary = "";
 
+    /// <summary>
+    /// 能力 chip 的一行汇总（如「能力 8/10 可用」）。
+    /// 10 个 chip 平铺在 280px 面板下换行成 3-4 行、吃掉 60-80px，
+    /// 而其中大多数是「可用」——同一件事占最贵的纵向空间。
+    /// 默认只显示这一行，逐个能力收进折叠区。
+    /// </summary>
+    [ObservableProperty] private string _nmCapabilitySummary = "";
+
     public ObservableCollection<NmCapabilityChipVm> NmCapabilityChips { get; } = new();
     public ObservableCollection<NmTimelineRowVm> NmTimelineRows { get; } = new();
     public ObservableCollection<NmEventRowVm> NmEventRows { get; } = new();
@@ -668,6 +676,22 @@ public sealed partial class TraceViewerViewModel
         => report.Capabilities.Select(c => new NmCapabilityChipVm(
             CapabilityShortName(c.Capability), c.Available,
             c.Available ? "可用" : string.Join("; ", c.Missing.Select(m => m.Why)))).ToArray();
+
+    /// <summary>
+    /// 能力 chip 的一行汇总。有不可用能力时把它们的名字点出来——
+    /// 「8/10 可用」本身不告诉用户缺的是哪两项，用户得展开才知道。
+    /// </summary>
+    public static string BuildCapabilitySummary(IReadOnlyList<NmCapabilityChipVm> chips)
+    {
+        if (chips.Count == 0) return "";
+        var available = chips.Count(c => c.Available);
+        if (available == chips.Count)
+            return string.Create(CultureInfo.InvariantCulture, $"能力 {available}/{chips.Count} 可用");
+
+        var missing = string.Join("、", chips.Where(c => !c.Available).Select(c => c.Name));
+        return string.Create(CultureInfo.InvariantCulture,
+            $"能力 {available}/{chips.Count} 可用 · 缺 {missing}");
+    }
 
     /// <summary>
     /// Profile 条「识别依据」：把每条 NM 报文的 Reasons 汇总成
@@ -955,6 +979,7 @@ public sealed partial class TraceViewerViewModel
         NmSemanticsBanner = "";
         NmHasSemanticsBanner = false;
         NmCapabilityChips.Clear();
+        NmCapabilitySummary = "";
         NmTimelineRows.Clear();
         NmEventRows.Clear();
         NmConflictLines.Clear();
@@ -1040,6 +1065,7 @@ public sealed partial class TraceViewerViewModel
 
         NmCapabilityChips.Clear();
         foreach (var chip in BuildCapabilityChips(report)) NmCapabilityChips.Add(chip);
+        NmCapabilitySummary = BuildCapabilitySummary(NmCapabilityChips);
 
         // spec §9.1 的“语义未配置”横幅只在对应能力不可用时出现；
         // 用户补全 NID/CBV/PN/用户数据后，引擎已能产结论，不能再宣称不做判定。

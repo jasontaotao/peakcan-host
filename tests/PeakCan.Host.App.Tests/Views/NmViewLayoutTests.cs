@@ -123,37 +123,153 @@ public sealed class NmViewLayoutTests
         var root = Panel().Descendants(P + "Grid").First();
         var rows = root.Element(P + "Grid.RowDefinitions")!.Elements(P + "RowDefinition").ToList();
 
-        // 11 行：选择器 / profile 摘要 / 冲突 / 语义横幅 / partial / 能力 chip /
-        // 标定面板 / 时间条 / 筛选 / 动作 / 事件表。
-        rows.Should().HaveCount(11);
         // 时间条与事件表都按比例分配；事件表不再固定 160px。
-        ((string?)rows[7].Attribute("Height")).Should().Be("2*");
-        ((string?)rows[7].Attribute("MinHeight")).Should().NotBeNull();
-        ((string?)rows[10].Attribute("Height")).Should().Be("*");
-        ((string?)rows[10].Attribute("MinHeight")).Should().NotBeNull();
+        // 行号不再写死：顶部信息带被收进封顶滚动区后行数会变，
+        // 但「时间条 2* + 事件表 * 且各有 MinHeight」这条核心契约不变。
+        var timelineRow = rows.Single(r => (string?)r.Attribute("Height") == "2*");
+        timelineRow.Attribute("MinHeight").Should().NotBeNull(
+            "矮窗口下时间条要保留最小可视高度");
+
+        var tableRow = rows.Single(r => (string?)r.Attribute("Height") == "*");
+        tableRow.Attribute("MinHeight").Should().NotBeNull(
+            "矮窗口下事件表要保留最小可视行数");
+
+        // 时间条必须排在事件表之前（自上而下的阅读顺序）。
+        rows.IndexOf(timelineRow).Should().BeLessThan(rows.IndexOf(tableRow));
+    }
+
+    /// <summary>
+    /// <b>顶部信息带必须封顶</b>：选择器 / profile 摘要 / 冲突 / 语义横幅 / partial /
+    /// 能力 chip 六条 <c>Auto</c> 横带无上限堆叠，全可见时能把时间条与事件表压到
+    /// 各自的 <c>MinHeight</c>——用户要看的证据区只剩底部一小条。
+    /// <para>
+    /// 只加 <c>ScrollViewer</c> 不设 <c>MaxHeight</c> 无效：<c>Auto</c> 行会被内容撑到
+    /// 自然高度，滚动条永不出现。这与标定面板自身的约束是同一个道理。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Panel_TopInfoBands_AreHeightCapped()
+    {
+        var root = Panel().Descendants(P + "Grid").First();
+
+        // 顶部滚动区：直接挂在根 Grid 上（带 Grid.Row），且设了 MaxHeight。
+        var capped = root.Elements(P + "ScrollViewer")
+            .Where(s => s.Attribute("Grid.Row") is not null)
+            .Where(s => (string?)s.Attribute("MaxHeight") is not null)
+            .ToList();
+
+        capped.Should().NotBeEmpty(
+            "顶部六条 Auto 横带没有聚合上限时会把时间条与事件表压到 MinHeight");
+
+        var top = capped[0];
+        ((string?)top.Attribute("VerticalScrollBarVisibility")).Should().Be("Auto",
+            "内容不溢出时不显示滚动条，否则常驻滚动条暗示下面还有东西");
+
+        // 封顶区里必须装着选择器（行 0 的 ComboBox）——它是顶部最占位的一块。
+        top.Descendants(P + "ComboBox")
+            .Should().Contain(c => (string?)c.Attribute("ItemsSource") == "{Binding NmProfileChoices}",
+                "企标选择器必须在封顶区内，否则它仍能无限撑高");
+
+        // 时间条与事件表不能被卷进这个滚动区：它们要占满剩余空间，不能跟着滚。
+        top.Descendants(P + "DataGrid").Should().BeEmpty(
+            "事件表不能进顶部滚动区——它要吃掉剩余高度");
     }
 
     [Fact]
     public void Panel_FiltersAndActions_WrapInsteadOfClipping()
     {
         var root = Panel().Descendants(P + "Grid").First();
-
+        // 按内容定位而非行号：顶部信息带收进封顶滚动区后行索引会变，
+        // 但「筛选用 WrapPanel、动作用 StackPanel」这条契约不变。
         var filters = root.Elements()
-            .Single(e => (string?)e.Attribute("Grid.Row") == "8");
+            .Single(e => e.Descendants(P + "ComboBox")
+                .Any(c => (string?)c.Attribute("ItemsSource") == "{Binding NmEventTypeFilters}"));
         filters.Name.Should().Be(P + "WrapPanel", "360px 下横向 StackPanel 会把计数裁掉");
 
         var actions = root.Elements()
-            .Single(e => (string?)e.Attribute("Grid.Row") == "9");
+            .Single(e => e.Descendants(P + "Button")
+                .Any(b => (string?)b.Attribute("Command") == "{Binding AnalyzeNmFullCommand}"));
         actions.Name.Should().Be(P + "StackPanel");
-        actions.Elements(P + "WrapPanel").Should().ContainSingle();
-        // 状态文案与“面板=事实 / AI=解释”的分工说明各占一行，
-        // 不跟随按钮换行被挤出面板。
-        var actionTexts = actions.Elements(P + "TextBlock").ToList();
-        actionTexts.Should().HaveCount(2);
-        actionTexts.Select(t => (string?)t.Attribute("Text"))
+
+        // 状态文案常驻在动作区下方，不跟随按钮换行被挤出面板。
+        actions.Elements(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
             .Should().Contain("{Binding NmStatus}");
-        actionTexts.Select(t => (string?)t.Attribute("Text"))
-            .Should().Contain(t => !string.IsNullOrEmpty(t) && t.Contains("AI 负责解释"));
+    }
+
+    /// <summary>
+    /// <b>主动作与后续动作分行</b>：7 个按钮塞进一个 <c>WrapPanel</c> 时，
+    /// 280px 下「分析全 trace / 分析当前窗口」会和「导出 / AI 总结 / 解读」
+    /// 混在一起换行，用户分不清哪两个是主操作。
+    /// <para>
+    /// 第一行只放分析类（含取消），第二行放导出与 AI。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Panel_ActionButtons_SplitIntoAnalysisAndFollowUpRows()
+    {
+        var root = Panel().Descendants(P + "Grid").First();
+        var actions = root.Elements(P + "StackPanel")
+            .Single(e => e.Descendants(P + "Button")
+                .Any(b => (string?)b.Attribute("Command") == "{Binding AnalyzeNmFullCommand}"));
+
+        var wraps = actions.Elements(P + "WrapPanel").ToList();
+        wraps.Should().HaveCount(2, "分析类与导出/AI 类要分行，不能混在同一个换行流里");
+
+        string[] CommandsOf(XElement wrap) => wrap.Elements(P + "Button")
+            .Select(b => (string?)b.Attribute("Command") ?? "").ToArray();
+
+        CommandsOf(wraps[0]).Should()
+            .Contain("{Binding AnalyzeNmFullCommand}")
+            .And.Contain("{Binding AnalyzeNmWindowCommand}")
+            .And.Contain("{Binding CancelNmAnalysisCommand}");
+        CommandsOf(wraps[0]).Should().NotContain("{Binding ExportNmReportCommand}",
+            "导出不是分析动作，不该混进第一行");
+
+        CommandsOf(wraps[1]).Should()
+            .Contain("{Binding ExportNmReportCommand}")
+            .And.Contain("{Binding SummarizeNmInAiCommand}")
+            .And.Contain("{Binding InterpretNmEventInAiCommand}");
+
+        // 反向也要守住：分析按钮不能同时出现在第二行。
+        // 只查「第一行不含导出」时，把分析按钮复制一份到第二行测试照样通过——
+        // 那样第一行会空掉、用户反而更找不到主操作。
+        CommandsOf(wraps[1]).Should()
+            .NotContain("{Binding AnalyzeNmFullCommand}")
+            .And.NotContain("{Binding AnalyzeNmWindowCommand}");
+
+        // 同理：AI 按钮也不能出现在第一行，否则「第一行只放分析类」被破坏
+        // 而上面的断言全都还能过。
+        CommandsOf(wraps[0]).Should()
+            .NotContain("{Binding SummarizeNmInAiCommand}")
+            .And.NotContain("{Binding InterpretNmEventInAiCommand}");
+    }
+
+    /// <summary>
+    /// <b>AI 分工说明不能常驻</b>：那句话解释的是「AI 按钮是干嘛的」，
+    /// 属于操作区里最贵的纵向空间上的固定噪音——用户看第二次就是浪费。
+    /// 但分工本身仍要能查到，所以挪进 AI 按钮的 ToolTip。
+    /// </summary>
+    [Fact]
+    public void Panel_AiRoleExplanation_LivesInTooltipNotAlwaysOn()
+    {
+        var root = Panel().Descendants(P + "Grid").First();
+
+        // 不再有常驻的说明 TextBlock。
+        root.Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text") ?? "")
+            .Should().NotContain(t => t.Contains("AI 负责解释"),
+                "常驻分工说明是固定噪音，应改为按钮 ToolTip");
+
+        // 但 AI 按钮的 ToolTip 里必须保留这句话——删掉等于用户再也找不到分工说明。
+        root.Descendants(P + "Button")
+            .Where(b => ((string?)b.Attribute("Command") ?? "")
+                .Contains("SummarizeNmInAi", StringComparison.Ordinal))
+            .SelectMany(b => b.Descendants(P + "TextBlock")
+                .Select(t => (string?)t.Attribute("Text") ?? "")
+                .Concat(new[] { (string?)b.Attribute("ToolTip") ?? "" }))
+            .Should().Contain(t => t.Contains("AI 负责解释"),
+                "分工说明要挪进 ToolTip，不能直接删除");
     }
 
     [Fact]
@@ -161,14 +277,15 @@ public sealed class NmViewLayoutTests
     {
         var root = Panel().Descendants(P + "Grid").First();
 
-        var profileBar = root.Elements(P + "Border")
-            .Single(b => (string?)b.Attribute("Grid.Row") == "1");
+        // 按内容定位（补全按钮）而非行号；Profile 条现在嵌在顶部封顶滚动区内。
+        var profileBar = root.Descendants(P + "Border")
+            .Single(b => b.Descendants(P + "Button")
+                .Any(x => (string?)x.Attribute("Command") == "{Binding OpenNmWizardCommand}"));
         ((string?)profileBar.Attribute("Visibility")).Should()
             .Contain("NmHasReport", "分析前不能渲染空的 Profile 条/补全按钮");
 
         var hint = root.Elements(P + "TextBlock")
-            .Single(t => (string?)t.Attribute("Grid.Row") == "7");
-        ((string?)hint.Attribute("Text")).Should().Contain("尚未分析");
+            .Single(t => ((string?)t.Attribute("Text") ?? "").Contains("尚未分析"));
         hint.Descendants(P + "DataTrigger").Should()
             .Contain(t => (string?)t.Attribute("Binding") == "{Binding NmHasReport}");
     }
@@ -191,9 +308,9 @@ public sealed class NmViewLayoutTests
     {
         // 与 profile 摘要条不同：用户可以先选企标再跑分析，
         // 所以选择器不能绑 NmHasReport 而隐藏。
-        var selectorBorder = Panel().Descendants(P + "Grid").First()
-            .Elements(P + "Border")
-            .Single(b => (string?)b.Attribute("Grid.Row") == "0");
+        var selectorBorder = Panel().Descendants(P + "Border")
+            .Single(b => b.Descendants(P + "ComboBox")
+                .Any(c => (string?)c.Attribute("ItemsSource") == "{Binding NmProfileChoices}"));
 
         ((string?)selectorBorder.Attribute("Visibility")).Should().BeNull(
             "选择器不随分析状态隐藏");
@@ -203,15 +320,112 @@ public sealed class NmViewLayoutTests
     [Fact]
     public void Panel_ProfileSelector_ShowsHintAndCandidateSummary()
     {
-        var selectorBorder = Panel().Descendants(P + "Grid").First()
-            .Elements(P + "Border")
-            .Single(b => (string?)b.Attribute("Grid.Row") == "0");
+        var selectorBorder = Panel().Descendants(P + "Border")
+            .Single(b => b.Descendants(P + "ComboBox")
+                .Any(c => (string?)c.Attribute("ItemsSource") == "{Binding NmProfileChoices}"));
 
         var texts = selectorBorder.Descendants(P + "TextBlock")
             .Select(t => (string?)t.Attribute("Text"))
             .ToList();
         texts.Should().Contain("{Binding NmProfileSelectorHint}");
         texts.Should().Contain("{Binding NmProfileCandidatesSummary}");
+    }
+
+    /// <summary>
+    /// <b>能力 chip 不能平铺成一片</b>：10 个 chip 在 280px 面板下换行成 3-4 行、
+    /// 吃掉 60-80px，而其中 8 个是「可用」——它们说的是同一件事，占的却是
+    /// 最贵的纵向空间。默认只留一行摘要（可用 N/M），逐个能力移入折叠内容。
+    /// </summary>
+    [Fact]
+    public void Panel_CapabilityChips_CollapseToSummaryByDefault()
+    {
+        // 摘要行常驻可见（在封顶区之外，见 Panel_CapabilitySummary_IsOutsideTheCappedBand）。
+        Panel().Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Should().Contain("{Binding NmCapabilitySummary}",
+                "默认只显示「能力 8/10 可用」，不给 10 个 chip 平铺的机会");
+
+        // 逐个 chip 的 ItemsControl 必须默认不可见（收进折叠区）。
+        var chips = Panel().Descendants(P + "ItemsControl")
+            .Single(i => (string?)i.Attribute("ItemsSource") == "{Binding NmCapabilityChips}");
+        var host = chips.Ancestors(P + "Expander").FirstOrDefault();
+        host.Should().NotBeNull("chip 明细要收进 Expander，而不是直接平铺");
+        ((string?)host!.Attribute("IsExpanded")).Should().Be("False",
+            "10 个 chip 换行后吃掉 60-80px，默认展开会重新造成堆积");
+    }
+
+    /// <summary>
+    /// <b>汇总必须贴着折叠头，不能随展开漂移</b>：<c>DockPanel</c> 里 Dock=Right 的
+    /// 子元素拿到的是剩余区域的全高槽位，<c>VerticalAlignment="Center"</c> 是在
+    /// 这个全高内居中。折叠时槽位≈折叠头高度看着正常；一旦展开，槽位变成
+    /// 展开内容高度（上限 220），汇总文字会漂到面板中线附近，和「标定面板」
+    /// 标题分离，看起来像一段无主标签。
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationSummary_StaysAnchoredWhenExpanded()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        var summary = calibration.Parent!.Elements(P + "TextBlock")
+            .Single(t => (string?)t.Attribute("Text") == "{Binding NmCalibrationSummary}");
+
+        ((string?)summary.Attribute("VerticalAlignment")).Should()
+            .NotBe("Center",
+                "Center 会在展开态把汇总漂到面板中线，与折叠头分离");
+        ((string?)summary.Attribute("VerticalAlignment")).Should().Be("Top",
+            "汇总必须锚在顶部，折叠与展开两种状态下都贴着折叠头");
+    }
+
+    /// <summary>
+    /// <b>封顶区里不能再套限高滚动</b>：冲突条自带
+    /// <c>ScrollViewer MaxHeight="72"</c>，它现在位于顶部封顶
+    /// <c>ScrollViewer</c> 内部——鼠标在冲突列表上滚动时内层先吃掉滚轮事件
+    /// （WPF 标记 Handled），到边界后外层不再跟随，用户会以为顶部卡住。
+    /// 这与本次「标定面板留在滚动区外」遵循的是同一条防嵌套原则。
+    /// </summary>
+    [Fact]
+    public void Panel_ConflictList_DoesNotNestAScrollerInsideTheCappedBand()
+    {
+        var root = Panel().Descendants(P + "Grid").First();
+        var top = root.Elements(P + "ScrollViewer")
+            .Single(s => s.Attribute("Grid.Row") is not null && s.Attribute("MaxHeight") is not null);
+
+        // 冲突列表本身可以有滚动，但不能是「限高的内层 ScrollViewer」——
+        // 外层 150px 已经统一限高，内层再限会争夺滚轮。
+        var conflictList = top.Descendants(P + "ItemsControl")
+            .Single(i => (string?)i.Attribute("ItemsSource") == "{Binding NmConflictLines}");
+        var nested = conflictList.Ancestors(P + "ScrollViewer")
+            .Where(s => s != top && (string?)s.Attribute("MaxHeight") is not null)
+            .ToList();
+
+        nested.Should().BeEmpty(
+            "封顶区内再套限高滚动会争夺滚轮；冲突列表应跟随外层统一滚动");
+    }
+
+    /// <summary>
+    /// <b>能力汇总必须一眼可见</b>：它排在封顶区的最后一项，而最重状态
+    /// （选择器三条提示 + profile 摘要 + 冲突条 + 语义横幅 + partial）的自然高度
+    /// 已超过 150px 上限——汇总会被推到首屏之外，要滚动才看得到，
+    /// 与「用一行汇总替代 10 个 chip」的初衷相反。
+    /// </summary>
+    [Fact]
+    public void Panel_CapabilitySummary_IsOutsideTheCappedBand()
+    {
+        var root = Panel().Descendants(P + "Grid").First();
+        var top = root.Elements(P + "ScrollViewer")
+            .Single(s => s.Attribute("Grid.Row") is not null && s.Attribute("MaxHeight") is not null);
+
+        top.Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Should().NotContain("{Binding NmCapabilitySummary}",
+                "能力汇总排在封顶区最后，最重状态下会被推到首屏之外");
+
+        // 但也不能丢：必须仍出现在面板里（封顶区外常驻）。
+        Panel().Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Should().Contain("{Binding NmCapabilitySummary}",
+                "汇总要移到封顶区外常驻，不能直接删掉");
     }
 
     // —— 标定面板（spec §10.2）——
@@ -224,8 +438,35 @@ public sealed class NmViewLayoutTests
 
         ((string?)calibration.Attribute("IsExpanded")).Should().Be("False",
             "四块表常驻会吃掉 360px 面板的绝大部分垂直空间");
-        ((string?)calibration.Attribute("Visibility")).Should()
+
+        // Visibility 挂在外层 DockPanel 上（汇总行与折叠头是同一块）。
+        var host = calibration.Parent!;
+        ((string?)host.Attribute("Visibility")).Should()
             .Contain("NmHasCalibration", "无内容时整块隐藏，不留空壳");
+    }
+
+    /// <summary>
+    /// <b>折叠态必须看得到汇总</b>：<c>NmCalibrationSummary</c>（「21 条 · 1 触发 · 2 未建模」）
+    /// 是判断「有没有问题」的唯一一眼可见处。它原先在 <c>Expander</c> 内容里，
+    /// 默认折叠时用户看不到——等于面板折叠后完全不知道这次分析有没有触发规则。
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationSummary_IsVisibleWhenCollapsed()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        // 在 Expander 内容里 → 折叠时不可见，不满足要求。
+        calibration.Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Should().NotContain("{Binding NmCalibrationSummary}",
+                "汇总放在展开内容里，默认折叠时完全看不见");
+
+        // 必须是 Expander 的兄弟（同一 DockPanel 内），折叠态照样渲染。
+        calibration.Parent!.Elements(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Should().Contain("{Binding NmCalibrationSummary}",
+                "折叠头旁要常驻汇总，否则用户得先展开才知道有没有触发");
     }
 
     /// <summary>
@@ -449,16 +690,18 @@ public sealed class NmViewLayoutTests
     /// <summary>
     /// 规则表顶部必须有汇总（如「21 条 · 1 触发 · 18 未触发」）：
     /// 平铺时用户要自己数哪几条挂了。
+    /// <para>
+    /// 汇总已提到折叠头旁（<see cref="Panel_CalibrationSummary_IsVisibleWhenCollapsed"/>）——
+    /// 展开后再重复一次是噪音，这里只断言全面板恰好一处。
+    /// </para>
     /// </summary>
     [Fact]
     public void Panel_CalibrationRuleSection_ShowsSummary()
     {
-        var calibration = Panel().Descendants(P + "Expander")
-            .Single(e => (string?)e.Attribute("Header") == "标定面板");
-
-        calibration.Descendants(P + "TextBlock").Select(t => (string?)t.Attribute("Text"))
-            .Should().Contain("{Binding NmCalibrationSummary}",
-                "规则表要有一句话汇总，让「有没有问题」一眼可见");
+        Panel().Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Should().ContainSingle(t => t == "{Binding NmCalibrationSummary}",
+                "汇总只出现一次（折叠头旁），展开内容里不再重复");
     }
 
     /// <summary>
@@ -495,12 +738,31 @@ public sealed class NmViewLayoutTests
         statusTriggers.Should().Contain(t => (string?)t.Attribute("Value") == "未建模");
     }
 
+    /// <summary>
+    /// 冲突条数不可控，必须有高度上限——但上限现在由外层顶部封顶区
+    /// （<c>MaxHeight="150"</c>）统一提供，冲突条不再自带内层限高滚动。
+    /// 内层再套一层会争夺滚轮：鼠标在冲突列表上滚动时内层先吃掉事件，
+    /// 到边界后外层不跟随，用户会以为顶部卡住。
+    /// </summary>
     [Fact]
     public void Panel_ConflictBar_IsHeightCapped()
     {
-        var conflictScroll = Panel().Descendants(P + "ScrollViewer")
-            .Single(s => (string?)s.Attribute("MaxHeight") == "72");
-        conflictScroll.Should().NotBeNull("冲突条数不可控，必须限高滚动");
+        var root = Panel().Descendants(P + "Grid").First();
+        var top = root.Elements(P + "ScrollViewer")
+            .Single(s => s.Attribute("Grid.Row") is not null && s.Attribute("MaxHeight") is not null);
+
+        // 冲突列表必须在封顶区内，才受统一上限保护。
+        top.Descendants(P + "ItemsControl")
+            .Select(i => (string?)i.Attribute("ItemsSource"))
+            .Should().Contain("{Binding NmConflictLines}",
+                "冲突列表要在封顶区内，否则条数不可控时会撑高面板");
+
+        // 但不能再有第二层滚动：冲突列表往上找祖先，封顶区之外不该再有 ScrollViewer。
+        var conflictItems = top.Descendants(P + "ItemsControl")
+            .Single(i => (string?)i.Attribute("ItemsSource") == "{Binding NmConflictLines}");
+        conflictItems.Ancestors(P + "ScrollViewer")
+            .Count(s => s != top).Should().Be(0,
+                "冲突列表与外层封顶区之间不能再夹一层滚动，嵌套会争夺滚轮");
     }
 
     [Fact]

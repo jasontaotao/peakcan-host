@@ -73,6 +73,95 @@ public class NmPanelFlowTests
         chips[0].Available.Should().BeFalse();
     }
 
+    /// <summary>
+    /// 汇总必须点出缺的是哪几项：「8/10 可用」本身不告诉用户缺什么，
+    /// 用户还得展开折叠区才知道，等于把信息藏了两层。
+    /// </summary>
+    [Fact]
+    public void BuildCapabilitySummary_NamesMissingCapabilities()
+    {
+        var chips = new[]
+        {
+            new NmCapabilityChipVm("NID", false, "缺 nid_byte"),
+            new NmCapabilityChipVm("CBV", true, "可用"),
+            new NmCapabilityChipVm("PN", false, "缺 pni_role"),
+        };
+
+        var summary = TraceViewerViewModel.BuildCapabilitySummary(chips);
+
+        summary.Should().Contain("1/3", "要给出可用比例");
+        summary.Should().Contain("NID").And.Contain("PN",
+            "缺哪几项必须点名，否则用户还得展开才知道");
+        summary.Should().NotContain("CBV", "可用项不必列出，那是噪音");
+    }
+
+    [Fact]
+    public void BuildCapabilitySummary_AllAvailable_SaysSoWithoutNaming()
+    {
+        var chips = new[]
+        {
+            new NmCapabilityChipVm("NID", true, "可用"),
+            new NmCapabilityChipVm("CBV", true, "可用"),
+        };
+
+        TraceViewerViewModel.BuildCapabilitySummary(chips)
+            .Should().Be("能力 2/2 可用");
+    }
+
+    [Fact]
+    public void BuildCapabilitySummary_Empty_IsEmptyString()
+        => TraceViewerViewModel.BuildCapabilitySummary(Array.Empty<NmCapabilityChipVm>())
+            .Should().BeEmpty("无能力信息时不该出现一条空白的折叠头");
+
+    [Fact]
+    public void BuildCapabilitySummary_AllMissing_SaysZeroOfN()
+    {
+        var chips = new[]
+        {
+            new NmCapabilityChipVm("NID", false, "缺 nid_byte"),
+            new NmCapabilityChipVm("CBV", false, "缺 cbv_byte"),
+        };
+
+        var summary = TraceViewerViewModel.BuildCapabilitySummary(chips);
+
+        summary.Should().Contain("0/2", "全不可用时也要给出比例，不能只列缺失项");
+        summary.Should().Contain("NID").And.Contain("CBV");
+    }
+
+    /// <summary>
+    /// 清空报告时必须把汇总一起清掉：留着上一份 trace 的能力汇总，
+    /// 用户会以为新分析已经有结论。
+    /// </summary>
+    [Fact]
+    public void ClearNmReport_ResetsCapabilitySummary()
+    {
+        var report = new NmReport(
+            new NmWindow(0, 1, "full"), "src", null,
+            Array.Empty<NmEpisode>(), Array.Empty<NmMessageReport>(), Array.Empty<NmNodeReport>(),
+            Array.Empty<NmEvent>(), Array.Empty<NmFinding>(), Array.Empty<string>(),
+            Array.Empty<string>(),
+            new[]
+            {
+                new NmCapabilityState(NmCapability.NidCheck, false,
+                    new[] { new NmInputMissing(NmCapability.NidCheck, "nid_byte", "why", "s", "measured") }),
+            },
+            Array.Empty<NmInputMissing>(), Array.Empty<NmTruncation>());
+        var profile = new NmProfile(
+            NmProfileSource.None, Array.Empty<NmMessageDef>(), new NmTimings(),
+            Array.Empty<NmNodeDef>(), Array.Empty<NmConfigConflict>(), Array.Empty<string>(),
+            new NmProvenance());
+        var vm = NewVm();
+        vm.ApplyNmReport(new NmToolSnapshot(
+            "src", null, null, null, profile, report, Array.Empty<ReplayFrame>()));
+
+        vm.NmCapabilitySummary.Should().NotBeNullOrWhiteSpace("前置条件：已有汇总");
+
+        vm.ClearNmReportPublic();
+
+        vm.NmCapabilitySummary.Should().BeEmpty(
+            "清空后残留旧汇总，用户会以为新分析已经有结论");
+    }
+
     [Fact]
     public void ApplyNmReport_NoMessages_ShowsHonestEmptyState()
     {

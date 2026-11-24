@@ -17,19 +17,15 @@
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
-            <!-- 0 企标选择器 -->
+            <!-- 0 顶部信息带：选择器 / profile 摘要 / 冲突 / 语义横幅 / partial。
+                 全部塞进一个封顶滚动区——它们各自是 Auto 行且无聚合上限时，
+                 同时可见能把时间条与事件表压到各自的 MinHeight，用户要看的证据区
+                 只剩底部一小条。MaxHeight 是必需的：只加 ScrollViewer 不设上限时，
+                 Auto 行会被内容撑到自然高度，滚动条永不出现。 -->
             <RowDefinition Height="Auto" />
-            <!-- 1 profile 摘要条 -->
+            <!-- 1 能力 chip 汇总（折叠）。留在封顶区外，否则最重状态下会被推出首屏。 -->
             <RowDefinition Height="Auto" />
-            <!-- 2 冲突条 -->
-            <RowDefinition Height="Auto" />
-            <!-- 3 语义能力横幅 -->
-            <RowDefinition Height="Auto" />
-            <!-- 4 partial 徽标 -->
-            <RowDefinition Height="Auto" />
-            <!-- 5 能力 chip -->
-            <RowDefinition Height="Auto" />
-            <!-- 6 标定面板（spec §10.2，可折叠） -->
+            <!-- 2 标定面板（spec §10.2，可折叠）。留在滚动区外，避免与顶部争夺滚轮。 -->
             <RowDefinition Height="Auto" />
             <!-- 时间条与事件表按比例分配剩余高度：窗口高时表能多显示，
                  窗口矮时时间条保留最小可视高度，避免被固定 160px 挤没。 -->
@@ -39,9 +35,14 @@
             <RowDefinition Height="*" MinHeight="120" />
         </Grid.RowDefinitions>
 
+        <!-- 顶部信息带封顶 150px：约占 360px 面板可用高度的四成，保证时间条与
+             事件表始终拿到大头。超出的内容靠滚动到达，不裁切、不消失。 -->
+        <ScrollViewer Grid.Row="0" MaxHeight="150" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
         <!-- 企标选择器（spec §10.1）：只读下拉，选中后重分析。
              分析前也显示——用户可以先选企标再跑分析。 -->
-        <Border Grid.Row="0" Padding="6" Background="#F2F6FA" BorderBrush="#C7D6E4"
+        <Border Padding="6" Background="#F2F6FA" BorderBrush="#C7D6E4"
                 BorderThickness="0,0,0,1">
             <StackPanel>
                 <DockPanel>
@@ -67,7 +68,7 @@
         </Border>
 
         <!-- Profile bar：分析前不渲染，否则空的摘要 + 空按钮会变成一条无意义的色带。 -->
-        <Border Grid.Row="1" Padding="6" Background="#FFF7E6" BorderBrush="#E0C080"
+        <Border Padding="6" Background="#FFF7E6" BorderBrush="#E0C080"
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
             <DockPanel>
@@ -87,57 +88,89 @@
         </Border>
 
         <!-- Conflicts bar (spec §9.1；无冲突隐藏) -->
-        <Border Grid.Row="2" Padding="6" Background="#FFF4CE" BorderBrush="#E0C080"
+        <Border Padding="6" Background="#FFF4CE" BorderBrush="#E0C080"
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding NmHasConflicts, Converter={StaticResource BoolToVis}}">
             <StackPanel>
                 <TextBlock Text="配置冲突（多个来源给出不同值）" FontWeight="SemiBold" Foreground="#6B5200" />
-                <!-- 冲突条数不可控：限高 + 内部滚动，避免把时间条挤到看不见。 -->
-                <ScrollViewer MaxHeight="72" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding NmConflictLines}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" FontSize="11" Foreground="#6B5200" TextWrapping="Wrap" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                <!-- 不再自带限高滚动：外层顶部封顶区（150px）已统一限高，
+                     内层再套一层会争夺滚轮——鼠标在冲突列表上滚动时内层先吃掉
+                     事件，到边界后外层不跟随，用户会以为顶部卡住。 -->
+                <ItemsControl ItemsSource="{Binding NmConflictLines}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" FontSize="11" Foreground="#6B5200" TextWrapping="Wrap" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </StackPanel>
         </Border>
 
         <!-- M1 semantics banner：只有能力不可用时才显示（补全后自动消失） -->
-        <TextBlock Grid.Row="3" Margin="6,4" Foreground="#8A6D00"
+        <TextBlock Margin="6,4" Foreground="#8A6D00" TextWrapping="Wrap"
                    Text="{Binding NmSemanticsBanner}"
                    Visibility="{Binding NmHasSemanticsBanner, Converter={StaticResource BoolToVis}}" />
 
         <!-- Partial result badge (spec §9.4；分析取消/超时) -->
-        <Border Grid.Row="4" Padding="6" Background="#FFE0B2" BorderBrush="#E0A060"
+        <Border Padding="6" Background="#FFE0B2" BorderBrush="#E0A060"
                 BorderThickness="0,0,0,1"
                 Visibility="{Binding NmIsPartial, Converter={StaticResource BoolToVis}}">
-            <TextBlock Text="{Binding NmPartialText}" FontWeight="SemiBold" Foreground="#7A4300" />
+            <TextBlock Text="{Binding NmPartialText}" FontWeight="SemiBold" Foreground="#7A4300" TextWrapping="Wrap" />
         </Border>
 
-        <!-- Capability chips -->
-        <ItemsControl Grid.Row="5" ItemsSource="{Binding NmCapabilityChips}" Margin="6,2">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <Border Margin="0,0,4,4" Padding="6,1" CornerRadius="8"
-                            ToolTip="{Binding Tooltip}"
-                            Background="{Binding Available, Converter={StaticResource NmChipBrush}}">
-                        <TextBlock Text="{Binding Name}" FontSize="11" />
-                    </Border>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        </StackPanel>
+        </ScrollViewer>
+
+        <!-- 能力 chip：默认只留一行汇总。10 个 chip 在 280px 下换行成 3-4 行、
+             吃掉 60-80px，其中大多数是「可用」——同一件事占最贵的纵向空间。
+             逐个能力（含不可用的缺失原因 ToolTip）收进折叠区。
+             放在封顶区之外：它原是封顶区最后一项，最重状态（选择器三条提示 +
+             profile 摘要 + 冲突条 + 语义横幅 + partial）的自然高度已超过 150px
+             上限，汇总会被推到首屏之外，要滚动才看得到——与「用一行汇总替代
+             10 个 chip」的初衷相反。 -->
+        <Expander Grid.Row="1" Margin="6,2" IsExpanded="False" FontSize="10" FontWeight="SemiBold"
+                  Foreground="#445566"
+                  Visibility="{Binding NmCapabilitySummary, Converter={StaticResource NonEmptyStringToVis}}">
+            <Expander.Header>
+                <TextBlock Text="{Binding NmCapabilitySummary}" FontSize="10"
+                           FontWeight="Normal" Foreground="#445566"
+                           TextTrimming="CharacterEllipsis" MaxWidth="300"
+                           ToolTip="{Binding NmCapabilitySummary}" />
+            </Expander.Header>
+            <ItemsControl ItemsSource="{Binding NmCapabilityChips}" Margin="0,2,0,0">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="0,0,4,4" Padding="6,1" CornerRadius="8"
+                                ToolTip="{Binding Tooltip}"
+                                Background="{Binding Available, Converter={StaticResource NmChipBrush}}">
+                            <TextBlock Text="{Binding Name}" FontSize="11" />
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Expander>
 
         <!-- 标定面板（spec §10.2）：规则三态表 + 观测 vs 期望 + 数据体检 + 未建模条款。
-             默认折叠——360px 面板下四块表常驻会把时间条挤没。 -->
-        <Expander Grid.Row="6" Header="标定面板" IsExpanded="False" Margin="6,2"
-                  FontSize="11" FontWeight="SemiBold" Foreground="#445566"
-                  Visibility="{Binding NmHasCalibration, Converter={StaticResource BoolToVis}}">
+             默认折叠——360px 面板下四块表常驻会把时间条挤没。
+             放在顶部滚动区之外：它自己带 ScrollViewer，两层滚动嵌套会争夺滚轮。 -->
+        <!-- 汇总必须与折叠头同层：放在 Expander 内容里时默认折叠态完全看不见，
+             用户得先展开才知道这次有没有规则触发。Dock 顺序是汇总先占宽（Right），
+             Expander 填剩余；汇总限宽 + 省略号，避免长汇总把「标定面板」标题挤掉。 -->
+        <DockPanel Grid.Row="2" Margin="6,2"
+                   Visibility="{Binding NmHasCalibration, Converter={StaticResource BoolToVis}}">
+            <!-- Top 而不是 Center：DockPanel 里 Dock=Right 拿到的是剩余区域的
+                 全高槽位，Center 会在展开标定面板（高度上限 220）时把汇总漂到
+                 面板中线，与折叠头分离。 -->
+            <TextBlock DockPanel.Dock="Right" Text="{Binding NmCalibrationSummary}"
+                       FontSize="10" Foreground="#666666" VerticalAlignment="Top"
+                       Margin="6,4,0,0" MaxWidth="170"
+                       TextTrimming="CharacterEllipsis"
+                       ToolTip="{Binding NmCalibrationSummary}" />
+            <Expander Header="标定面板" IsExpanded="False"
+                      FontSize="11" FontWeight="SemiBold" Foreground="#445566">
             <!-- 四块表全展开时高度远超 360px 面板。不套 ScrollViewer + MaxHeight 时，
                  StackPanel 会无限撑高，把下面的时间条与事件表挤到各自的 MinHeight，
                  超出部分直接被裁掉——用户看不到也滚不到。
@@ -148,13 +181,9 @@
                           HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="0,2,0,0">
                 <!-- 规则表：每条规则 → 触发 / 未触发 / 未建模 / 不适用，点击 seek 到证据时刻 -->
-                <DockPanel Margin="0,4,0,2">
-                    <TextBlock DockPanel.Dock="Left" Text="规则" FontSize="10" FontWeight="SemiBold"
-                               Foreground="#666666" />
-                    <!-- 一句话汇总：21 行平铺时用户得自己数哪几条挂了。 -->
-                    <TextBlock Text="{Binding NmCalibrationSummary}" FontSize="10"
-                               Foreground="#666666" HorizontalAlignment="Right" />
-                </DockPanel>
+                <!-- 汇总已提到折叠头旁（折叠态也可见），这里不再重复。 -->
+                <TextBlock Text="规则" FontSize="10" FontWeight="SemiBold"
+                           Foreground="#666666" Margin="0,4,0,2" />
                 <!-- 规则表按「结构相同的规则」分组：吉利 13 条预留位检查折叠成一行，
                      否则它们占掉半屏，把最该看的触发行淹掉。
                      组内结论不一致时不折叠（Core 的 NmCalibrationGroup.IsCollapsed 决定）。 -->
@@ -343,10 +372,11 @@
                 </ItemsControl>
             </StackPanel>
             </ScrollViewer>
-        </Expander>
+            </Expander>
+        </DockPanel>
 
         <!-- 分析前的空态：告诉用户从哪开始，而不是留一块空白。 -->
-        <TextBlock Grid.Row="7" Text="尚未分析 NM：点击下方「分析全 trace」或「分析当前窗口」"
+        <TextBlock Grid.Row="3" Text="尚未分析 NM：点击下方「分析全 trace」或「分析当前窗口」"
                    Margin="10,16" FontSize="12" Foreground="#777777" TextWrapping="Wrap">
             <TextBlock.Style>
                 <Style TargetType="TextBlock">
@@ -361,7 +391,7 @@
         </TextBlock>
 
         <!-- Timeline (design width 1000, Viewbox scales to panel) -->
-        <ScrollViewer Grid.Row="7" VerticalScrollBarVisibility="Auto"
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
                       ScrollChanged="OnNmTimelineScrollChanged"
                       Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
             <StackPanel>
@@ -610,7 +640,7 @@
 
         <!-- Event filters (spec §9.1) -->
         <!-- 右侧面板只有 360px：用 WrapPanel，窄宽度时换行而不是裁掉右侧计数。 -->
-        <WrapPanel Grid.Row="8" Margin="6,2"
+        <WrapPanel Grid.Row="4" Margin="6,2"
                    Visibility="{Binding NmHasReport, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="筛选" VerticalAlignment="Center" Margin="0,0,4,0" />
             <ComboBox ItemsSource="{Binding NmEventTypeFilters}"
@@ -622,8 +652,11 @@
                        FontSize="11" Margin="0,0,0,4" />
         </WrapPanel>
 
-        <!-- Actions：按钮换行时状态文案独立成行，避免被挤到面板外。 -->
-        <StackPanel Grid.Row="9" Margin="6">
+        <!-- Actions：分两行。第一行是分析类（用户最常点的两个 + 取消），
+             第二行是导出与 AI。混在一个 WrapPanel 里时 280px 下会交错换行，
+             用户分不清哪两个是主操作。
+             状态文案独立成行，不跟随按钮换行被挤出面板。 -->
+        <StackPanel Grid.Row="5" Margin="6">
             <WrapPanel>
                 <Button Content="分析全 trace" Command="{Binding AnalyzeNmFullCommand}"
                         ToolTip="分析整个 trace 时间范围" Margin="0,0,6,4" />
@@ -631,15 +664,6 @@
                         ToolTip="只分析图表当前可见的时间范围" Margin="0,0,6,4" />
                 <Button Content="取消分析" Command="{Binding CancelNmAnalysisCommand}"
                         IsEnabled="{Binding NmCanCancel}" Margin="0,0,6,4" />
-                <Button Content="导出报告" Command="{Binding ExportNmReportCommand}" Margin="0,0,6,4" />
-                <Button Content="让 AI 总结本次分析" Command="{Binding SummarizeNmInAiCommand}"
-                        ToolTip="把分析结果交给 AI 汇总并给排查建议（只填入问题，确认后才发送）"
-                        ToolTipService.ShowOnDisabled="True"
-                        Margin="0,0,6,4" />
-                <Button Content="在 AI 中解读选中事件" Command="{Binding InterpretNmEventInAiCommand}"
-                        ToolTip="先在下方事件表选中一行；点击后跳到 AI 对话并填入问题"
-                        ToolTipService.ShowOnDisabled="True"
-                        Margin="0,0,6,4" />
                 <ProgressBar IsIndeterminate="True" Width="70" Height="6" Margin="0,0,6,4"
                              VerticalAlignment="Center"
                              Visibility="{Binding NmIsAnalyzing, Converter={StaticResource BoolToVis}}" />
@@ -647,14 +671,24 @@
                            Margin="0,0,8,4"
                            Visibility="{Binding NmIsAnalyzing, Converter={StaticResource BoolToVis}}" />
             </WrapPanel>
+            <WrapPanel Margin="0,0,0,2">
+                <Button Content="导出报告" Command="{Binding ExportNmReportCommand}" Margin="0,0,6,4" />
+                <!-- 分工说明挪进 ToolTip：常驻一句话解释「AI 按钮是干嘛的」，
+                     看第二次就是浪费最贵的纵向空间；但说明本身不能删。 -->
+                <Button Content="让 AI 总结本次分析" Command="{Binding SummarizeNmInAiCommand}"
+                        ToolTip="面板展示实测事实与证据；AI 负责解释和进一步排查。把分析结果交给 AI 汇总并给排查建议（只填入问题，确认后才发送）"
+                        ToolTipService.ShowOnDisabled="True"
+                        Margin="0,0,6,4" />
+                <Button Content="在 AI 中解读选中事件" Command="{Binding InterpretNmEventInAiCommand}"
+                        ToolTip="面板展示实测事实与证据；AI 负责解释和进一步排查。先在下方事件表选中一行；点击后跳到 AI 对话并填入问题"
+                        ToolTipService.ShowOnDisabled="True"
+                        Margin="0,0,6,4" />
+            </WrapPanel>
             <TextBlock Text="{Binding NmStatus}" TextWrapping="Wrap" Foreground="#444444" />
-            <!-- 一句话说明分工：用户此前反复问“AI 是拿来干嘛的”。 -->
-            <TextBlock Text="面板展示实测事实与证据；AI 负责解释和进一步排查。"
-                       FontSize="10" Foreground="#888888" Margin="0,4,0,0" TextWrapping="Wrap" />
         </StackPanel>
 
         <!-- Event table -->
-        <DataGrid Grid.Row="10" ItemsSource="{Binding NmEventRows}" IsReadOnly="True"
+        <DataGrid Grid.Row="6" ItemsSource="{Binding NmEventRows}" IsReadOnly="True"
                   AutoGenerateColumns="False" SelectionMode="Single"
                   SelectedItem="{Binding NmSelectedEvent}"
                   PreviewMouseLeftButtonUp="OnEventRowClick"
