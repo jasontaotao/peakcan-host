@@ -90,6 +90,22 @@
     <None Include="Assets\peakcan-host-og-card.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- 企标 profile（spec §10.1 第三层「安装目录」）。
+       运行时 NmFlow 按 AppContext.BaseDirectory/profiles 搜索；profile 源文件在
+       仓库根目录的 profiles/。不复制的话三个搜索层全部落空，选择器永远只有
+       「未选择企标」一项，M2 的规则引擎、条款覆盖、标定面板全都不会执行。
+       Link 保留 oem/ base/ 子目录结构——locator 按目录层级区分候选来源，
+       压平成一个目录会丢掉这个信息。 -->
+  <ItemGroup>
+    <Content Include="..\..\profiles\**\*.nmstd.yaml"
+             Link="profiles\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <!-- 只复制 profile 本身，不复制 golden/faults/expected/forbidden 那批 json：
+         它们是 NmProfileFixtureContractTests 的契约数据，全仓没有任何运行时消费者
+         （测试通过 RepoPath 读源码树）。分发它们会让人误以为运行时依赖这些文件，
+         而且将来 profiles/ 下任何本地调试 json 都会被静默打进安装包。 -->
+  </ItemGroup>
+
   <PropertyGroup>
     <!-- Task 20: brand the published exe as PeakCan.Host.exe (instead
          of PeakCan.Host.App.exe). The assembly name is also renamed

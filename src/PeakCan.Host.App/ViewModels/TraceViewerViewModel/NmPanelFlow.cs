@@ -693,7 +693,7 @@ public sealed partial class TraceViewerViewModel
             if (IsCurrentNmRun(cts))
             {
                 NmStatus = "分析失败：" + ex.Message;
-                ClearNmReport();
+                ClearNmReport(keepProfileSelection: true);
             }
         }
         finally
@@ -760,6 +760,9 @@ public sealed partial class TraceViewerViewModel
         if (string.IsNullOrEmpty(directory))
         {
             DisposeNmProfileWatcher();
+            // 不监听时必须把状态清空：残留的「仅监听所选 profile 所在目录」
+            // 会让用户以为改文件会自动生效。
+            NmProfileWatcherStatus = "";
             return;
         }
 
@@ -835,8 +838,15 @@ public sealed partial class TraceViewerViewModel
         });
     }
 
-    /// <summary>失败时清空旧报告，避免换 trace 后残留上一次的段/事件/能力/摘要。</summary>
-    private void ClearNmReport()
+    /// <summary>
+    /// 清空旧报告，避免换 trace 后残留上一次的段/事件/能力/摘要。
+    /// </summary>
+    /// <param name="keepProfileSelection">
+    /// true = 保留用户的 profile 选择意图（分析失败时用）：opt-out 是坏 profile 下
+    /// 唯一的逃生路径，清掉会让用户永久困在「分析失败」。
+    /// false = 一并复位（换 trace 时用）。
+    /// </param>
+    private void ClearNmReport(bool keepProfileSelection = false)
     {
         _lastNmSnapshot = null;
         NmHasReport = false;
@@ -888,8 +898,16 @@ public sealed partial class TraceViewerViewModel
         NmProfileWatcherStatus = "";
         Interlocked.Increment(ref _nmProfileGeneration);
         // opt-out 是「用户对当前 trace 的意图」，换 trace 后不再适用。
-        NmProfileOptOut = false;
-        NmExplicitProfilePath = null;
+        //
+        // **但这条只在「换 trace」时成立，不是「分析失败」**：opt-out 是用户在
+        // profile 有问题时的唯一逃生路径。失败时若把 opt-out 清掉，下一次分析
+        // 又会尝试加载那份坏 profile、又失败——用户被永久困在「分析失败」，
+        // 连「不用企标」都选不了。调用方用 keepProfileSelection 区分两者。
+        if (!keepProfileSelection)
+        {
+            NmProfileOptOut = false;
+            NmExplicitProfilePath = null;
+        }
     }
 
     /// <summary>测试接缝：验证报告清空时新面板状态一并复位。</summary>
@@ -1016,18 +1034,39 @@ public sealed partial class TraceViewerViewModel
             ? "未选择企标：仅做观测，不做企标判定"
             : "";
 
+        // 坏文件必须让用户看到：它们不在候选列表里，不说明原因的话
+        // 用户会以为软件漏了自己那份 profile，而不是文件本身坏了。
+        if (snapshot.FailedProfilePaths.Count > 0)
+        {
+            NmProfileSelectorHint =
+                $"有 {snapshot.FailedProfilePaths.Count} 份企标 profile 无法加载：" +
+                string.Join("、", snapshot.FailedProfilePaths.Select(Path.GetFileName)) +
+                "（其余候选照常可用）";
+        }
+
         // 候选来源：让用户知道「这份企标是从哪来的」，否则 AppData 与安装目录
         // 各有一份时无法判断当前跑的是哪一份。
+        //
+        // opt-out 时 Level 是 null（EnumerateOnly 不选中），不能落到「未命中」分支——
+        // 用户刚主动选了「未选择」，被告知搜索「未命中」会以为软件出错了。
         var level = snapshot.ProfileLevel;
-        NmProfileCandidatesSummary = snapshot.ProfileCandidates.Count switch
-        {
-            0 => "",
-            1 => $"共 1 份候选（{NmProfileLevelText(level)}）",
-            _ => $"共 {snapshot.ProfileCandidates.Count} 份候选，请选择（{NmProfileLevelText(level)}）",
-        };
+        NmProfileCandidatesSummary = NmProfileOptOut
+            ? snapshot.ProfileCandidates.Count switch
+            {
+                0 => "",
+                1 => "共 1 份可选（当前仅观测，选它即启用企标判定）",
+                _ => $"共 {snapshot.ProfileCandidates.Count} 份可选（当前仅观测，选一份即启用企标判定）",
+            }
+            : snapshot.ProfileCandidates.Count switch
+            {
+                0 => "",
+                1 => $"共 1 份候选（{NmProfileLevelText(level)}）",
+                _ => $"共 {snapshot.ProfileCandidates.Count} 份候选，请选择（{NmProfileLevelText(level)}）",
+            };
 
-        // 监听能力限制：选中 profile 时始终披露。不显示等于默认「父文件变更会自动生效」。
-        if (snapshot.ProfileCandidates.Count > 0)
+        // 监听能力限制：只有真正选中了 profile 才披露。
+        // opt-out 时没有生效的 profile，写这句会谎称正在监听。
+        if (!NmProfileOptOut && snapshot.Report.StandardId is not null)
         {
             NmProfileWatcherStatus = NmProfileWatcherLimitText;
         }
@@ -1042,13 +1081,39 @@ public sealed partial class TraceViewerViewModel
         _ => "未命中",
     };
 
-    /// <summary>当前 profile 文件所在目录；无 profile 时 null（不监听）。</summary>
-    private static string? ProfileDirectoryOf(NmToolSnapshot snapshot)
+    /// <summary>
+    /// 当前**实际生效**的 profile 文件所在目录；无 profile 时 null（不监听）。
+    /// <para>
+    /// <b>必须按「报告实际用了哪份」定位，不能取 <c>Candidates[0]</c></b>：
+    /// 安装目录同时有 base 与 OEM 时，候选按路径排序 base 在前，而生效的是 OEM。
+    /// 取 [0] 会让 watcher 挂在 <c>profiles/base</c> 上，用户改
+    /// <c>profiles/oem/geely-cv@2.0.nmstd.yaml</c> 不触发任何重算——
+    /// 而状态文案却写着「仅监听所选 profile 所在目录」，与事实不符。
+    /// </para>
+    /// <para>
+    /// 定位顺序：用户显式选择 → 报告 StandardId 对应的候选 → 唯一候选。
+    /// 三者都没有时返回 null（不监听），不做猜测。
+    /// </para>
+    /// </summary>
+    private string? ProfileDirectoryOf(NmToolSnapshot snapshot)
     {
-        // 优先用用户显式选中的那份；否则用本次搜索命中的第一份候选。
-        var path = snapshot.ProfileCandidates.Count > 0
-            ? snapshot.ProfileCandidates[0].Path
-            : null;
+        // opt-out 时没有生效的 profile：不监听任何目录。
+        // 不挡这一条的话，「唯一候选」分支会真的启动 watcher——用户没选中任何
+        // profile，编辑那份 yaml 却触发重算，与「仅观测」的意图相反。
+        if (NmProfileOptOut) return null;
+
+        var path = NmExplicitProfilePath;
+        if (string.IsNullOrEmpty(path) && snapshot.Report.StandardId is { } standardId)
+        {
+            path = snapshot.ProfileCandidates
+                .FirstOrDefault(c => string.Equals(c.Id, standardId, StringComparison.Ordinal))
+                ?.Path;
+        }
+        if (string.IsNullOrEmpty(path) && snapshot.ProfileCandidates.Count == 1)
+        {
+            path = snapshot.ProfileCandidates[0].Path;
+        }
+
         return string.IsNullOrEmpty(path) ? null : Path.GetDirectoryName(path);
     }
 

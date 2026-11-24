@@ -32,6 +32,15 @@ public sealed record NmToolSnapshot(
     public IReadOnlyList<NmStandardProfileLocator.Candidate> ProfileCandidates { get; init; }
         = Array.Empty<NmStandardProfileLocator.Candidate>();
 
+    /// <summary>
+    /// 加载失败的 profile 文件（仅 opt-out 路径会填）。
+    /// <para>
+    /// 非空时面板必须显示「这些文件读不出来」——用户看不到自己那份 profile
+    /// 出现在下拉里时会以为是软件漏了它，而不是文件本身坏了。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> FailedProfilePaths { get; init; } = Array.Empty<string>();
+
     /// <summary>本次 profile 的命中层级；null = 没找到任何 profile。</summary>
     public NmProfileSearchLevel? ProfileLevel { get; init; }
 }

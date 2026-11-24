@@ -84,7 +84,11 @@ public static class NmStandardYaml
             StandardId = std.Id,
             Vendor = std.Vendor,
             Version = VersionOf(std),
-            Extends = std.Extends,
+            // Trim：`extends: " a@1.0 "` 的空格会让注册表按 id@version 查找失败，
+            // 整条继承链断裂（报错文案里还会把空格一起打出来，更难发现）。
+            // 在**加载期**归一化，而不是在每个消费点各 Trim 一次——
+            // Flatten、Locator、SelectLeaf 三处都要用这个值，漏一处就是新的不一致。
+            Extends = string.IsNullOrWhiteSpace(std.Extends) ? null : std.Extends.Trim(),
             Source = std.Source is null
                 ? null
                 : new NmStandardSource(std.Source.Doc, std.Source.Revision),

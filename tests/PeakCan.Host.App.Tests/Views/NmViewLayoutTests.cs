@@ -224,6 +224,44 @@ public sealed class NmViewLayoutTests
             .Contain("NmHasCalibration", "无内容时整块隐藏，不留空壳");
     }
 
+    /// <summary>
+    /// <b>标定面板必须能滚动</b>：四块表（规则 / 观测 vs 期望 / 体检 / 未建模条款）
+    /// 全展开时内容高度远超 360px 面板。没有 <c>ScrollViewer</c> + <c>MaxHeight</c> 时，
+    /// <c>Expander</c> 里的 <c>StackPanel</c> 会无限撑高，把下面的时间条与事件表挤到
+    /// 各自的 <c>MinHeight</c>，超出的内容直接被裁掉——用户看不到也滚不到。
+    /// <para>
+    /// 断言 <c>MaxHeight</c> 而非只断言 <c>ScrollViewer</c> 存在：光有 ScrollViewer
+    /// 而外层是 <c>Auto</c> 行时，它会被内容撑到自然高度，滚动条永不出现——
+    /// 那是「加了控件但没解决问题」。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Panel_CalibrationPanel_ScrollsWhenContentOverflows()
+    {
+        var calibration = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "标定面板");
+
+        var scroller = calibration.Descendants(P + "ScrollViewer").FirstOrDefault();
+        scroller.Should().NotBeNull(
+            "四块表常驻会超出面板高度，没有 ScrollViewer 时超出的行被裁掉");
+
+        ((string?)scroller!.Attribute("MaxHeight")).Should().NotBeNullOrEmpty(
+            "只有 ScrollViewer 而无 MaxHeight 时它会被内容撑到自然高度，滚动条永不出现");
+
+        var visibility = (string?)scroller.Attribute("VerticalScrollBarVisibility");
+        visibility.Should().Be("Auto",
+            "内容不溢出时不该出现滚动条——常驻滚动条会让人以为下面还有内容");
+
+        // 四块表必须都在 ScrollViewer 内，否则滚不到的那部分照样被裁。
+        var itemsSources = scroller.Descendants(P + "ItemsControl")
+            .Select(i => (string?)i.Attribute("ItemsSource"))
+            .ToList();
+        itemsSources.Should().Contain("{Binding NmCalibrationRows}");
+        itemsSources.Should().Contain("{Binding NmCalibrationComparisons}");
+        itemsSources.Should().Contain("{Binding NmDataQualityChecks}");
+        itemsSources.Should().Contain("{Binding NmUnmodeledClauses}");
+    }
+
     [Fact]
     public void Panel_CalibrationPanel_HasAllFourSections()
     {

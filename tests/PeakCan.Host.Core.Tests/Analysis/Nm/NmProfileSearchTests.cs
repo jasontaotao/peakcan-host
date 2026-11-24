@@ -25,6 +25,21 @@ public class NmProfileSearchTests
           version: "1.0"
         """;
 
+    /// <summary>继承 <see cref="ProfileA"/> 的 OEM profile——用于验证「叶子」判定。</summary>
+    private const string ProfileOem = """
+        standard:
+          id: oem
+          version: "2.0"
+          extends: a@1.0
+        """;
+
+    private const string ProfileOem2 = """
+        standard:
+          id: oem2
+          version: "2.0"
+          extends: a@1.0
+        """;
+
     private static string NewTempDir()
     {
         var dir = IO.Path.Combine(IO.Path.GetTempPath(), "nm-search-" + Guid.NewGuid().ToString("N"));
@@ -173,6 +188,261 @@ public class NmProfileSearchTests
         {
             IO.Directory.Delete(dbcDir, recursive: true);
             IO.Directory.Delete(appData, recursive: true);
+            IO.Directory.Delete(install, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// <b>子目录里的 profile 必须能被搜到</b>。spec §15 的目录约定是
+    /// <c>profiles/&lt;vendor&gt;/&lt;name&gt;@&lt;version&gt;.nmstd.yaml</c>——
+    /// base 在 <c>profiles/base/</c>、OEM 在 <c>profiles/oem/</c>，都不在根目录。
+    /// <para>
+    /// 首版只搜 <c>TopDirectoryOnly</c>，导致仓库里真实的两份 profile 一份都搜不到：
+    /// 选择器永远只有「未选择企标」一项，M2 的规则引擎、条款覆盖、标定面板
+    /// 全都不会执行。这是「测试全绿但功能不可达」的典型。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ProfilesInVendorSubdirectory_AreFound()
+    {
+        var install = NewTempDir();
+        try
+        {
+            // 模拟 spec §15 的目录约定：base/ 与 oem/ 两个子目录。
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "base"));
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "oem"));
+            Write(IO.Path.Combine(install, "base"), "a@1.0.nmstd.yaml", ProfileA);
+            Write(IO.Path.Combine(install, "oem"), "b@1.0.nmstd.yaml", ProfileB);
+
+            var result = NmStandardProfileLocator.Search(null, Options(installRoot: install));
+
+            Assert.Equal(2, result.Candidates.Count);
+            Assert.Contains(result.Candidates, c => c.Id == "a@1.0");
+            Assert.Contains(result.Candidates, c => c.Id == "b@1.0");
+        }
+        finally
+        {
+            IO.Directory.Delete(install, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// <b>DBC 同目录层必须只搜顶层</b>，不得递归（spec §10.1 字面：「DBC 同目录」）。
+    /// <para>
+    /// 递归会让工程目录下偶然存在的 <c>profiles/base/...</c> 命中并短路掉安装目录，
+    /// 用户看到层级显示「DBC 同目录」、跑的却是那份旧 profile，且没有任何提示。
+    /// 更坏的情况是自动选中一份无关企标。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void DbcDirectory_DoesNotRecurseIntoSubdirectories()
+    {
+        var dbcDir = NewTempDir();
+        var install = NewTempDir();
+        try
+        {
+            // DBC 同目录的子目录里放一份 profile：不得被搜到。
+            var nested = IO.Path.Combine(dbcDir, "profiles", "base");
+            IO.Directory.CreateDirectory(nested);
+            Write(nested, "nested@1.0.nmstd.yaml", ProfileA);
+            // 安装目录里放真正该用的那份。
+            Write(install, "real@1.0.nmstd.yaml", ProfileB);
+
+            var result = NmStandardProfileLocator.Search(
+                IO.Path.Combine(dbcDir, "bus.dbc"),
+                Options(installRoot: install));
+
+            Assert.Equal("b", result.Selected!.StandardId);
+            Assert.Equal(NmProfileSearchLevel.InstallDirectory, result.Level);
+        }
+        finally
+        {
+            IO.Directory.Delete(dbcDir, recursive: true);
+            IO.Directory.Delete(install, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 安装目录只递归**一层** <c>&lt;vendor&gt;/</c>（spec §15 的目录约定），
+    /// 不无界递归——否则 <c>backup/</c>、<c>old/</c> 里的副本会被当成正式候选，
+    /// 两份同 id@version 时直接抛异常让整次分析失败。
+    /// </summary>
+    [Fact]
+    public void InstallDirectory_DoesNotRecurseBeyondVendorLevel()
+    {
+        var install = NewTempDir();
+        try
+        {
+            var vendor = IO.Path.Combine(install, "oem");
+            IO.Directory.CreateDirectory(vendor);
+            Write(vendor, "good@1.0.nmstd.yaml", ProfileA);
+
+            // 更深一层：spec §15 没有这个约定，不得被当成候选。
+            var deep = IO.Path.Combine(vendor, "backup", "old");
+            IO.Directory.CreateDirectory(deep);
+            Write(deep, "stale@1.0.nmstd.yaml", ProfileB);
+
+            var result = NmStandardProfileLocator.Search(null, Options(installRoot: install));
+
+            Assert.Equal("a", result.Selected!.StandardId);
+            Assert.DoesNotContain(result.Candidates, c => c.StandardId == "stale");
+        }
+        finally
+        {
+            IO.Directory.Delete(install, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// <b>默认选叶子 profile</b>：安装目录同时有 base 与 OEM 时，自动选中 OEM。
+    /// <para>
+    /// 「叶子」= 没有任何其它候选 <c>extends</c> 它。base 被 OEM 继承，所以不是叶子。
+    /// 不这么做的话用户装好软件打开 trace，M2 全部功能仍是关闭的——
+    /// 必须手动点一次下拉才会看到任何变化。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void BaseAndOemTogether_AutoSelectsLeafNotBase()
+    {
+        var install = NewTempDir();
+        try
+        {
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "base"));
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "oem"));
+            Write(IO.Path.Combine(install, "base"), "a@1.0.nmstd.yaml", ProfileA);
+            Write(IO.Path.Combine(install, "oem"), "oem@2.0.nmstd.yaml", ProfileOem);
+
+            var result = NmStandardProfileLocator.Search(null, Options(installRoot: install));
+
+            Assert.NotNull(result.Selected);
+            Assert.Equal("oem", result.Selected!.StandardId);
+            // 两份都仍要出现在候选里，用户能换回 base。
+            Assert.Equal(2, result.Candidates.Count);
+        }
+        finally
+        {
+            IO.Directory.Delete(install, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 多个**互不继承**的叶子（两个 OEM）→ 仍是多候选、不自动选。
+    /// 猜哪个都不是用户想要的。
+    /// </summary>
+    [Fact]
+    public void TwoIndependentLeaves_AreNotAutoSelected()
+    {
+        var install = NewTempDir();
+        try
+        {
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "base"));
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "oem"));
+            Write(IO.Path.Combine(install, "base"), "base@1.0.nmstd.yaml", ProfileA);
+            Write(IO.Path.Combine(install, "oem"), "oem1@2.0.nmstd.yaml", ProfileOem);
+            Write(IO.Path.Combine(install, "oem"), "oem2@2.0.nmstd.yaml", ProfileOem2);
+
+            var result = NmStandardProfileLocator.Search(null, Options(installRoot: install));
+
+            Assert.Null(result.Selected);
+            Assert.Equal(3, result.Candidates.Count);
+        }
+        finally
+        {
+            IO.Directory.Delete(install, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// <b>自继承不得让坏 profile 静默消失</b>：<c>extends</c> 写错成自己的 id 时，
+    /// 若把自身算成「父」，它会被排除出叶子集，剩下的 base 被自动选中——
+    /// 用户看到「跑到 base 上了」，而那份坏 OEM 被悄悄隐藏。
+    /// </summary>
+    [Fact]
+    public void SelfInheritingProfile_IsNotExcludedAsItsOwnParent()
+    {
+        var install = NewTempDir();
+        try
+        {
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "base"));
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "oem"));
+            Write(IO.Path.Combine(install, "base"), "base@1.0.nmstd.yaml", ProfileA);
+            // 自继承：extends 指向自己。
+            Write(IO.Path.Combine(install, "oem"), "oem@2.0.nmstd.yaml", """
+                standard:
+                  id: oem
+                  version: "2.0"
+                  extends: oem@2.0
+                """);
+
+            var result = NmStandardProfileLocator.Search(null, Options(installRoot: install));
+
+            // 两份都算叶子 → 不自动选，交给用户。不能静默选 base。
+            Assert.Null(result.Selected);
+            Assert.Equal(2, result.Candidates.Count);
+        }
+        finally
+        {
+            IO.Directory.Delete(install, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// <b>悬空继承链的叶子不得被自动选中</b>：父文件被改名后，
+    /// 自动选中它会让 <c>Flatten</c> 抛「继承链断裂」，整次分析失败。
+    /// 改动前多候选不自动选，分析照常跑完——自动选不能把这个容错退掉。
+    /// </summary>
+    [Fact]
+    public void LeafWithDanglingParent_IsNotAutoSelected()
+    {
+        var install = NewTempDir();
+        try
+        {
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "base"));
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "oem"));
+            // base 文件名叫 base@1.0，但内容 id 是 a@1.0 —— LocateParent 按
+            // `a@1.0.nmstd.yaml` 找不到它，继承链断在这里。
+            Write(IO.Path.Combine(install, "base"), "base@1.0.nmstd.yaml", ProfileA);
+            Write(IO.Path.Combine(install, "oem"), "oem@2.0.nmstd.yaml", ProfileOem);
+
+            var result = NmStandardProfileLocator.Search(null, Options(installRoot: install));
+
+            Assert.Null(result.Selected);
+            // 两份都仍要列出来，用户能手动点选（点选时会得到明确的继承链错误）。
+            Assert.Equal(2, result.Candidates.Count);
+        }
+        finally
+        {
+            IO.Directory.Delete(install, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// <c>extends</c> 带前后空格时父仍要被识别——否则两份都算叶子，
+    /// 自动选静默失效，M2 又回到「感觉没变化」且无任何报错。
+    /// </summary>
+    [Fact]
+    public void ExtendsWithWhitespace_StillRecognizesParent()
+    {
+        var install = NewTempDir();
+        try
+        {
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "base"));
+            IO.Directory.CreateDirectory(IO.Path.Combine(install, "oem"));
+            Write(IO.Path.Combine(install, "base"), "a@1.0.nmstd.yaml", ProfileA);
+            Write(IO.Path.Combine(install, "oem"), "oem@2.0.nmstd.yaml", """
+                standard:
+                  id: oem
+                  version: "2.0"
+                  extends: " a@1.0 "
+                """);
+
+            var result = NmStandardProfileLocator.Search(null, Options(installRoot: install));
+
+            Assert.NotNull(result.Selected);
+            Assert.Equal("oem", result.Selected!.StandardId);
+        }
+        finally
+        {
             IO.Directory.Delete(install, recursive: true);
         }
     }

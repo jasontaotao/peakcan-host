@@ -2264,3 +2264,89 @@ uncovered_clauses:
 `NmClauseRegistry.KnownClauses` 同时收 `附录 A` 与 `附录A`（形状正则 `附录 ?A` 空格可选）。聚合若按原始字符串比较，规则写一种、声明写另一种就永远对不上——声明落在独立的空行上，被声明的条款反而仍显示 Covered。
 
 新增 `NmClauseCoverage.NormalizeClause`，**只做已知别名的映射**，不做通用空白/大小写折叠：后者会让 `NM_03` 与 `nm_03` 合并，而小写写法根本不该被接受（白名单是 ordinal 比较）。归一的口径必须与白名单一致，否则是另一种不一致。
+
+### 19.10 profile 发现链路修复（2026-11-24）
+
+**触发**：用户反馈「M2 完成了，我怎么没感觉到有啥变化」。排查发现 M2 的全部功能（企标规则引擎、条款覆盖、标定面板）都只在「选中了企标 profile」时才跑，而默认搜索路径下**一份 profile 都找不到**。
+
+#### 一、两个叠加的根因
+
+| # | 缺陷 | 后果 |
+|---|---|---|
+| 1 | `PeakCan.Host.App.csproj` 从未把仓库根目录的 `profiles/` 复制到输出目录 | 运行时 `AppContext.BaseDirectory/profiles` 不存在 |
+| 2 | `NmStandardProfileLocator` 只搜顶层目录，而 §15 约定是 `profiles/<vendor>/` | 即使复制了也搜不到 |
+
+三个搜索层（DBC 同目录 → `%APPDATA%` → 安装目录）全部落空 → 选择器永远只有「未选择企标」→ 规则引擎不跑。
+
+**为什么 2400 条测试没发现**：Core 测试用 `RepoPath()` 手工定位源码树里的 YAML，App 测试手工构造候选列表。**没有一条测试问过「App 运行时默认路径下能找到 profile 吗」**。这是「测试全绿但功能不可达」。
+
+#### 二、按层区分递归深度（`EnumerateProfileFiles`）
+
+上一轮把 `SearchLevel` 的 `TopDirectoryOnly` 改成 `AllDirectories`，但 `SearchLevel` 是三层共用的：
+
+| 层 | 递归策略 | 理由 |
+|---|---|---|
+| DBC 同目录 | 只顶层 | spec §10.1 字面是「DBC 同目录」。递归会让工程目录下偶然存在的 `profiles/base/` 短路掉安装目录，甚至自动选中错误的企标 |
+| AppData / 安装目录 | 顶层 + 一层 `<vendor>/` | §15 的目录约定。不做无界递归——`backup/`、`old/` 里的副本会被当成候选 |
+
+用显式 `EnumerationOptions`（`IgnoreInaccessible = true`、`AttributesToSkip = ReparsePoint`）而不是 `SearchOption`：盘根的 `System Volume Information` 会让整次 NM 分析失败（调用方的通用 catch 会把它变成「分析失败」并清空面板）。
+
+#### 三、默认选叶子 profile（用户决策 3.A）
+
+base 与 OEM 是两份不同身份 → 按 §10.1 不自动选 → 用户装好软件 M2 仍是关的。
+
+`SelectLeaf`：被任何**其它**候选 `extends` 的是父，剩下的是叶子；恰好一个叶子就自动选它，零个或多个返回 null。
+
+三个边界都必须处理（审查抓到）：
+
+| 情形 | 不处理的后果 | 修法 |
+|---|---|---|
+| 自继承（`extends` 指向自己） | 自身被排除出叶子集 → base 被自动选中 → 坏 profile 静默隐藏 | 排除自引用 |
+| 悬空链（父文件被改名） | 自动选中 → `Flatten` 抛「继承链断裂」→ **整次分析失败** | `TryResolve` 真跑一次 `Flatten`，失败退回不选 |
+| `extends` 带空格 | 父识别失败 → 两份都算叶子 → 自动选静默失效 | **在加载期 Trim**（`NmStandardYaml.Map`），一处修好全部消费点 |
+
+**`TryResolve` 必须真跑 `Flatten`，不能只看 `BuildRegistry`**：后者对「父级文件找不到」有意不抛异常（把错误出口统一留给 `Flatten`）。只调 `BuildRegistry` 会让悬空链看起来可用。
+
+#### 四、opt-out 后必须能选回来（用户报的 bug）
+
+首版用 `SearchResult.None` 表达 opt-out，而它的 `Candidates` 是空数组 → 选择器塌缩成只有「未选择」一项 → 用户永久失去选择能力，只能重启会话。
+
+修法：`EnumerateOnly(dbcPath, options)`——只枚举候选、`Selected` 恒 null。`ProfileSearchOptions()` 不再在 opt-out 时置空根目录（只挡 `ExplicitPath`），否则 `EnumerateOnly` 也搜不到东西。
+
+**坏文件按文件粒度容错**（审查 HIGH）：`EnumerateOnly` 捕获 `NmProfileValidationException` / `IOException` / `UnauthorizedAccessException`，失败的路径进 `SearchResult.FailedPaths` 由面板显示。不这么做的话，目录里任意一份坏 profile 会让整次分析失败——而 opt-out 正是用户在 profile 有问题时的**唯一逃生路径**。
+
+同时修 `ClearNmReport`：分析失败时**不再**重置 `NmProfileOptOut`（加 `keepProfileSelection` 参数）。失败时清掉 opt-out 会让下一次分析又去加载那份坏 profile、又失败，用户被永久困在「分析失败」。
+
+#### 五、opt-out 的文案与监听状态（审查 MEDIUM）
+
+| 问题 | 修法 |
+|---|---|
+| `EnumerateOnly` 的 `Level` 是 null → 摘要落进「未命中」分支，显示「共 2 份候选，请选择（未命中）」 | opt-out 单独一支文案：「共 N 份可选（当前仅观测，选一份即启用企标判定）」 |
+| `ApplyNmProfileSelector` 只要候选非空就写「仅监听所选 profile 所在目录」，而 opt-out 时没有生效的 profile | 只有 `!NmProfileOptOut && StandardId is not null` 才写 |
+| `ProfileDirectoryOf` 的「唯一候选」分支会在 opt-out 时启动 watcher | opt-out 直接返回 null |
+| `EnsureNmProfileWatcher(null)` 只 Dispose 不清状态 | 一并清 `NmProfileWatcherStatus` |
+
+#### 六、watcher 盯错目录（审查 MEDIUM）
+
+`ProfileDirectoryOf` 注释写「优先用用户显式选中的那份」但代码永远取 `Candidates[0]`。递归后 base 排在 oem 前面，于是用户选中 geely 后 watcher 挂在 `profiles/base` 上——改 oem 的 yaml 不触发任何重算，而状态文案说在监听。
+
+修法：显式路径 → 报告 `StandardId` 对应候选 → 唯一候选。
+
+#### 七、标定面板无滚轮
+
+四块表全展开时高度远超 360px 面板，`Expander` 里的 `StackPanel` 无限撑高，把时间条与事件表挤到各自 `MinHeight`，超出部分被裁掉。
+
+修法：套 `ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto"`。**`MaxHeight` 是必需的**——只加 `ScrollViewer` 而外层是 `Auto` 行时，它会被内容撑到自然高度，滚动条永不出现。
+
+#### 八、验证
+
+- Core **891 绿** / App **2379 绿**
+- 反向验证 5 组：还原 `SearchResult.None` → 1 红；还原 `Candidates[0]` → 1 红；还原 `TopDirectoryOnly` → 1 红；删 `TryResolve` 的 Flatten → 1 红；删降级逻辑（上一轮）→ 2 红
+
+#### 九、仍未做
+
+| 项 | 状态 |
+|---|---|
+| `extends` 父文件变更不触发重算 | ❌ 只监听选中文件所在目录（多 watcher 属未完成项，`NmProfileWatcherLimitText` 始终披露） |
+| `NmExplicitProfilePath` 不持久化 | ❌ 会话重启回到「按叶子自动选」 |
+| 完整条款目录 / 追溯矩阵 | ❌ 同 §19.9 第六节 |

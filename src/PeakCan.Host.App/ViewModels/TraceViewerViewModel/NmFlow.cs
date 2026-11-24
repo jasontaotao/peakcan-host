@@ -64,17 +64,19 @@ public sealed partial class TraceViewerViewModel
     /// <summary>
     /// 构造本次搜索的选项（spec §10.1）。
     /// <para>
-    /// 用户主动 opt-out 时，把两个全局根目录也置空并跳过显式路径 —— 等价于
-    /// 「不搜任何层级」，得到 <see cref="NmStandardProfileLocator.SearchResult.None"/>。
-    /// 用一个专门的开关而不是复用 null 值，见 <see cref="NmProfileOptOut"/> 的说明。
+    /// <b>opt-out 时也必须给出完整根目录</b>：选择器要能列出「选回来」的选项，
+    /// 否则用户点一次「未选择」就永久失去选择能力。opt-out 的语义由调用方
+    /// 走 <see cref="NmStandardProfileLocator.EnumerateOnly"/> 表达（不选中），
+    /// 而不是靠「搜不到」表达。
+    /// </para>
+    /// <para>
+    /// 唯一要挡的是**显式路径**：用户刚取消的那份会被 ExplicitPath 立刻重新选中。
     /// </para>
     /// </summary>
-    private NmProfileSearchOptions ProfileSearchOptions() => NmProfileOptOut
-        ? new NmProfileSearchOptions()
-        : new NmProfileSearchOptions(
-            ExplicitPath: NmExplicitProfilePath,
-            AppDataProfilesRoot: NmAppDataProfilesRoot,
-            InstallProfilesRoot: NmInstallProfilesRoot);
+    private NmProfileSearchOptions ProfileSearchOptions() => new(
+        ExplicitPath: NmProfileOptOut ? null : NmExplicitProfilePath,
+        AppDataProfilesRoot: NmAppDataProfilesRoot,
+        InstallProfilesRoot: NmInstallProfilesRoot);
 
     async Task<NmToolSnapshot> IChatToolContext.GetNmSnapshotAsync(NmToolQuery query, CancellationToken ct)
     {
@@ -125,10 +127,12 @@ public sealed partial class TraceViewerViewModel
             // 未找到时 Standard 为 null，走 M1 行为。同 id@version 多份文件会抛异常
             // （事实源冲突）；不同身份多份则返回候选列表、不自动选——由选择器让用户选。
             //
-            // 用户主动 opt-out 时完全不搜：只把全局根目录置空挡不住「DBC 同目录」这一层，
-            // 结果会立刻把用户刚取消的那份 profile 重新选中。
+            // 用户主动 opt-out 时**仍要枚举候选，只是不选中**。
+            // 早先用 SearchResult.None 表达 opt-out，候选列表成了空数组，
+            // 选择器塌缩成只有「未选择」一项——用户再也选不回任何 profile。
+            // 用 EnumerateOnly：Selected 恒 null（跑无企标分析），Candidates 照常填充。
             var search = NmProfileOptOut
-                ? NmStandardProfileLocator.SearchResult.None
+                ? NmStandardProfileLocator.EnumerateOnly(dbcPath, ProfileSearchOptions())
                 : NmStandardProfileLocator.Search(dbcPath, ProfileSearchOptions());
             NmStandardProfile? selected = search.Selected;
             IReadOnlyDictionary<string, NmStandardProfile>? registry = null;
@@ -168,6 +172,7 @@ public sealed partial class TraceViewerViewModel
                 {
                     ProfileCandidates = search.Candidates,
                     ProfileLevel = search.Level,
+                    FailedProfilePaths = search.FailedPaths,
                 };
 
             var request = new NmAnalysisRequest(
@@ -182,6 +187,7 @@ public sealed partial class TraceViewerViewModel
             {
                 ProfileCandidates = search.Candidates,
                 ProfileLevel = search.Level,
+                FailedProfilePaths = search.FailedPaths,
             };
         }, ct).ConfigureAwait(false);
     }

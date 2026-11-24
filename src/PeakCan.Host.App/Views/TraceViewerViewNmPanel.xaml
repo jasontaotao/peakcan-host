@@ -138,6 +138,14 @@
         <Expander Grid.Row="6" Header="标定面板" IsExpanded="False" Margin="6,2"
                   FontSize="11" FontWeight="SemiBold" Foreground="#445566"
                   Visibility="{Binding NmHasCalibration, Converter={StaticResource BoolToVis}}">
+            <!-- 四块表全展开时高度远超 360px 面板。不套 ScrollViewer + MaxHeight 时，
+                 StackPanel 会无限撑高，把下面的时间条与事件表挤到各自的 MinHeight，
+                 超出部分直接被裁掉——用户看不到也滚不到。
+                 MaxHeight 是必需的：只加 ScrollViewer 而外层是 Auto 行时，它会被内容
+                 撑到自然高度，滚动条永不出现。220px 约为面板可用高度的六成，
+                 保证时间条与事件表始终可见。 -->
+            <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="0,2,0,0">
                 <!-- 规则表：每条规则 → 触发 / 未触发 / 未建模，点击 seek 到证据时刻 -->
                 <TextBlock Text="规则" FontSize="10" FontWeight="SemiBold" Foreground="#666666"
@@ -251,6 +259,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </StackPanel>
+            </ScrollViewer>
         </Expander>
 
         <!-- 分析前的空态：告诉用户从哪开始，而不是留一块空白。 -->
