@@ -84,4 +84,15 @@ public class DbcMessageViewModelTests
         vm.Id.Should().Be("0x00000123");
         vm.IsExtended.Should().BeTrue();
     }
+
+    [Fact]
+    public void From_Retains_RawMessage_For_Layout()
+    {
+        var msg = MakeMessage();
+
+        var vm = DbcMessageViewModel.From(msg);
+
+        vm.RawMessage.Should().BeSameAs(msg);
+        vm.Signals.Should().NotBeEmpty("字符串列表仍供搜索与旧 RowDetails 使用");
+    }
 }

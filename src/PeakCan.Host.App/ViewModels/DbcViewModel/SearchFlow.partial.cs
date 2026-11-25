@@ -20,6 +20,9 @@ public sealed partial class DbcViewModel
 
     private void ApplyFilter()
     {
+        // Clear 会让 DataGrid 通过 TwoWay 绑定把 SelectedMessage 置空；
+        // 先记住旧选中行，过滤后按 Id + Name 找回，避免位图悄悄消失。
+        var selected = SelectedMessage;
         FilteredMessages.Clear();
         var pattern = SearchText.Trim();
         foreach (var m in _allMessages)
@@ -32,6 +35,14 @@ public sealed partial class DbcViewModel
                 FilteredMessages.Add(m);
             }
         }
+
+        if (selected is not null)
+        {
+            SelectedMessage = FilteredMessages.FirstOrDefault(
+                m => string.Equals(m.Id, selected.Id, StringComparison.Ordinal)
+                     && string.Equals(m.Name, selected.Name, StringComparison.Ordinal));
+        }
+
         NotifyEmptyStateChanged();
     }
 

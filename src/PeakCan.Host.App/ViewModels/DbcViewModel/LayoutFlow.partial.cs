@@ -1,0 +1,206 @@
+using System.Collections.ObjectModel;
+using System.Globalization;
+using CommunityToolkit.Mvvm.ComponentModel;
+using PeakCan.HIL.Core.Dbc;
+using PeakCan.Host.Core.Analysis.Dbc;
+using DbcValueType = PeakCan.HIL.Core.Dbc.ValueType;
+
+namespace PeakCan.Host.App.ViewModels;
+
+public sealed partial class DbcViewModel
+{
+    [ObservableProperty]
+    private DbcMessageViewModel? _selectedMessage;
+
+    [ObservableProperty]
+    private ushort? _selectedMuxValue;
+
+    [ObservableProperty]
+    private SignalBitLayoutSnapshot? _layoutSnapshot;
+
+    [ObservableProperty]
+    private bool _hasMux;
+
+    [ObservableProperty]
+    private string _layoutEmptyText = "";
+
+    public ObservableCollection<ushort> MuxValues { get; } = new();
+
+    public ObservableCollection<DbcSignalRow> VisibleSignals { get; } = new();
+
+    public ObservableCollection<ByteLayoutRow> LayoutRows { get; } = new();
+
+    private bool _suppressLayout;
+
+    partial void OnSelectedMessageChanged(DbcMessageViewModel? value)
+    {
+        if (_suppressLayout) return;
+        RebuildMuxAndLayout();
+    }
+
+    partial void OnSelectedMuxValueChanged(ushort? value)
+    {
+        if (_suppressLayout) return;
+        UpdateLayout();
+    }
+
+    /// <summary>
+    /// 切换消息时重建 mux 候选项，并把选中值重置为该消息的最小 mux 值。
+    /// 重建期间抑制 mux 变更回调，避免每加一个候选项就重算一次快照。
+    /// </summary>
+    private void RebuildMuxAndLayout()
+    {
+        _suppressLayout = true;
+        try
+        {
+            MuxValues.Clear();
+            if (SelectedMessage?.RawMessage is { } message)
+            {
+                var values = message.Signals
+                    .Where(s => s.IsMultiplexed && s.MultiplexValue is not null)
+                    .Select(s => s.MultiplexValue!.Value)
+                    .Distinct()
+                    .OrderBy(v => v);
+                foreach (var value in values) MuxValues.Add(value);
+            }
+
+            HasMux = MuxValues.Count > 0;
+            SelectedMuxValue = HasMux ? MuxValues[0] : null;
+        }
+        finally
+        {
+            _suppressLayout = false;
+        }
+
+        UpdateLayout();
+    }
+
+    /// <summary>
+    /// 重算当前选中消息的静态布局快照，并投影成可绑定的行。
+    /// 只由选中消息 / mux 变化触发，无定时器。
+    /// </summary>
+    private void UpdateLayout()
+    {
+        LayoutRows.Clear();
+        VisibleSignals.Clear();
+        LayoutEmptyText = "";
+
+        if (SelectedMessage?.RawMessage is not { } message)
+        {
+            LayoutSnapshot = null;
+            return;
+        }
+
+        var snapshot = SignalBitLayout.Compute(message, SelectedMuxValue);
+        LayoutSnapshot = snapshot;
+
+        if (snapshot.RenderedDlc == 0)
+        {
+            LayoutEmptyText = "无信号 / 无载荷（DLC=0）";
+        }
+        else if (snapshot.Segments.Count == 0)
+        {
+            LayoutEmptyText = "无信号 / 无载荷";
+        }
+        else if (snapshot.Cells.All(c => c.OwnerSignal is null))
+        {
+            LayoutEmptyText = $"{snapshot.Segments.Count} 个信号均无可绘制位";
+        }
+
+        var diagnostics = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var group in snapshot.Diagnostics.GroupBy(
+                     d => d.SignalName, StringComparer.Ordinal))
+        {
+            diagnostics[group.Key] = string.Join(
+                "；", group.Select(d => d.Text));
+        }
+
+        foreach (var segment in snapshot.Segments)
+        {
+            var signal = message.Signals.FirstOrDefault(s =>
+                string.Equals(s.Name, segment.SignalName, StringComparison.Ordinal));
+            if (signal is null) continue;
+
+            VisibleSignals.Add(new DbcSignalRow(
+                signal,
+                segment.PaletteIndex,
+                diagnostics.TryGetValue(segment.SignalName, out var text)
+                    ? text
+                    : ""));
+        }
+
+        var paletteByName = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var segment in snapshot.Segments)
+            paletteByName.TryAdd(segment.SignalName, segment.PaletteIndex);
+
+        foreach (var group in snapshot.Cells
+                     .GroupBy(c => c.ByteIndex)
+                     .OrderBy(g => g.Key))
+        {
+            var cells = new List<ByteLayoutCell>(8);
+            foreach (var cell in group.OrderByDescending(c => c.BitIndex))
+            {
+                var palette = cell.OwnerSignal is not null
+                    && paletteByName.TryGetValue(cell.OwnerSignal, out var index)
+                    ? index
+                    : -1;
+                cells.Add(new ByteLayoutCell(
+                    cell.BitIndex,
+                    cell.OwnerSignal,
+                    palette,
+                    FormatCellTooltip(message, cell)));
+            }
+
+            LayoutRows.Add(new ByteLayoutRow(group.Key, cells));
+        }
+    }
+
+    /// <summary>hover / 键盘聚焦卡片的内容：位置、信号摘要、factor/offset、重叠信息。</summary>
+    private static string FormatCellTooltip(Message message, BitCell cell)
+    {
+        var head = $"B{cell.ByteIndex} bit{cell.BitIndex}";
+        if (cell.OwnerSignal is null) return $"{head} 未分配";
+
+        head += $" · {cell.OwnerSignal}";
+        var signal = message.Signals.FirstOrDefault(s =>
+            string.Equals(s.Name, cell.OwnerSignal, StringComparison.Ordinal));
+        if (signal is null) return head;
+
+        var detail = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{signal.StartBit}|{signal.Length}@{(signal.Order == ByteOrder.LittleEndian ? '1' : '0')} · factor {signal.Factor}, offset {signal.Offset} {signal.Unit}");
+        if (cell.OverlappedSignals.Count > 0)
+        {
+            detail += $"\n与 {string.Join("、", cell.OverlappedSignals)} 重叠";
+        }
+
+        return $"{head}\n{detail}";
+    }
+}
+
+/// <summary>信号表一行：原始 Signal、调色板索引与布局诊断文本。</summary>
+public sealed record DbcSignalRow(Signal Signal, int PaletteIndex, string DiagnosticText)
+{
+    public string Name => Signal.Name;
+
+    public string BitLayout => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{Signal.StartBit}|{Signal.Length}@{(Signal.Order == ByteOrder.LittleEndian ? '1' : '0')}{(Signal.ValueType == DbcValueType.Signed ? '-' : '+')}");
+
+    public string FactorOffset => string.Create(
+        CultureInfo.InvariantCulture, $"{Signal.Factor} / {Signal.Offset}");
+
+    public string Unit => Signal.Unit;
+
+    public string Comment => Signal.Comment ?? "";
+}
+
+/// <summary>位图的一行（一个字节），Cells 固定按 bit 7 → bit 0 排列。</summary>
+public sealed record ByteLayoutRow(int ByteIndex, IReadOnlyList<ByteLayoutCell> Cells)
+{
+    public string ByteLabel => $"B{ByteIndex}";
+}
+
+/// <summary>位图的一格：位号、归属信号、调色板索引与 hover 文本。</summary>
+public sealed record ByteLayoutCell(
+    int BitNumber, string? OwnerSignal, int PaletteIndex, string Tooltip);

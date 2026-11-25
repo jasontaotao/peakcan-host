@@ -42,6 +42,8 @@
             <conv:EmptyStringToVisibilityConverter x:Key="EmptyStringToVisibilityConverter" />
             <!-- 反向: null/"" -> Collapsed, 非空 -> Visible. NM 面板的提示/摘要行用. -->
             <conv:NonEmptyStringToVisibilityConverter x:Key="NonEmptyStringToVis" />
+            <!-- DBC 字节位图：信号调色板索引 -> 格子背景色。 -->
+            <conv:ByteLayoutPaletteBrushConverter x:Key="ByteLayoutPaletteBrush" />
             <!-- 集合计数 > 0 -> Visible. 标定面板的空表标题隐藏用. -->
             <conv:CountToVisibilityConverter x:Key="CountToVis" />
             <!-- Task 18: NodesView 节点状态点 Fill——true(运行中)→Green, false→Gray. -->

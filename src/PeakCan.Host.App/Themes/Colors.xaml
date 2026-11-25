@@ -42,6 +42,17 @@
     <SolidColorBrush x:Key="TraceHl3" Color="#E0F7FA" />
     <SolidColorBrush x:Key="TraceHl4" Color="#FFF3E0" />
     <SolidColorBrush x:Key="TraceHl5" Color="#FBE9E7" />
+    <!-- DBC 字节位图（spec 2026-11-25 §5.6）：按信号声明顺序循环取色 -->
+    <SolidColorBrush x:Key="ByteLayoutFree" Color="#F1F3F5" />
+    <SolidColorBrush x:Key="ByteLayoutSignal1" Color="#2B6CB0" />
+    <SolidColorBrush x:Key="ByteLayoutSignal2" Color="#2F855A" />
+    <SolidColorBrush x:Key="ByteLayoutSignal3" Color="#B7791F" />
+    <SolidColorBrush x:Key="ByteLayoutSignal4" Color="#9B2C5C" />
+    <SolidColorBrush x:Key="ByteLayoutSignal5" Color="#6B46A6" />
+    <SolidColorBrush x:Key="ByteLayoutSignal6" Color="#0E8074" />
+    <SolidColorBrush x:Key="ByteLayoutSignal7" Color="#B03A2E" />
+    <SolidColorBrush x:Key="ByteLayoutSignal8" Color="#4D6FB3" />
+    <SolidColorBrush x:Key="ByteLayoutSignal9" Color="#7A6A2F" />
     <!-- 控制台 -->
     <SolidColorBrush x:Key="ConsoleBg" Color="#FBFBFC" />
     <SolidColorBrush x:Key="ConsoleFg" Color="#24292F" />

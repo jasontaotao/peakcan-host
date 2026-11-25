@@ -1,0 +1,21 @@
+VERSION ""
+NS_ :
+BS_:
+BU_: BMS
+BO_ 929 BMS_Status: 8 BMS
+ SG_ SOC : 0|12@1+ (0.1,0) [0|100] "%" Vector__XXX
+ SG_ PackCurrent : 12|12@1- (0.1,-200) [-200|200] "A" Vector__XXX
+ SG_ PackVoltage : 24|16@1+ (0.01,0) [0|655.35] "V" Vector__XXX
+ SG_ Mode M : 40|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ CellVoltMax m0 : 44|12@1+ (0.001,0) [0|4.095] "V" Vector__XXX
+ SG_ CellVoltMin m1 : 44|12@1+ (0.001,0) [0|4.095] "V" Vector__XXX
+ SG_ FaultFlags : 55|8@0+ (1,0) [0|255] "" Vector__XXX
+BO_ 930 BMS_CellVolt: 8 BMS
+ SG_ Group M : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ CellVolt_1 m0 : 8|16@1+ (0.001,0) [0|65.535] "V" Vector__XXX
+ SG_ CellVolt_2 m0 : 24|16@1+ (0.001,0) [0|65.535] "V" Vector__XXX
+ SG_ CellVolt_5 m1 : 8|16@1+ (0.001,0) [0|65.535] "V" Vector__XXX
+ SG_ CellVolt_6 m1 : 24|16@1+ (0.001,0) [0|65.535] "V" Vector__XXX
+ SG_ BalanceFlags : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ CRC : 48|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ AliveCounter : 56|4@1+ (1,0) [0|15] "" Vector__XXX

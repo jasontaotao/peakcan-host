@@ -44,6 +44,12 @@ public sealed class DbcMessageViewModel
     public IReadOnlyList<string> Signals { get; init; } = Array.Empty<string>();
 
     /// <summary>
+    /// 原始解析消息。位图 / mux / DLC 需要强类型字段；字符串投影
+    /// <see cref="Signals"/> / <see cref="Dlc"/> 保持原样供搜索与兼容使用。
+    /// </summary>
+    public Message? RawMessage { get; init; }
+
+    /// <summary>
     /// Project a parsed <see cref="Message"/> into a row for the DataGrid.
     /// </summary>
     public static DbcMessageViewModel From(Message m)
@@ -71,6 +77,7 @@ public sealed class DbcMessageViewModel
             IsExtended = isExtended,
             Signals = signals,
             Comment = m.Comment,
+            RawMessage = m,
         };
     }
 }

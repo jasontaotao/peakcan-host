@@ -134,6 +134,8 @@ public sealed partial class DbcViewModel
         // DispatcherExtensions.cs class doc-comment for the regression.
         ((Action)(() =>
         {
+            // 重载换文档：旧选中行的位图必须立即失效，不能指向旧消息。
+            SelectedMessage = null;
             Messages.Clear();
             _allMessages.Clear();
             FilteredMessages.Clear();

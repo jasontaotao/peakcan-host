@@ -104,4 +104,34 @@ public sealed class DbcViewLayoutTests
         ((string?)errorBar!.Attribute("Visibility")).Should()
             .Contain("NullToVisibilityConverter", "LoadError 为 null 时必须是隐藏而不是空条");
     }
+
+    [Fact]
+    public void Grid_Is_Single_Selection_Because_Details_Are_Per_Row()
+    {
+        var grid = DbcView().Descendants(P + "DataGrid").Single();
+
+        ((string?)grid.Attribute("SelectionMode")).Should().Be(
+            "Single", "多选时每一行都会展开 RowDetails，但快照只对应一个 SelectedMessage");
+    }
+
+    [Fact]
+    public void Grid_Binds_SelectedItem_To_SelectedMessage()
+    {
+        var grid = DbcView().Descendants(P + "DataGrid").Single();
+
+        ((string?)grid.Attribute("SelectedItem")).Should().Contain("SelectedMessage");
+    }
+
+    [Fact]
+    public void RowDetails_Host_ByteLayoutView_And_VisibleSignals()
+    {
+        var rowDetails = DbcView()
+            .Descendants(P + "DataGrid.RowDetailsTemplate").Single();
+
+        rowDetails.Descendants().Should()
+            .Contain(e => e.Name.LocalName == "ByteLayoutView");
+        rowDetails.Descendants(P + "ItemsControl").Should()
+            .Contain(e => (((string?)e.Attribute("ItemsSource")) ?? "").Contains(
+                "VisibleSignals", StringComparison.Ordinal));
+    }
 }

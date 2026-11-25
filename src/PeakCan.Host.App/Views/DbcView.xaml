@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels"
              xmlns:controls="clr-namespace:PeakCan.Host.App.Views.Controls"
+             xmlns:views="clr-namespace:PeakCan.Host.App.Views"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
@@ -47,6 +48,8 @@
         <!-- 空态面板与表格叠在同一个 Grid 里，面板声明在表格之后 → 画在上层。 -->
         <Grid>
             <DataGrid ItemsSource="{Binding FilteredMessages}"
+                      SelectedItem="{Binding SelectedMessage, Mode=TwoWay}"
+                      SelectionMode="Single"
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
                       EnableRowVirtualization="True"
@@ -72,13 +75,50 @@
                 </DataGrid.Columns>
                 <DataGrid.RowDetailsTemplate>
                     <DataTemplate>
-                        <ItemsControl ItemsSource="{Binding Signals}" Margin="16,4,4,4">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11" Margin="0,1" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                        <!-- 行 VM 是 DbcMessageViewModel；位图/信号表只对当前选中行，
+                             因此把 DataContext 抬到 DataGrid 的 DbcViewModel。 -->
+                        <StackPanel DataContext="{Binding DataContext,
+                            RelativeSource={RelativeSource AncestorType=DataGrid}}">
+                            <views:ByteLayoutView />
+                            <ItemsControl ItemsSource="{Binding VisibleSignals}"
+                                          Margin="16,0,8,8">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,1">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="18" />
+                                                <ColumnDefinition Width="160" />
+                                                <ColumnDefinition Width="120" />
+                                                <ColumnDefinition Width="110" />
+                                                <ColumnDefinition Width="50" />
+                                                <ColumnDefinition Width="160" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Rectangle Width="10" Height="10"
+                                                       RadiusX="2" RadiusY="2"
+                                                       Fill="{Binding PaletteIndex,
+                                                           Converter={StaticResource ByteLayoutPaletteBrush}}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                       FontFamily="Consolas" FontSize="11"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding Name}" />
+                                            <TextBlock Grid.Column="2" Text="{Binding BitLayout}"
+                                                       FontFamily="Consolas" FontSize="11" />
+                                            <TextBlock Grid.Column="3" Text="{Binding FactorOffset}"
+                                                       FontFamily="Consolas" FontSize="11" />
+                                            <TextBlock Grid.Column="4" Text="{Binding Unit}"
+                                                       FontSize="11" />
+                                            <TextBlock Grid.Column="5" Text="{Binding Comment}"
+                                                       FontSize="11" Foreground="{StaticResource TextSecondary}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="6" Text="{Binding DiagnosticText}"
+                                                       FontSize="11" Foreground="{StaticResource WarnText}"
+                                                       TextWrapping="Wrap" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
                     </DataTemplate>
                 </DataGrid.RowDetailsTemplate>
             </DataGrid>
