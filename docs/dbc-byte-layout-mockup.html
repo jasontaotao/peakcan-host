@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>DBC 字节位图 Mockup — peakcan-host</title>
+<style>
+  :root {
+    --bg: #1e1e1e; --panel: #252526; --panel2: #2d2d30; --border: #3f3f46;
+    --fg: #d4d4d4; --fg-dim: #858585; --accent: #4fc1ff;
+    --free: #333338; --free-fg: #5a5a60;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font: 13px/1.5 "Segoe UI", "Microsoft YaHei", sans-serif; padding: 16px; }
+  .mock-tag { color: var(--fg-dim); font-size: 11px; margin-bottom: 10px; letter-spacing: 1px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; background: var(--panel2); border: 1px solid var(--border); padding: 6px 10px; border-radius: 4px; margin-bottom: 12px; }
+  .toolbar .btn { background: #0e639c; color: #fff; border: none; padding: 3px 14px; border-radius: 3px; cursor: default; font-size: 12px; }
+  .toolbar .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+  .toolbar .status { margin-left: auto; color: #6a9955; font-size: 12px; }
+  .main { display: flex; gap: 12px; align-items: flex-start; }
+  .msg-list { width: 300px; flex: none; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .msg-list .hdr { padding: 6px 10px; background: var(--panel2); color: var(--fg-dim); font-size: 11px; display: flex; justify-content: space-between; }
+  .msg-item { padding: 8px 10px; border-top: 1px solid var(--border); cursor: pointer; }
+  .msg-item:hover { background: #2a2d2e; }
+  .msg-item.sel { background: #094771; }
+  .msg-item .id { font-family: Consolas, monospace; color: var(--accent); }
+  .msg-item.sel .id { color: #fff; }
+  .msg-item .name { font-weight: 600; margin-left: 6px; }
+  .msg-item .meta { color: var(--fg-dim); font-size: 11px; margin-top: 2px; }
+  .msg-item.sel .meta { color: #b8d7f0; }
+  .detail { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 14px 16px; min-width: 560px; }
+  .detail h2 { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+  .detail h2 .id { font-family: Consolas, monospace; color: var(--accent); margin-right: 8px; }
+  .detail .sub { color: var(--fg-dim); font-size: 12px; margin-bottom: 12px; }
+  .mux-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12px; }
+  .mux-bar select { background: var(--panel2); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; padding: 2px 6px; }
+  .mux-bar .note { color: var(--fg-dim); }
+  table.bits { border-collapse: collapse; font-family: Consolas, monospace; table-layout: fixed; width: 100%; }
+  table.bits th:first-child { width: 36px; }
+  table.bits th { font-size: 11px; color: var(--fg-dim); font-weight: 400; padding: 2px 0; }
+  table.bits th.byte-lbl { text-align: right; padding-right: 8px; }
+  table.bits td { width: 52px; height: 40px; border: 1px solid var(--border); text-align: center; vertical-align: middle;
+                  background: var(--free); color: var(--free-fg); font-size: 10px; cursor: default; position: relative; }
+  table.bits td .bitno { position: absolute; top: 1px; right: 3px; font-size: 8px; opacity: .55; color: #fff; }
+  table.bits td.free .bitno { color: var(--fg-dim); }
+  table.bits td.sig { color: #fff; }
+  table.bits td:hover { outline: 2px solid #fff; outline-offset: -2px; z-index: 2; }
+  table.bits td .segname { display: block; font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 0 2px; }
+  .legend { margin-top: 16px; width: 100%; border-collapse: collapse; font-size: 12px; }
+  .legend th, .legend td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+  .legend th { color: var(--fg-dim); font-weight: 400; font-size: 11px; }
+  .legend td.fmt { font-family: Consolas, monospace; font-size: 11px; }
+  .legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .legend tr.muxed-off { display: none; }
+  .footnote { margin-top: 14px; color: var(--fg-dim); font-size: 11px; line-height: 1.7; }
+  #tooltip { position: fixed; display: none; background: #1b1b1c; border: 1px solid #555; border-radius: 4px;
+             padding: 8px 12px; font-size: 12px; pointer-events: none; z-index: 99; max-width: 320px; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+  #tooltip .t-name { font-weight: 600; margin-bottom: 4px; }
+  #tooltip .t-row { font-family: Consolas, monospace; font-size: 11px; color: #b5b5b5; }
+</style>
+</head>
+<body>
+<div class="mock-tag">MOCKUP · peakcan-host DBC 页 · 静态位图构思（非生产代码）</div>
+<div class="toolbar">
+  <button class="btn">打开 DBC…</button>
+  <button class="btn ghost">导出 CSV</button>
+  <span class="status">✔ demo.dbc — 2 条消息 / 14 个信号</span>
+</div>
+<div class="main">
+  <div class="msg-list" id="msgList">
+    <div class="hdr"><span>ID / 名称</span><span>DLC · 信号数</span></div>
+  </div>
+  <div class="detail" id="detail"></div>
+</div>
+<div id="tooltip"></div>
+
+<script>
+// ---- 示例数据（手写 DBC 信号定义，mockup 专用）----
+const MSGS = [
+  { id: 0x3A1, name: "BMS_Status", dlc: 8, sender: "BMS", cycle: 100, muxed: true,
+    signals: [
+      { name: "SOC",          start: 0,  len: 12, order: "intel",    sign: "+", factor: 0.1,  offset: 0, unit: "%",   value: "72.4", mux: null },
+      { name: "PackCurrent",  start: 12, len: 12, order: "intel",    sign: "-", factor: 0.1,  offset: -200, unit: "A", value: "-13.6", mux: null },
+      { name: "PackVoltage",  start: 24, len: 16, order: "intel",    sign: "+", factor: 0.01, offset: 0, unit: "V",   value: "355.21", mux: null },
+      { name: "Mode",         start: 40, len: 4,  order: "intel",    sign: "+", factor: 1,    offset: 0, unit: "",    value: "0", mux: "M" },
+      { name: "CellVoltMax",  start: 44, len: 12, order: "intel",    sign: "+", factor: 0.001, offset: 0, unit: "V",  value: "3.652", mux: 0 },
+      { name: "CellVoltMin",  start: 44, len: 12, order: "intel",    sign: "+", factor: 0.001, offset: 0, unit: "V",  value: "3.618", mux: 1 },
+      { name: "FaultFlags",   start: 55, len: 8,  order: "motorola", sign: "+", factor: 1,    offset: 0, unit: "",    value: "0x00", mux: null },
+    ] },
+  { id: 0x3A2, name: "BMS_CellVolt", dlc: 8, sender: "BMS", cycle: 20, muxed: true,
+    signals: [
+      { name: "Group",        start: 0,  len: 8,  order: "intel",    sign: "+", factor: 1,    offset: 0, unit: "",    value: "1", mux: "M" },
+      { name: "CellVolt_1",   start: 8,  len: 16, order: "intel",    sign: "+", factor: 0.001, offset: 0, unit: "V",  value: "3.649", mux: 0 },
+      { name: "CellVolt_2",   start: 24, len: 16, order: "intel",    sign: "+", factor: 0.001, offset: 0, unit: "V",  value: "3.651", mux: 0 },
+      { name: "CellVolt_5",   start: 8,  len: 16, order: "intel",    sign: "+", factor: 0.001, offset: 0, unit: "V",  value: "3.647", mux: 1 },
+      { name: "CellVolt_6",   start: 24, len: 16, order: "intel",    sign: "+", factor: 0.001, offset: 0, unit: "V",  value: "3.650", mux: 1 },
+      { name: "BalanceFlags", start: 39, len: 8,  order: "motorola", sign: "+", factor: 1,    offset: 0, unit: "",    value: "0x03", mux: null },
+      { name: "CRC",          start: 48, len: 8,  order: "intel",    sign: "+", factor: 1,    offset: 0, unit: "",    value: "0xA7", mux: null },
+      { name: "AliveCounter", start: 56, len: 4,  order: "intel",    sign: "+", factor: 1,    offset: 0, unit: "",    value: "9", mux: null },
+    ] },
+];
+const PALETTE = ["#2b6cb0", "#2f855a", "#b7791f", "#9b2c5c", "#6b46a6", "#0e8074", "#b03a2e", "#4d6fb3", "#7a6a2f"];
+
+// ---- 位映射：与 SignalDecoder 同一套位序走法 ----
+// 与 SignalDecoder.ReadLittleEndian/ReadBigEndian 完全同构：
+// 两种字节序都是 absBit = start + i 递增；
+// intel: byte = absBit>>3, bit = absBit&7（LSB0）
+// motorola: byte = absBit>>3, bit = 7-(absBit&7)（MSB0，start 本身即 MSB0 编号）
+function signalCells(sig) {
+  const cells = [];
+  for (let i = 0; i < sig.len; i++) {
+    const p = sig.start + i;
+    cells.push({ byte: p >> 3, bit: sig.order === "intel" ? p & 7 : 7 - (p & 7) });
+  }
+  return cells;
+}
+
+const state = { msgIdx: 0, mux: 0 };
+const tooltip = document.getElementById("tooltip");
+
+function buildList() {
+  const list = document.getElementById("msgList");
+  list.querySelectorAll(".msg-item").forEach(e => e.remove());
+  MSGS.forEach((m, i) => {
+    const div = document.createElement("div");
+    div.className = "msg-item" + (i === state.msgIdx ? " sel" : "");
+    div.innerHTML = `<span class="id">0x${m.id.toString(16).toUpperCase()}</span><span class="name">${m.name}</span>
+      <div class="meta">DLC ${m.dlc} · ${m.signals.length} 信号 · ${m.sender} · ${m.cycle} ms</div>`;
+    div.onclick = () => { state.msgIdx = i; state.mux = 0; render(); };  // 仅选中变化时重建
+    list.appendChild(div);
+  });
+}
+
+function render() {
+  buildList();
+  const m = MSGS[state.msgIdx];
+  const detail = document.getElementById("detail");
+  const muxSig = m.signals.find(s => s.mux === "M");
+
+  // 布局快照：每个 bit 格归属哪个信号（选中消息时算一次，之后零开销）
+  const owner = Array.from({ length: m.dlc * 8 }, () => null);
+  const colors = new Map();
+  let ci = 0;
+  for (const s of m.signals) {
+    if (typeof s.mux === "number" && s.mux !== state.mux) continue; // 非当前 mux 分支不上色
+    if (s.mux === "M") { /* 复用器本身也画 */ }
+    colors.set(s.name, PALETTE[ci++ % PALETTE.length]);
+    for (const c of signalCells(s)) {
+      if (c.byte < m.dlc) owner[c.byte * 8 + c.bit] = s;
+    }
+  }
+
+  let html = `<h2><span class="id">0x${m.id.toString(16).toUpperCase()}</span>${m.name}</h2>
+    <div class="sub">DLC ${m.dlc} · 发送方 ${m.sender} · 周期 ${m.cycle} ms · 灰色 = 未分配位</div>`;
+  if (muxSig) {
+    const opts = [...new Set(m.signals.filter(s => typeof s.mux === "number").map(s => s.mux))]
+      .map(v => `<option value="${v}" ${v === state.mux ? "selected" : ""}>${muxSig.name} = ${v}</option>`).join("");
+    html += `<div class="mux-bar">多路复用 <select id="muxSel">${opts}</select>
+      <span class="note">切换时重建一次布局，无持续开销</span></div>`;
+  }
+
+  html += `<table class="bits"><tr><th></th>${[7,6,5,4,3,2,1,0].map(b => `<th>bit ${b}</th>`).join("")}</tr>`;
+  for (let byte = 0; byte < m.dlc; byte++) {
+    html += `<tr><th class="byte-lbl">B${byte}</th>`;
+    for (let bit = 7; bit >= 0; bit--) {
+      const s = owner[byte * 8 + bit];
+      if (s) {
+        // 只在每行连续段的第一个格显示名字，其余格留空，避免重复噪声
+        const runStart = bit === 7 || owner[byte * 8 + bit + 1] !== s;
+        html += `<td class="sig" style="background:${colors.get(s.name)}" data-sig="${s.name}" data-byte="${byte}" data-bit="${bit}">
+          <span class="bitno">${bit}</span>${runStart ? `<span class="segname">${s.name}</span>` : ""}</td>`;
+      } else {
+        html += `<td class="free" data-byte="${byte}" data-bit="${bit}"><span class="bitno">${bit}</span>—</td>`;
+      }
+    }
+    html += `</tr>`;
+  }
+  html += `</table>`;
+
+  html += `<table class="legend"><tr><th></th><th>信号</th><th>Start|Len@Order</th><th>factor / offset</th><th>单位</th><th>示例值</th></tr>`;
+  for (const s of m.signals) {
+    const off = typeof s.mux === "number" && s.mux !== state.mux;
+    if (off) continue;
+    const tag = s.mux === "M" ? " <span style='color:#d7ba7d'>[mux 复用器]</span>"
+              : typeof s.mux === "number" ? ` <span style='color:#d7ba7d'>[mux=${s.mux}]</span>` : "";
+    html += `<tr><td><span class="swatch" style="background:${colors.get(s.name)}"></span></td>
+      <td>${s.name}${tag}</td>
+      <td class="fmt">${s.start}|${s.len}@${s.order === "intel" ? "1" : "0"}${s.sign}</td>
+      <td class="fmt">${s.factor} / ${s.offset}</td><td>${s.unit}</td><td class="fmt">${s.value}</td></tr>`;
+  }
+  html += `</table>
+    <div class="footnote">渲染模型：选中消息 → 计算一次布局快照 → 一次性创建格子，之后零重绘、零定时器。<br>
+    二期实时点亮：仅当前选中消息走 33 ms 节流更新背景/数值，其余消息不动。</div>`;
+  detail.innerHTML = html;
+
+  const muxSel = document.getElementById("muxSel");
+  if (muxSel) muxSel.onchange = e => { state.mux = +e.target.value; render(); };
+
+  detail.querySelectorAll("td").forEach(td => {
+    td.onmousemove = e => {
+      const sName = td.dataset.sig;
+      const b = td.dataset.byte, bit = td.dataset.bit;
+      let content;
+      if (sName) {
+        const s = m.signals.find(x => x.name === sName);
+        content = `<div class="t-name" style="color:${colors.get(s.name)}">${s.name}</div>
+          <div class="t-row">B${b} bit ${bit} · ${s.start}|${s.len}@${s.order === "intel" ? "1 Intel" : "0 Motorola"}${s.sign}</div>
+          <div class="t-row">物理值 = raw × ${s.factor} + (${s.offset}) ${s.unit}</div>
+          <div class="t-row">示例值：${s.value} ${s.unit}</div>`;
+      } else {
+        content = `<div class="t-row">B${b} bit ${bit} — 未分配</div>`;
+      }
+      tooltip.innerHTML = content;
+      tooltip.style.display = "block";
+      tooltip.style.left = Math.min(e.clientX + 14, innerWidth - 340) + "px";
+      tooltip.style.top = (e.clientY + 14) + "px";
+    };
+    td.onmouseleave = () => tooltip.style.display = "none";
+  });
+}
+
+render(); // 初始一次
+</script>
+</body>
+</html>
