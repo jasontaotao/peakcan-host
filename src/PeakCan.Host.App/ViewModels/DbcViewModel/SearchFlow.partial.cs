@@ -20,28 +20,51 @@ public sealed partial class DbcViewModel
 
     private void ApplyFilter()
     {
-        // Clear 会让 DataGrid 通过 TwoWay 绑定把 SelectedMessage 置空；
-        // 先记住旧选中行，过滤后按 Id + Name 找回，避免位图悄悄消失。
+        // Clear 会让 DataGrid 通过 TwoWay 绑定把 SelectedMessage 置空。
+        // 先记住旧选中行与 mux 分支；过滤/恢复期间抑制布局重算，最后最多重算一次。
         var selected = SelectedMessage;
-        FilteredMessages.Clear();
-        var pattern = SearchText.Trim();
-        foreach (var m in _allMessages)
+        var selectedMux = SelectedMuxValue;
+        var wasSuppressed = _suppressLayout;
+        _suppressLayout = true;
+        try
         {
-            if (pattern.Length == 0
-                || m.Name.Contains(pattern, StringComparison.OrdinalIgnoreCase)
-                || m.Sender.Contains(pattern, StringComparison.OrdinalIgnoreCase)
-                || m.Signals.Any(s => s.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
+            FilteredMessages.Clear();
+            var pattern = SearchText.Trim();
+            foreach (var m in _allMessages)
             {
-                FilteredMessages.Add(m);
+                if (pattern.Length == 0
+                    || m.Name.Contains(pattern, StringComparison.OrdinalIgnoreCase)
+                    || m.Sender.Contains(pattern, StringComparison.OrdinalIgnoreCase)
+                    || m.Signals.Any(s => s.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
+                {
+                    FilteredMessages.Add(m);
+                }
+            }
+
+            if (selected is not null)
+            {
+                SelectedMessage = FilteredMessages.FirstOrDefault(
+                    m => string.Equals(m.Id, selected.Id, StringComparison.Ordinal)
+                         && string.Equals(m.Name, selected.Name, StringComparison.Ordinal));
             }
         }
-
-        if (selected is not null)
+        finally
         {
-            SelectedMessage = FilteredMessages.FirstOrDefault(
-                m => string.Equals(m.Id, selected.Id, StringComparison.Ordinal)
-                     && string.Equals(m.Name, selected.Name, StringComparison.Ordinal));
+            _suppressLayout = wasSuppressed;
         }
+
+        if (SelectedMessage is null)
+        {
+            // 选中被过滤掉：清空位图。原本就没有选中时无需动作。
+            if (selected is not null) RebuildMuxAndLayout();
+        }
+        else if (!ReferenceEquals(SelectedMessage, selected))
+        {
+            // 恢复到另一个实例（例如 DBC 内重复 Id+Name，或列表重建换了 VM 实例）：
+            // 按新消息重建，尽量保留 mux。
+            RebuildMuxAndLayout(selectedMux);
+        }
+        // 同一实例：保留现有快照与 mux，避免每个按键都重建全部格子。
 
         NotifyEmptyStateChanged();
     }

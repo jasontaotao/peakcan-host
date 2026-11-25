@@ -119,7 +119,9 @@ public sealed class DbcViewLayoutTests
     {
         var grid = DbcView().Descendants(P + "DataGrid").Single();
 
-        ((string?)grid.Attribute("SelectedItem")).Should().Contain("SelectedMessage");
+        ((string?)grid.Attribute("SelectedItem")).Should()
+            .Contain("SelectedMessage")
+            .And.Contain("Mode=TwoWay", "点击行必须回写 VM，否则位图永远不出现");
     }
 
     [Fact]
@@ -128,8 +130,12 @@ public sealed class DbcViewLayoutTests
         var rowDetails = DbcView()
             .Descendants(P + "DataGrid.RowDetailsTemplate").Single();
 
-        rowDetails.Descendants().Should()
-            .Contain(e => e.Name.LocalName == "ByteLayoutView");
+        var layoutView = rowDetails.Descendants()
+            .Single(e => e.Name.LocalName == "ByteLayoutView");
+        layoutView.Ancestors().Should()
+            .Contain(e => (((string?)e.Attribute("DataContext")) ?? "")
+                .Contains("AncestorType=DataGrid", StringComparison.Ordinal),
+                "ByteLayoutView 的祖先必须把 DataContext 抬到 DataGrid 的 DbcViewModel");
         rowDetails.Descendants(P + "ItemsControl").Should()
             .Contain(e => (((string?)e.Attribute("ItemsSource")) ?? "").Contains(
                 "VisibleSignals", StringComparison.Ordinal));

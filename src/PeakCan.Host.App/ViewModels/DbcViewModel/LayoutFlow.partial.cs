@@ -45,11 +45,16 @@ public sealed partial class DbcViewModel
     }
 
     /// <summary>
-    /// 切换消息时重建 mux 候选项，并把选中值重置为该消息的最小 mux 值。
-    /// 重建期间抑制 mux 变更回调，避免每加一个候选项就重算一次快照。
+    /// 重算 mux 候选项与位图。切换消息时默认选最小 mux 值；搜索恢复同一消息时
+    /// 传 <paramref name="preferredMux"/> 保留用户当前分支。
+    /// <para>
+    /// 下拉只列已有分支，正常 UI 选不到“无匹配”值；<c>mux_no_match</c> 是对
+    /// 外部直接设置 <see cref="SelectedMuxValue"/> 的防御路径。
+    /// </para>
     /// </summary>
-    private void RebuildMuxAndLayout()
+    private void RebuildMuxAndLayout(ushort? preferredMux = null)
     {
+        var wasSuppressed = _suppressLayout;
         _suppressLayout = true;
         try
         {
@@ -65,11 +70,22 @@ public sealed partial class DbcViewModel
             }
 
             HasMux = MuxValues.Count > 0;
-            SelectedMuxValue = HasMux ? MuxValues[0] : null;
+            if (!HasMux)
+            {
+                SelectedMuxValue = null;
+            }
+            else if (preferredMux is { } preferred && MuxValues.Contains(preferred))
+            {
+                SelectedMuxValue = preferred;
+            }
+            else
+            {
+                SelectedMuxValue = MuxValues[0];
+            }
         }
         finally
         {
-            _suppressLayout = false;
+            _suppressLayout = wasSuppressed;
         }
 
         UpdateLayout();

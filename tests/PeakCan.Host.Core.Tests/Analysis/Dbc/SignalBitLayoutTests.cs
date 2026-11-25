@@ -255,6 +255,16 @@ public class SignalBitLayoutTests
     }
 
     [Fact]
+    public void Compute_NonMuxMessage_IgnoresSelectedMuxValue()
+    {
+        var snapshot = SignalBitLayout.Compute(
+            Msg(8, Sig("S", 0, 8)), selectedMuxValue: 5);
+
+        snapshot.EffectiveMuxValue.Should().BeNull();
+        snapshot.Segments.Single().SignalName.Should().Be("S");
+    }
+
+    [Fact]
     public void DecodeRaw_LengthOver64_StillThrows_AsDecoderContract()
     {
         var signal = Sig("Long", 0, 65);

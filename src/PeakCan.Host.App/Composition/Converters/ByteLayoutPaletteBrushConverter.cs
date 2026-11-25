@@ -7,8 +7,9 @@ namespace PeakCan.Host.App.Composition.Converters;
 
 /// <summary>
 /// Maps a signal palette index to its bit-cell brush. Negative index means an
-/// unassigned cell. Colors live in <c>Themes/Colors.xaml</c>; the static palette
-/// is a test/designer fallback when no <see cref="Application"/> exists.
+/// unassigned cell and resolves the <c>ByteLayoutFree</c> theme token. Colors
+/// live in <c>Themes/Colors.xaml</c>; the static palette is a test/designer
+/// fallback when no <see cref="Application"/> exists.
 /// </summary>
 [ValueConversion(typeof(int), typeof(Brush))]
 public sealed class ByteLayoutPaletteBrushConverter : IValueConverter
@@ -29,13 +30,24 @@ public sealed class ByteLayoutPaletteBrushConverter : IValueConverter
     };
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => ConvertCore(value, Lookup);
+
+    internal object ConvertCore(object? value, Func<object, object?> lookup)
     {
-        if (value is not int index || index < 0) return FreeBrush;
+        if (value is not int index || index < 0)
+            return Resolve("ByteLayoutFree", FreeBrush, lookup);
 
         var slot = index % Palette.Length;
         var key = string.Create(CultureInfo.InvariantCulture, $"ByteLayoutSignal{slot + 1}");
-        return Application.Current?.TryFindResource(key) as Brush ?? Palette[slot];
+        return Resolve(key, Palette[slot], lookup);
     }
+
+    internal static Brush Resolve(
+        string key, Brush fallback, Func<object, object?> lookup)
+        => lookup(key) as Brush ?? fallback;
+
+    private static object? Lookup(object key)
+        => Application.Current?.TryFindResource(key);
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException("ByteLayoutPaletteBrushConverter is one-way.");

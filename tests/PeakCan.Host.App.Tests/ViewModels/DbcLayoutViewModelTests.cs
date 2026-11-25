@@ -128,6 +128,38 @@ public class DbcLayoutViewModelTests
     }
 
     [Fact]
+    public void AllSignalsOutOfDlc_ShowsCountAndPerSignalDiagnostic()
+    {
+        var vm = NewVm(out var svc);
+        RaiseLoaded(svc, new Message(
+            0x400, "Short", 1, "ECU",
+            new List<Signal> { Sig("S", 16, 8) }, false, null));
+
+        vm.SelectedMessage = vm.Messages.Single();
+
+        vm.LayoutEmptyText.Should().Contain("1 个信号均无可绘制位");
+        vm.VisibleSignals.Single().DiagnosticText.Should().Contain("全部超出 DLC");
+    }
+
+    [Fact]
+    public void OverlappingCellTooltip_ListsTheLoserSignal()
+    {
+        var vm = NewVm(out var svc);
+        RaiseLoaded(svc, new Message(
+            0x500, "Overlap", 8, "ECU", new List<Signal>
+            {
+                Sig("CellVolt_2", 24, 16),
+                Sig("BalanceFlags", 39, 8, ByteOrder.BigEndian),
+            }, false, null));
+
+        vm.SelectedMessage = vm.Messages.Single();
+
+        var cell = vm.LayoutRows[4].Cells.Single(c => c.BitNumber == 0);
+        cell.OwnerSignal.Should().Be("BalanceFlags");
+        cell.Tooltip.Should().Contain("与 CellVolt_2 重叠");
+    }
+
+    [Fact]
     public void VisibleSignalPalette_MatchesOwnedCells()
     {
         var vm = NewVm(out var svc);
@@ -195,6 +227,29 @@ public class DbcLayoutViewModelTests
         vm.SelectedMessage.Should().NotBeNull();
         vm.SelectedMessage!.Name.Should().Be("Alpha");
         vm.LayoutSnapshot.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Search_Keeps_SelectedMux_When_Message_Still_Visible()
+    {
+        var vm = NewVm(out var svc);
+        RaiseLoaded(svc, MuxMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.SelectedMuxValue = 1;
+        vm.LayoutSnapshot!.EffectiveMuxValue.Should().Be((ushort?)1, "precondition");
+
+        vm.FilteredMessages.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset)
+                vm.SelectedMessage = null;
+        };
+
+        vm.SearchText = "Mux";
+
+        vm.SelectedMessage.Should().NotBeNull();
+        vm.SelectedMuxValue.Should().Be((ushort?)1);
+        vm.LayoutSnapshot!.EffectiveMuxValue.Should().Be((ushort?)1);
+        vm.VisibleSignals.Select(s => s.Name).Should().BeEquivalentTo("Mode", "B");
     }
 
     [Fact]

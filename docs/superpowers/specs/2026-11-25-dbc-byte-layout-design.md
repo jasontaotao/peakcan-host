@@ -180,13 +180,13 @@ public sealed record SignalBitLayoutSnapshot(
 7. 颜色索引：mux 过滤后的信号按声明顺序取索引，过滤掉的信号不消耗索引；表与格一致。
 8. 快照不可变性与确定性：同一 `Message` + mux 值重复计算结果相等。
 
-UI 侧手动验证：打开 `tests/PeakCan.Host.Core.Tests/TestData/Dbc/byte-layout-demo.dbc`（与 mockup `MSGS` 等价的 ASCII DBC fixture，LF 换行，随测试数据入仓），逐消息对比位图与 mockup 渲染一致；并验证搜索过滤后选中不丢、mux 无匹配的提示。
+UI 侧手动验证：打开 `tests/PeakCan.Host.Core.Tests/TestData/Dbc/byte-layout-demo.dbc`（与 mockup `MSGS` 等价的 ASCII DBC fixture，LF 换行，随测试数据入仓），逐消息对比位图与 mockup 渲染一致；并验证搜索过滤后选中不丢。mux 无匹配提示是防御路径（下拉只列已有分支，UI 选不到无匹配值），由 Core / VM 单测覆盖。
 
 ## 9. 交付顺序与验收
 
 1. Core `SignalBitLayout` + 单测（§8 1-8）。验收：全部测试绿；`dotnet build` 0 warning；不修改 peakcan-hil-core。
 2. VM 改造（`RawMessage` / `SelectedMessage` / `SelectedMuxValue` / 快照重算 / 重载清空 / 搜索恢复）。验收：新增 VM 测试覆盖选中、mux 切换、搜索恢复、重载清空。
-3. `ByteLayoutView` + DbcView 集成。验收：手动对拍 mockup；打开 `byte-layout-demo.dbc` 的每条消息位图正确；搜索一个字后选中与位图保留；mux 无匹配显示提示。
+3. `ByteLayoutView` + DbcView 集成。验收：手动对拍 mockup；打开 `byte-layout-demo.dbc` 的每条消息位图正确；搜索一个字后选中与位图保留；mux 无匹配提示由 Core / VM 单测覆盖（下拉只列已有分支，UI 无法触发）。
 
 ## 10. 评审决策（2026-11-25）
 

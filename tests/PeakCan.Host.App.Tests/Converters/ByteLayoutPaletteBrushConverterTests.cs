@@ -31,6 +31,60 @@ public class ByteLayoutPaletteBrushConverterTests
     }
 
     [Fact]
+    public void ConvertCore_NegativeIndex_RequestsFreeThemeKey()
+    {
+        var converter = new ByteLayoutPaletteBrushConverter();
+        object? requested = null;
+        var themed = new SolidColorBrush(Colors.Red);
+
+        var result = converter.ConvertCore(-1, key =>
+        {
+            requested = key;
+            return themed;
+        });
+
+        requested.Should().Be("ByteLayoutFree");
+        result.Should().BeSameAs(themed);
+    }
+
+    [Fact]
+    public void ConvertCore_SignalIndex_RequestsSignalThemeKey()
+    {
+        var converter = new ByteLayoutPaletteBrushConverter();
+        object? requested = null;
+        var themed = new SolidColorBrush(Colors.Red);
+
+        var result = converter.ConvertCore(0, key =>
+        {
+            requested = key;
+            return themed;
+        });
+
+        requested.Should().Be("ByteLayoutSignal1");
+        result.Should().BeSameAs(themed);
+    }
+
+    [Fact]
+    public void Resolve_UsesProvidedResource()
+    {
+        var themed = new SolidColorBrush(Colors.Red);
+
+        var resolved = ByteLayoutPaletteBrushConverter.Resolve(
+            "ByteLayoutFree", ByteLayoutPaletteBrushConverter.FreeBrush, _ => themed);
+
+        resolved.Should().BeSameAs(themed);
+    }
+
+    [Fact]
+    public void Resolve_FallsBackWhenResourceMissing()
+    {
+        var resolved = ByteLayoutPaletteBrushConverter.Resolve(
+            "ByteLayoutFree", ByteLayoutPaletteBrushConverter.FreeBrush, _ => null);
+
+        resolved.Should().BeSameAs(ByteLayoutPaletteBrushConverter.FreeBrush);
+    }
+
+    [Fact]
     public void ConvertBack_IsNotSupported()
     {
         var converter = new ByteLayoutPaletteBrushConverter();
