@@ -53,7 +53,9 @@ public sealed record NmTimelineSegmentVm(
     string Tooltip = "",
     string Evidence = "inferred",
     bool IsWindowTruncated = false,
-    bool StateBoundaryKnown = false);
+    bool StateBoundaryKnown = false,
+    // 原因段的观测时长文案（≥ / 观测区间 / 仅 1 帧）；其它段留空走默认。
+    string DurationText = "");
 
 /// <summary>
 /// 时间条事件标记：设计坐标 X + 形状/颜色 kind；像素换算在 XAML 层完成。
@@ -181,6 +183,11 @@ public static class NmTimelineText
         NmTimelineKinds.Unknown => "状态未知",
         NmTimelineKinds.Released => "已释放",
         NmTimelineKinds.Silent or NmTimelineKinds.Silence => "静默",
+        // 整网静默相位（全部 inferred）：标签不写“推断”，证据行负责标注。
+        NmTimelineKinds.SilenceReleaseWait => "释放等待",
+        NmTimelineKinds.SilencePrepareSleep => "准备休眠",
+        NmTimelineKinds.SilenceBusSleep => "总线睡眠",
+        NmTimelineKinds.SilencePhaseUnknown => "无法判定",
         NmTimelineKinds.Episode => "活跃区间",
         NmTimelineKinds.Burst => "突发",
         NmTimelineKinds.Gap => "超时空档",
@@ -188,7 +195,12 @@ public static class NmTimelineText
         NmTimelineKinds.Byte => "字节变化",
         NmTimelineKinds.Bit => "位变化",
         NmTimelineKinds.Signal => "信号变化",
+        NmTimelineKinds.Reason => "原因",
         NmTimelineKinds.Boundary => "记录边界",
+        _ when kind.StartsWith(NmTimelineKinds.ReasonUncertainPrefix, StringComparison.Ordinal)
+            => "未观测区间",
+        _ when kind.StartsWith(NmTimelineKinds.ReasonValuePrefix, StringComparison.Ordinal)
+            => "原因",
         _ => kind,
     };
 
@@ -200,6 +212,7 @@ public static class NmTimelineText
         "byte_change" => "字节变化",
         "bit_change" => "位变化",
         "signal_change" => "信号变化",
+        "reason_change" => "原因变化",
         "all_nm_silent" => "全网 NM 静默",
         "bus_wide_silence" => "总线无帧",
         _ => type,
@@ -229,7 +242,9 @@ public static class NmTimelineText
     public static string SegmentEvidence(string evidence, string kind = "") => evidence switch
     {
         "" => "",
-        "measured" => "实测（NMSts）",
+        // 原因段来自逐帧原始值解码，与 NMSts 无关：不能显示「实测（NMSts）」。
+        // 原因段按取值着色后 kind 是 reason:N / reason_uncertain:N，必须按前缀识别。
+        "measured" => NmTimelineKinds.IsReasonKind(kind) ? "实测（原始值）" : "实测（NMSts）",
         "inferred" => kind switch
         {
             NmTimelineKinds.Repeat => "推断（T_REPEAT_MESSAGE）",
@@ -240,10 +255,17 @@ public static class NmTimelineText
             // released 的依据是「其它 NM 报文仍在发」，不是超时；silent 才是超时。
             NmTimelineKinds.Released => "推断（其它 NM 报文仍在发送）",
             NmTimelineKinds.Silent or NmTimelineKinds.Silence => "推断（超时未达静默阈值）",
+            // 静默三分：判据分别是「发送者仍醒着」/「发送者停发且总线静止」/「等待后仍静止」。
+            NmTimelineKinds.SilenceReleaseWait => "推断（发送者仍在发应用报文）",
+            NmTimelineKinds.SilencePrepareSleep => "推断（超时后总线静止 / 仅清缓存尾巴）",
+            NmTimelineKinds.SilenceBusSleep => "推断（超时+等待后总线仍静止）",
+            NmTimelineKinds.SilencePhaseUnknown => "推断（窗口不足 / 总线未静止 / 发送者未归属）",
             NmTimelineKinds.Unknown => "推断（该区间 DLC 不足，读不出状态位）",
             _ => "推断",
         },
         "boundary" => "边界截断",
+        // 未观测区间不是“实测值”，证据词必须自证其不可确认。
+        "unobserved" => "未观测（区间内无法确认）",
         _ => evidence,
     };
 
@@ -285,7 +307,9 @@ public static class NmEventFilters
             "空档" => type is "all_nm_silent" or "sender_silent" or "bus_wide_silence",
             "突发" => type == "burst_observed",
             "字节" => type is "byte_change" or "bit_change",
-            "信号" => type == "signal_change",
+            // 被字典覆盖的信号不再产 signal_change（由原因分析替代），
+            // 「信号」分类必须同时认 reason_change，否则该变化从列表里消失。
+            "信号" => type is "signal_change" or "reason_change",
             "漏帧" => type == "missed_frame",
             _ => true,
         };
@@ -429,6 +453,11 @@ public sealed partial class TraceViewerViewModel
     /// <summary>本次分析的取消是用户发起还是超时：null 状态文案要据此区分。</summary>
     /// <summary>默认按“用户取消”处理：直接 Apply 外部 partial 报告时无法得知真实原因。</summary>
     private bool _nmCancelledByUser = true;
+
+    /// <summary>原因字典状态提示：未加载 / 已配置但产不出时间线；有结果时为空。</summary>
+    [ObservableProperty] private string _nmReasonHint = "";
+    /// <summary>最近一次点击定位的可见反馈：回放已废除，点击移动的是绿色锚点。</summary>
+    [ObservableProperty] private string _nmSeekStatus = "";
     // 面板最近一次成功分析得到的快照：导出优先导出用户正在看的那一份报告。
     private NmToolSnapshot? _lastNmSnapshot;
     public Views.TraceViewerViewNmPanel? NmPanelContent
@@ -477,6 +506,27 @@ public sealed partial class TraceViewerViewModel
                     NmTimelineText.EventType(e.Type), e.Detail));
             }
 
+            // 原因变化不在 report.Events 中；消息行必须自己把 transition 画成标记，
+            // 否则 MarkerKind/ReasonShape 注册了却永远不可达（spec §8 的用意落空）。
+            foreach (var timeline in report.ReasonTimelines)
+            {
+                foreach (var tr in timeline.Transitions)
+                {
+                    if (!string.Equals(tr.CanIdHex, m.CanIdHex, StringComparison.OrdinalIgnoreCase)
+                        || tr.IsExtended != m.IsExtended)
+                    {
+                        continue;
+                    }
+                    var detail = string.Create(CultureInfo.InvariantCulture,
+                        $"{tr.Signal}: 0x{tr.OldRaw:X} → 0x{tr.NewRaw:X}");
+                    markers.Add(new NmTimelineMarkerVm(
+                        ToX(tr.T, report.Window), NmTimelineKinds.Reason, tr.T,
+                        string.Create(CultureInfo.InvariantCulture,
+                            $"原因变化  {tr.T:F3}s  {detail}"),
+                        "原因变化", detail));
+                }
+            }
+
             // spec §9.1：时间条默认每个 NM 报文一行，行标签按 DBC 发送节点标注。
             // DBC 未给出 Name/Sender 时不渲染空括号内容，用 "—" 占位。
             var who = string.IsNullOrEmpty(m.Sender) ? "—" : m.Sender;
@@ -484,11 +534,159 @@ public sealed partial class TraceViewerViewModel
             rows.Add(new NmTimelineRowVm($"{m.CanIdHex}{name} ({who})", segments, markers));
         }
 
+        // 原因行在报文行之后、网络行之前：先看是什么在唤醒，再看整网状态。
+        rows.AddRange(BuildReasonTimelineRows(report));
+
         if (BuildNetworkTimelineRow(report) is { } network)
             rows.Add(network);
 
         return rows;
     }
+
+    /// <summary>
+    /// 原因字段的原始值区间行。每个取值一种颜色；确认区间只画到最后一个确认帧，
+    /// 未观测区间（End → 下一次可观测帧）单独画成同色相的浅色带，既保留“最后确认
+    /// 的是哪个值”，又不让空隙看起来像该值一直持续到下一次观测。
+    /// <para>
+    /// 用户 2026-11-25 反馈：所有段共用同一个 kind，整行是一条纯色长条，
+    /// 看不出值变化与清除区间。按值着色 + 未观测浅色带是这次的可读性修复。
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<NmTimelineRowVm> BuildReasonTimelineRows(NmReport report)
+    {
+        var rows = new List<NmTimelineRowVm>(report.ReasonTimelines.Count);
+        foreach (var timeline in report.ReasonTimelines)
+        {
+            // 段数超上限时最后一段的“下一段”被丢弃：无法比较取值，不得做确定断言。
+            var truncated = report.Truncations.Any(t =>
+                t.Section.StartsWith("reason:segments:", StringComparison.Ordinal)
+                && t.Section.EndsWith(":" + timeline.Signal, StringComparison.Ordinal));
+            // 取值序号按首次出现排序：同一原始值在全行稳定复用同一颜色。
+            var valueOrder = new Dictionary<ulong, int>();
+            var segments = new List<NmTimelineSegmentVm>(timeline.Segments.Count);
+            for (var i = 0; i < timeline.Segments.Count; i++)
+            {
+                var s = timeline.Segments[i];
+                if (!valueOrder.TryGetValue(s.RawValue, out var valueIndex))
+                {
+                    valueIndex = valueOrder.Count;
+                    valueOrder[s.RawValue] = valueIndex;
+                }
+
+                // 跨 episode 同值：下一段仍是同一原始值时，不能说“清除/变化”。
+                // 最后一段 + 已截断：下一段不可见，不能默认“值变了”。
+                var nextSameValue = i + 1 < timeline.Segments.Count
+                    && timeline.Segments[i + 1].RawValue == s.RawValue;
+                var nextUnknown = truncated && i == timeline.Segments.Count - 1;
+
+                var label = s.Labels.Count == 0
+                    ? $"含义未配置（{FormatReasonRaw(s.RawValue)}）"
+                    : string.Join(" / ", s.Labels.Select(l => l.Text));
+                var sources = s.Labels.Count == 0
+                    ? "none"
+                    : string.Join("/", s.Labels.Select(l => l.Source));
+                // 单帧段 Start==End：显示 0.000s 像 bug，直接说「仅 1 帧」。
+                var duration = s.Start == s.End
+                    ? "仅 1 帧"
+                    : s.StartUnknown || s.EndReason != NmReasonSegmentEnd.Changed
+                        ? string.Create(CultureInfo.InvariantCulture, $"≥ {s.End - s.Start:F3}s")
+                        : string.Create(CultureInfo.InvariantCulture, $"观测区间 {s.End - s.Start:F3}s");
+                // spec §7.5：清除/中断必须表述为相邻两次观测之间的区间，不是精确时刻；
+                // 不可读只能叫“不可观测”，不能叫清除。
+                var gap = s.EndReason switch
+                {
+                    NmReasonSegmentEnd.Changed or NmReasonSegmentEnd.EpisodeEnd
+                        when s.NextObservedAt is { } next && nextUnknown =>
+                        string.Create(CultureInfo.InvariantCulture,
+                            $"下次观测 {next:F3}s；后续段超出展示上限（200 段），无法判断是否变化"),
+                    NmReasonSegmentEnd.Changed or NmReasonSegmentEnd.EpisodeEnd
+                        when s.NextObservedAt is { } next =>
+                        nextSameValue
+                            ? string.Create(CultureInfo.InvariantCulture,
+                                $"下次观测 {next:F3}s 仍为同一值；期间无可观测帧，无法确认是否曾变化")
+                            : string.Create(CultureInfo.InvariantCulture,
+                                $"清除发生区间 {s.End:F3}s – {next:F3}s（相邻观测，非精确时刻）"),
+                    NmReasonSegmentEnd.Unreadable when s.NextObservedAt is { } next =>
+                        nextUnknown
+                            ? string.Create(CultureInfo.InvariantCulture,
+                                $"不可观测区间 {s.End:F3}s – {next:F3}s；后续段超出展示上限（200 段），无法判断")
+                            : nextSameValue
+                                ? string.Create(CultureInfo.InvariantCulture,
+                                    $"不可观测区间 {s.End:F3}s – {next:F3}s（恢复后仍为同一值，无法确认期间是否曾变化）")
+                                : string.Create(CultureInfo.InvariantCulture,
+                                    $"不可观测区间 {s.End:F3}s – {next:F3}s（恢复后值已不同，变化时刻无法确定）"),
+                    _ => "之后无可观测帧，无法判断",
+                };
+                // spec §8：tooltip 给出该段首帧的原始载荷，便于在追踪里逐字节对照。
+                // 逐字节空格分隔并标注 byte 序号：一整串 F400300001000000 用户读不懂。
+                var firstFrame = s.FirstFrameBytes.Count == 0
+                    ? "—"
+                    : string.Create(CultureInfo.InvariantCulture,
+                        $"{string.Join(' ', s.FirstFrameBytes.Select(b => b.ToString("X2", CultureInfo.InvariantCulture)))}" +
+                        $"（byte0→byte{s.FirstFrameBytes.Count - 1}）");
+                var detail = $"{label}；原始值 {FormatReasonRaw(s.RawValue)}；来源 {sources}；首帧原始载荷 {firstFrame}；{gap}";
+
+                // 确认区间：只画到最后一个确认旧值的帧。
+                var left = ToX(s.Start, report.Window);
+                var right = ToX(s.End, report.Window);
+                segments.Add(new NmTimelineSegmentVm(
+                    left, Math.Max(right - left, 1), NmTimelineKinds.ReasonValue(valueIndex),
+                    // VM 的 Start/End 用数据模型的确认帧：悬停卡片时长必须是观测下界，
+                    // 不能把到下一次观测的空隙算成“原因持续”。
+                    s.Start, s.End, detail, "measured", s.EndUnknown, false, duration));
+
+                // 未观测区间：End → 下一次可观测帧，浅色带单独成段，不许画成确认值。
+                if (s.EndReason != NmReasonSegmentEnd.WindowEnd
+                    && s.NextObservedAt is { } nextObserved && nextObserved > s.End)
+                {
+                    var gapLeft = ToX(s.End, report.Window);
+                    var gapRight = ToX(nextObserved, report.Window);
+                    // 只有确实变了才能说“变化发生在区间内”；同值恢复/同值跨 episode
+                    // 只能说“无法确认是否变化”；截断时不得替被丢弃的段下结论。
+                    var uncertainText = nextUnknown
+                        ? "后续段超出展示上限（200 段），无法确认是否变化"
+                        : nextSameValue
+                            ? "期间无可观测帧，无法确认是否曾变化"
+                            : s.EndReason == NmReasonSegmentEnd.Unreadable
+                                ? "载荷不足；恢复后值已不同，变化发生在这段区间内"
+                                : "值变化发生在这段区间内，无法确定精确时刻";
+                    var uncertainDuration = nextUnknown
+                        ? "无法判断（已截断）"
+                        : nextSameValue
+                            ? "无法确认是否变化"
+                            : "变化时刻无法确定";
+                    var gapDetail = string.Create(CultureInfo.InvariantCulture,
+                        $"未观测区间 {s.End:F3}s – {nextObserved:F3}s：{uncertainText}");
+                    segments.Add(new NmTimelineSegmentVm(
+                        gapLeft, Math.Max(gapRight - gapLeft, 1),
+                        NmTimelineKinds.ReasonUncertain(valueIndex),
+                        s.End, nextObserved, gapDetail, "unobserved", false, false,
+                        uncertainDuration));
+                }
+            }
+            // 没有段时三种原因必须区分：配置错误显示 Unknowns，DLC 不足显示不可读，
+            // 完全没帧显示没有可观测帧；行标签与顶部提示共用同一段文案。
+            // 截断必须在行标签上说出来：否则色块在第 200 段后突然结束，用户会当成“原因消失”。
+            var rowLabel = segments.Count == 0
+                ? $"原因 {timeline.Signal}（{ReasonEmptyText(timeline)}）"
+                : truncated
+                    ? $"原因 {timeline.Signal}（已截断，仅展示前 200 段）"
+                    : $"原因 {timeline.Signal}";
+            rows.Add(new NmTimelineRowVm(rowLabel, segments));
+        }
+        return rows;
+    }
+
+    private static string FormatReasonRaw(ulong raw)
+        => "0x" + raw.ToString("X", CultureInfo.InvariantCulture);
+
+    /// <summary>没有可用段的原因字段文案；行标签与顶部提示必须同源，不得各说一套。</summary>
+    private static string ReasonEmptyText(NmReasonTimeline timeline)
+        => timeline.Unknowns.Count > 0
+            ? "字段不可用：" + string.Join("；", timeline.Unknowns)
+            : timeline.UnreadableFrameTimes.Count > 0
+                ? $"字段不可读（{timeline.UnreadableFrameTimes.Count} 帧载荷不足）"
+                : "窗口内没有可观测帧";
 
     /// <summary>事件→时间条标记的 Kind；不参与时间条的事件返回 null。</summary>
     private static string? MarkerKind(string type) => type switch
@@ -498,6 +696,7 @@ public sealed partial class TraceViewerViewModel
         "byte_change" => NmTimelineKinds.Byte,
         "bit_change" => NmTimelineKinds.Bit,
         "signal_change" => NmTimelineKinds.Signal,
+        "reason_change" => NmTimelineKinds.Reason,
         _ => null,
     };
 
@@ -592,16 +791,67 @@ public sealed partial class TraceViewerViewModel
             }
         }
 
+        // 静默相位（全部 inferred）：先从通用静默带里扣除相位覆盖的区间，
+        // 再按相位发射独立色带。相位带不参与通用带合并，保留各自的完整证据。
+        var phaseRanges = new List<(double Start, double End)>(report.SilencePhases.Count);
+        foreach (var phase in report.SilencePhases)
+            phaseRanges.Add((phase.Start, phase.End));
+
         foreach (var (start, end, tooltip) in MergeSilenceBands(silenceBands))
         {
-            var left = ToX(start, report.Window);
-            var right = ToX(end, report.Window);
+            foreach (var (pieceStart, pieceEnd) in SubtractRanges(start, end, phaseRanges))
+            {
+                var left = ToX(pieceStart, report.Window);
+                var right = ToX(pieceEnd, report.Window);
+                segments.Add(new NmTimelineSegmentVm(
+                    left, Math.Max(right - left, 1), NmTimelineKinds.Silence,
+                    pieceStart, pieceEnd, tooltip));
+            }
+        }
+
+        foreach (var phase in report.SilencePhases)
+        {
+            var kind = phase.Kind switch
+            {
+                NmSilencePhaseKind.ReleaseWait => NmTimelineKinds.SilenceReleaseWait,
+                NmSilencePhaseKind.PrepareSleep => NmTimelineKinds.SilencePrepareSleep,
+                NmSilencePhaseKind.Sleep => NmTimelineKinds.SilenceBusSleep,
+                _ => NmTimelineKinds.SilencePhaseUnknown,
+            };
+            var left = ToX(phase.Start, report.Window);
+            var right = ToX(phase.End, report.Window);
             segments.Add(new NmTimelineSegmentVm(
-                left, Math.Max(right - left, 1), NmTimelineKinds.Silence, start, end, tooltip));
+                left, Math.Max(right - left, 1), kind, phase.Start, phase.End,
+                phase.Detail, Evidence: "inferred",
+                IsWindowTruncated: phase.IsWindowTruncated));
         }
 
         if (segments.Count == 0 && markers.Count == 0) return null;
         return new NmTimelineRowVm("整网状态", segments, markers);
+    }
+
+    /// <summary>通用区间减法：从 [start,end) 中扣除 <paramref name="ranges"/> 覆盖的片段。</summary>
+    internal static IReadOnlyList<(double Start, double End)> SubtractRanges(
+        double start, double end, IReadOnlyList<(double Start, double End)> ranges)
+    {
+        var pieces = new List<(double Start, double End)> { (start, end) };
+        foreach (var range in ranges)
+        {
+            if (range.End <= start || range.Start >= end) continue;
+            var next = new List<(double Start, double End)>(pieces.Count + 1);
+            foreach (var (pieceStart, pieceEnd) in pieces)
+            {
+                if (range.End <= pieceStart || range.Start >= pieceEnd)
+                {
+                    next.Add((pieceStart, pieceEnd));
+                    continue;
+                }
+                if (range.Start > pieceStart) next.Add((pieceStart, range.Start));
+                if (range.End < pieceEnd) next.Add((range.End, pieceEnd));
+            }
+            pieces = next;
+        }
+        return pieces;
     }
 
     /// <summary>区间减去 episode 覆盖后的剩余片段（静默带不能压在活动段上）。</summary>
@@ -978,6 +1228,8 @@ public sealed partial class TraceViewerViewModel
         NmMissingText = "补全";
         NmSemanticsBanner = "";
         NmHasSemanticsBanner = false;
+        NmReasonHint = "";
+        NmSeekStatus = "";
         NmCapabilityChips.Clear();
         NmCapabilitySummary = "";
         NmTimelineRows.Clear();
@@ -1027,6 +1279,8 @@ public sealed partial class TraceViewerViewModel
     internal void ApplyNmReport(NmToolSnapshot snapshot)
     {
         _lastNmSnapshot = snapshot;
+        // 新报告对应新的时间窗口：上一次点击定位的反馈必须消失。
+        NmSeekStatus = "";
         var report = snapshot.Report;
         var profile = snapshot.Profile;
         NmHasReport = true;
@@ -1097,10 +1351,66 @@ public sealed partial class TraceViewerViewModel
                 SubjectLabel = label,
             });
         }
+
+        // 原因变化事件：不在 report.Events 里（报告保持结构化时间线），
+        // 但事件表需要一行可点击跳转的 reason_change。
+        foreach (var timeline in report.ReasonTimelines)
+        {
+            foreach (var tr in timeline.Transitions)
+            {
+                var reasonLabel = tr.NewLabels.Count == 0
+                    ? "含义未配置"
+                    : string.Join(" / ", tr.NewLabels.Select(l => l.Text));
+                var subjectLabel = displayByCanId.TryGetValue(
+                    (tr.CanIdHex, tr.IsExtended), out var display)
+                    ? display
+                    : tr.CanIdHex;
+                _allNmEventRows.Add(new NmEventRowVm(
+                    tr.T, TraceTimeFormatter.Format(tr.T, null), "reason_change",
+                    tr.CanIdHex,
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"{tr.Signal}: 0x{tr.OldRaw:X} → 0x{tr.NewRaw:X}（{reasonLabel}）"),
+                    "measured",
+                    NmEpisodeBuilder.IndexAt(tr.T, report.Episodes),
+                    tr.CanIdHex)
+                {
+                    SubjectLabel = subjectLabel,
+                });
+            }
+        }
+
+        // 原因事件追加在 report.Events 之后；事件表必须按时间排序（稳定排序保留同刻顺序）。
+        var orderedRows = _allNmEventRows.OrderBy(r => r.T).ToArray();
+        _allNmEventRows.Clear();
+        _allNmEventRows.AddRange(orderedRows);
         RefreshNmEventRows();
 
         ApplyNmProfileSelector(snapshot);
         ApplyNmCalibration(report, profile);
+        var anyReasonSegments = report.ReasonTimelines.Any(t => t.Segments.Count > 0);
+        // 配置了字典但加载失败时 Path 为 null；不能误报成“未配置”。
+        // 失败说明由 Core 放在 report.Unknowns（NmFlow → ReasonDictionaryNote）。
+        var reasonFailureNote = report.Unknowns.FirstOrDefault(u =>
+            u.StartsWith("原因字典不可用：", StringComparison.Ordinal)
+            || u.StartsWith("原因字典已配置，但没有 DBC 路径", StringComparison.Ordinal)
+            || u.StartsWith("原因字典已加载，但未加载 DBC", StringComparison.Ordinal));
+        // 字段级降级（bitmask 未展开、值表同名被忽略、条目越界）即使有段也不能吞：
+        // 面板只显示原始值色块时，用户无从知道“这不是展开后的位含义”。
+        var perFieldUnknowns = report.ReasonTimelines
+            .SelectMany(t => t.Unknowns)
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .ToArray();
+        NmReasonHint = report.ReasonTimelines.Count == 0
+            ? reasonFailureNote
+              ?? (report.ReasonDictionaryPath is null
+                  ? "原因字典未加载（可在 nmprofile.json 配置 reasons_path）"
+                  : "原因字典已配置，但未产生可用时间线")
+            : anyReasonSegments
+                ? perFieldUnknowns.Length == 0
+                    ? ""
+                    : "部分原因字段已降级：" + string.Join("；", perFieldUnknowns)
+                : "原因字段无可用时间线：" + string.Join("；",
+                    report.ReasonTimelines.Select(t => $"{t.Signal}：{ReasonEmptyText(t)}"));
         // spec §10.1.2：监听当前 profile 所在目录，文件变化即失效重算。
         // 依赖链目前只含选中的那一份（extends 祖先由 Flatten 在分析时解析；
         // 监听父文件所在目录需要多个 watcher，本轮只监听选中文件所在目录，
@@ -1640,11 +1950,25 @@ public sealed partial class TraceViewerViewModel
     [RelayCommand]
     private void SeekToNmEvent(NmEventRowVm? row)
     {
-        if (row is not null) _masterService?.Seek(row.T);
+        if (row is not null) SeekToMoment(row.T);
     }
 
     [RelayCommand]
-    private void SeekToNmTime(double t) => _masterService?.Seek(t);
+    private void SeekToNmTime(double t) => SeekToMoment(t);
+
+    /// <summary>
+    /// 把「这一刻」带到用户眼前。回放已废除，<c>_masterService.Seek</c> 只改一个
+    /// 没有任何 UI 消费的时间戳——用户点了完全没感知。真正可见的定位机制是
+    /// 绿色锚点：移动所有图表竖线、重算监视列表「最新值」与「蓝色 Δ」。
+    /// 状态行如实说明发生了什么，避免再次出现“点了没反应”。
+    /// </summary>
+    private void SeekToMoment(double t)
+    {
+        _masterService?.Seek(t);
+        RefreshAtAnchor(t);
+        NmSeekStatus = string.Create(CultureInfo.InvariantCulture,
+            $"已把绿色锚点移到 {t:F2}s（图表竖线与监视列表「最新值」会跟随该时刻）");
+    }
 
     /// <summary>
     /// 可空版本：标定面板的规则行绑 <c>FirstEvidenceTime</c>（<c>double?</c>）。
@@ -1656,7 +1980,9 @@ public sealed partial class TraceViewerViewModel
     [RelayCommand]
     private void SeekToNmTimeOrIgnore(double? t)
     {
-        if (t is { } seconds) _masterService?.Seek(seconds);
+        // 标定规则行的「触发」也是定位入口：必须与原因段/事件行走同一条可见路径，
+        // 否则又是「看起来能点、点了没反应」。
+        if (t is { } seconds) SeekToMoment(seconds);
     }
 
     /// <summary>
@@ -1685,7 +2011,7 @@ public sealed partial class TraceViewerViewModel
     /// 只描述数据事实，不推断节点状态。
     /// <para>
     /// 证据走独立属性 <see cref="NmHoverEvidence"/>，<b>不挤占</b>
-    /// <see cref="NmHoverHint"/>——后者是「点击跳转到 X」的操作提示，两者是不同信息。
+    /// <see cref="NmHoverHint"/>——后者是「点击把绿色锚点移到 X」的操作提示，两者是不同信息。
     /// </para>
     /// <para>
     /// <paramref name="evidence"/> 为空时不显示证据（事件标记复用同一张卡时不传证据）。
@@ -1694,18 +2020,44 @@ public sealed partial class TraceViewerViewModel
     /// </summary>
     internal void SetNmSegmentHover(
         string kind, string rowLabel, double start, double end,
-        string evidence = "", bool isWindowTruncated = false)
+        string evidence = "", bool isWindowTruncated = false,
+        string durationText = "", string detail = "")
     {
+        // 原因段现在按取值着色（reason:N），未观测区间是 reason_uncertain:N，
+        // 三者都必须走原因卡片分支。
+        var isReason = NmTimelineKinds.IsReasonKind(kind);
+        var isPhase = NmTimelineKinds.IsSilencePhaseKind(kind);
+        var isUncertain = kind.StartsWith(NmTimelineKinds.ReasonUncertainPrefix,
+            StringComparison.Ordinal);
         var who = string.IsNullOrEmpty(rowLabel) ? "" : " · " + rowLabel;
         NmHoverKind = kind;
-        NmHoverTitle = NmTimelineText.SegmentKind(kind) + who;
-        NmHoverRange = string.Create(CultureInfo.InvariantCulture,
-            $"{start:F2}s – {end:F2}s · 持续 {Math.Max(end - start, 0):F2}s");
+        // 原因行标签本身已以「原因」开头，再加 kind 前缀会得到「原因 · 原因 X」。
+        // 未观测带与确认段同属一行，标题必须点明当前悬停的是哪一段。
+        NmHoverTitle = isReason
+            ? string.IsNullOrEmpty(rowLabel)
+                ? NmTimelineText.SegmentKind(kind)
+                : isUncertain ? rowLabel + "（未观测区间）" : rowLabel
+            : isPhase
+                ? NmTimelineText.SegmentKind(kind) + "（推断）" + who
+                : NmTimelineText.SegmentKind(kind) + who;
+        var duration = isReason && durationText.Length > 0
+            ? durationText
+            : string.Create(CultureInfo.InvariantCulture, $"{Math.Max(end - start, 0):F2}s");
+        // 原因段的时长文案自带语义（≥ / 观测区间 / 仅 1 帧 / 无法确认），
+        // 前面再加「持续」会变成「持续 观测区间 7.1s」这种双重措辞。
+        NmHoverRange = isReason
+            ? string.Create(CultureInfo.InvariantCulture, $"{start:F2}s – {end:F2}s · {duration}")
+            : string.Create(CultureInfo.InvariantCulture, $"{start:F2}s – {end:F2}s · 持续 {duration}");
         // spec §7.5.1.3：normal 段的终点是观测到的末帧，不代表完整 NOS 生命周期，
         // 提示里必须写明，否则用户会以为「常规操作」覆盖了整个 NOS。
-        NmHoverHint = string.Equals(kind, NmTimelineKinds.Normal, StringComparison.Ordinal)
-            ? string.Create(CultureInfo.InvariantCulture, $"观测至最后一帧；点击跳转到 {start:F2}s")
-            : string.Create(CultureInfo.InvariantCulture, $"点击跳转到 {start:F2}s");
+        // 回放已废除：点击的可见效果是绿色锚点（图表竖线 + 监视列表最新值），
+        // 提示必须如实描述，不能写一个用户看不到的“跳转”。
+        var clickHint = string.Create(CultureInfo.InvariantCulture, $"点击把绿色锚点移到 {start:F2}s");
+        NmHoverHint = (isReason || isPhase) && detail.Length > 0
+            ? detail + "；" + clickHint
+            : string.Equals(kind, NmTimelineKinds.Normal, StringComparison.Ordinal)
+                ? "观测至最后一帧；" + clickHint
+                : clickHint;
 
         var evidenceText = NmTimelineText.SegmentEvidence(evidence, kind);
         NmHoverEvidence = isWindowTruncated
@@ -1738,7 +2090,7 @@ public sealed partial class TraceViewerViewModel
             ? typeLabel
             : $"{typeLabel} · {rowLabel}";
         NmHoverRange = string.Create(CultureInfo.InvariantCulture, $"{t:F2}s");
-        NmHoverHint = string.IsNullOrEmpty(detail) ? "点击跳转到该时刻" : detail;
+        NmHoverHint = string.IsNullOrEmpty(detail) ? "点击把绿色锚点移到该时刻" : detail;
     }
 
     private bool CanInterpretNmEvent() => NmSelectedEvent is not null;

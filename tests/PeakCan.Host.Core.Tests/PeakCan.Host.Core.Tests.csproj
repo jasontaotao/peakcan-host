@@ -32,6 +32,8 @@
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
+    <!-- System.Text.Encoding.CodePages 在 .NET 10 共享框架中自动可用（NU1510），
+         不再显式引用；GBK 读取生产 DBC 直接使用 CodePagesEncodingProvider。 -->
   </ItemGroup>
 
   <ItemGroup>
@@ -49,6 +51,11 @@
   <!-- S2-T7: 真机 A2L 冒烟夹具（CapabilityReconcilerTests (g)），SHA256 与 a2l-editor samples 副本一致 -->
   <ItemGroup>
     <Content Include="TestData\App_merge_INCA.a2l" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- 真实 NM 原因回归数据：权威 DBC + NM_16 trace，SHA256 由测试锁定。 -->
+  <ItemGroup>
+    <Content Include="TestData\Nm\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

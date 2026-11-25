@@ -9,7 +9,7 @@ namespace PeakCan.Host.Core.Analysis.Nm;
 /// </summary>
 public static class NmAnalyzer
 {
-    public const string EngineVersion = "nm-m1-1";
+    public const string EngineVersion = "nm-m1-3";
 
     // 与 NmContentAnalyzer.MaxEventsPerMessage 同口径：单报文事件上限。
     private const int MaxEventsPerMessage = 200;
@@ -130,9 +130,23 @@ public static class NmAnalyzer
         var nmFrames = new List<NmFrame>();
         IReadOnlyList<NmEpisode> episodes = Array.Empty<NmEpisode>();
         IReadOnlyList<string>? gapUnknowns = null;
+        IReadOnlyList<NmSilencePhase> gapPhases = Array.Empty<NmSilencePhase>();
+        IReadOnlyList<string> gapPhaseUnknowns = Array.Empty<string>();
         // 时间条因 NMSts 位不可用而退回推断的报文（spec §7.5.1.2）。
         // 不进 unknowns 就等于「悄悄用旧画法」，用户无法知道状态位没被用上。
         var stsFallbackUnknowns = new List<string>();
+        // 原因分析：字典未配置时保持空，不产生原因行。
+        var reason = new NmReasonAnalysis(
+            Array.Empty<NmReasonTimeline>(),
+            Array.Empty<NmTruncation>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        // 字典加载失败 / 无 DBC 等说明：在 Finish 里并入 unknowns。
+        // 这两条在分析开始前就已知，先记录：AfterEpisodes 取消时也必须出现在部分报告里。
+        var reasonUnknowns = new List<string>();
+        if (request.ReasonDictionaryNote is { Length: > 0 } note)
+            reasonUnknowns.Add(note);
+        if (request.Dbc is null && request.Reasons is not null)
+            reasonUnknowns.Add("原因字典已加载，但未加载 DBC，无法解析信号");
 
         // 阶段边界取消检查（spec §9.4）：取消不抛异常，由调用方返回部分结果。
         bool IsCanceled(NmAnalyzerCheckpoint checkpoint)
@@ -146,7 +160,9 @@ public static class NmAnalyzer
         {
             var unknowns = new List<string>(s_unknowns);
             if (gapUnknowns is not null) unknowns.AddRange(gapUnknowns);
+            unknowns.AddRange(gapPhaseUnknowns);
             unknowns.AddRange(stsFallbackUnknowns);
+            unknowns.AddRange(reasonUnknowns);
             // 窗口在 NM 静默未达阈值前结束：结束时刻不可判明，消费方不得据此断言"节点仍在活动"。
             if (episodes.Any(e => e.BoundaryEnd))
                 unknowns.Add("indeterminate_end（窗口结束时未达静默阈值，episode 结束时间不可判明）");
@@ -202,6 +218,10 @@ public static class NmAnalyzer
                         activeRulesForCoverage, ruleEvaluations,
                         request.Profile.StandardUncoveredClauses)
                     : Array.Empty<NmClauseCoverageRow>(),
+                ReasonTimelines = reason.Timelines,
+                ReasonDictionaryPath = request.Reasons?.Path,
+                ReasonDictionaryHash = request.Reasons?.Sha256,
+                SilencePhases = gapPhases,
             };
         }
 
@@ -247,6 +267,17 @@ public static class NmAnalyzer
         episodes = NmEpisodeBuilder.Build(nmFrames, timeoutMs, request.Start, request.End);
         if (IsCanceled(NmAnalyzerCheckpoint.AfterEpisodes))
             return Finish(partial: true);
+
+        // 原因时间线依赖 episode 边界与窗口：紧接 episode 构建之后算一次。
+        // 多通道未指定 channel 时选择器已短路，与消息循环同口径不产生空原因行。
+        if (request.Dbc is not null && request.Reasons is not null && !diagnostics.MultiChannel)
+        {
+            reason = NmReasonAnalyzer.Analyze(
+                request.Reasons.Dictionary, request.Dbc, nmFrames, episodes, window);
+            truncations.AddRange(reason.Truncations);
+            assumptions.Add(
+                "原因解释来自 DBC 值表或项目字典，是 BMS 自报字段的翻译；与网络行为只表达时间关系，不代表根因。");
+        }
 
         foreach (var conflict in request.Profile.Conflicts)
         {
@@ -392,12 +423,22 @@ public static class NmAnalyzer
 
         var gap = NmGapAnalyzer.Analyze(new NmGapInput(
             request.SourceId, nmFrames, selected, request.Profile, episodes, window, diagnostics,
-            Timing: globalTiming));
+            Timing: globalTiming, Dbc: request.Dbc));
         // 紧接着收集观测：AfterGap 取消检查前已有的观测不能丢。
         observations.AddRange(gap.Observations);
         findings.AddRange(gap.Findings);
         events.AddRange(gap.Events);
         gapUnknowns = gap.Unknowns;
+        gapPhases = gap.SilencePhases;
+        gapPhaseUnknowns = gap.PhaseUnknowns;
+        if (gapPhases.Count > 0)
+        {
+            assumptions.Add(
+                "静默相位：清空发送缓存宽限 = 1 个 NM 周期，唤醒宽限 = max(周期, WakeUp)；" +
+                "相位是按 NM 超时/等待时间的推断，不是实测节点状态。");
+            if (gapPhases.Any(p => p.Basis == NmSilenceBasis.WaitBusSleepDefaulted))
+                assumptions.Add("未配置 WaitBusSleep，按 2000ms 处理；不推断睡眠相位。");
+        }
 
         if (IsCanceled(NmAnalyzerCheckpoint.AfterGap))
             return Finish(partial: true);
@@ -464,7 +505,8 @@ public static class NmAnalyzer
                 f => f.Def.CanIdHex, StringComparer.Ordinal))
             {
                 var signalEvents = NmSignalSummary.Build(
-                    request.Dbc, group.ToArray(), MaxEventsPerMessage, out var truncation);
+                    request.Dbc, group.ToArray(), MaxEventsPerMessage, out var truncation,
+                    skipSignals: reason.CoveredSignals);
                 // 信号事件与 content/gap 同口径：按事件时间回填真实 episode 编号，
                 // 否则多 episode 下按 episode_index 钻取会漏掉 signal_change。
                 events.AddRange(signalEvents.Select(e => e with

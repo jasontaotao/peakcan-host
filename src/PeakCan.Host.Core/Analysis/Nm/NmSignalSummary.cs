@@ -36,7 +36,8 @@ public static class NmSignalSummary
         DbcDocument dbc,
         IReadOnlyList<NmFrame> frames,
         int maxEventsPerMessage,
-        out NmTruncation? truncation)
+        out NmTruncation? truncation,
+        IReadOnlySet<string>? skipSignals = null)
     {
         var events = new List<NmEvent>();
         truncation = null;
@@ -60,6 +61,14 @@ public static class NmSignalSummary
             {
                 foreach (var signal in message.Signals)
                 {
+                    // 原因分析已覆盖的信号不再产 signal_change：事件表不重复，
+                    // 且值区间保留原始位模式与来源，比通用的物理值事件更精确。
+                    if (skipSignals is not null
+                        && skipSignals.Contains(
+                            SkipKey(canId, group.Key.IsExtended, signal.Name)))
+                    {
+                        continue;
+                    }
                     // hil-core 的 API 是 Decode(data, signal) → double（无 TryDecode）。
                     var value = SignalDecoder.Decode(frame.Frame.Data, signal);
                     if (previous.TryGetValue(signal.Name, out var old))
@@ -91,4 +100,8 @@ public static class NmSignalSummary
     // 否则 0.1 级的变化会显示成 "85 → 85"。
     private static string Format(double value)
         => value.ToString("0.###", CultureInfo.InvariantCulture);
+
+    /// <summary>原因分析覆盖的信号键：含扩展位，防止标准/扩展同 ID 串用。</summary>
+    public static string SkipKey(string canIdHex, bool isExtended, string signalName)
+        => canIdHex + "|" + (isExtended ? "e" : "s") + "|" + signalName;
 }

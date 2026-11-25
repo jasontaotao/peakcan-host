@@ -99,6 +99,19 @@ public sealed class NmViewLayoutTests
     }
 
     [Fact]
+    public void Panel_SeekStatus_IsOutsideCappedBand()
+    {
+        // 点击定位的唯一可见反馈不能待在 150px 封顶滚动区末尾：
+        // 常见状态下（profile 摘要 + 提示行）它会被推到首屏之外，用户又觉得“点了没反应”。
+        var seekStatus = Panel().Descendants(P + "TextBlock")
+            .Single(t => ((string?)t.Attribute("Text"))?
+                .Contains("NmSeekStatus", StringComparison.Ordinal) == true);
+
+        seekStatus.Ancestors(P + "ScrollViewer").Should().BeEmpty(
+            "定位反馈必须在固定区域常驻可见，不能依赖滚动才出现");
+    }
+
+    [Fact]
     public void Panel_Legend_IsCollapsedByDefault()
     {
         var legend = Panel().Descendants(P + "Expander")
@@ -108,13 +121,29 @@ public sealed class NmViewLayoutTests
             "图例常驻四行会吃掉 360px 面板约 80px 垂直空间；默认折叠");
 
         // 折叠内容不能被删掉，且颜色必须与轨道同源（x:Static 笔刷），不能写死色值。
-        // 四行 = 时间推断阶段 / NMSts 实测阶段（spec §7.5.4）/ 事件 / 整网行。
-        legend.Descendants(P + "TextBlock").Should().HaveCount(4);
+        // 五行 = 时间推断阶段 / NMSts 实测阶段（spec §7.5.4）/ 事件 / 整网行 / 原因行。
+        legend.Descendants(P + "TextBlock").Should().HaveCount(5);
         var runs = legend.Descendants(P + "Run").ToList();
         runs.Count(r => ((string?)r.Attribute("Foreground"))?
                 .StartsWith("{x:Static conv:NmSegmentBrushConverter.", StringComparison.Ordinal) == true)
             .Should().BeGreaterThanOrEqualTo(10,
                 "图例色块必须引用转换器笔刷，否则时间条改色后图例会失真");
+    }
+
+    [Fact]
+    public void Panel_Legend_ListsSilencePhaseKinds()
+    {
+        var legend = Panel().Descendants(P + "Expander")
+            .Single(e => (string?)e.Attribute("Header") == "图例");
+
+        var runs = legend.Descendants(P + "Run").ToList();
+        foreach (var label in new[] { "释放等待（推断）", "准备休眠（推断）", "总线睡眠（推断）", "无法判定（推断）" })
+        {
+            var run = runs.Single(r => ((string?)r.Attribute("Text"))?.Contains(label) == true);
+            ((string?)run.Attribute("Foreground")).Should()
+                .StartWith("{x:Static conv:NmSegmentBrushConverter.",
+                    "图例色块必须引用转换器笔刷，否则时间条改色后图例会失真");
+        }
     }
 
     [Fact]

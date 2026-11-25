@@ -179,6 +179,10 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
     // 导入的配置：只对文件中确实出现的字段视为「显式值」，缺失字段保留当前编辑器/旧 sidecar。
     private NmUserSupplement? _importedSupplement;
     private readonly HashSet<string> _importedFields = new(StringComparer.Ordinal);
+    // 原因字典：只有用户显式选择/清除/手输后才覆盖 imported/existing；
+    // 构造与导入回填只改显示值，不算“编辑”。
+    private bool _reasonDictionaryEdited;
+    private bool _reasonDictionarySync;
     // 统计一次导入是否包含任何可识别的 NM 配置字段；空 JSON（如 {}）不得当成导入成功。
     private static bool HasRecognizableConfig(NmUserSupplement imported)
         => imported.NmMessageSelectors is { Count: > 0 }
@@ -195,7 +199,8 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
               && (features.ActiveWakeupBitEnabled is not null
                   || features.RepeatMsgIndEnabled is not null
                   || features.PnEnabled is not null)
-           || imported.Nodes is { Count: > 0 };
+           || imported.Nodes is { Count: > 0 }
+           || !string.IsNullOrWhiteSpace(imported.ReasonsPath);
     // 磁盘上已有的 sidecar：保存时按字段合并，避免第二次补全覆盖掉第一轮的输入。
     private readonly NmUserSupplement? _existing;
     // 保存时允许回落的旧布局值；DBC 哈希不一致时置空，避免「警告了却仍写回旧值」。
@@ -219,6 +224,8 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
     [ObservableProperty] private int? _cycleMs;
     [ObservableProperty] private int? _timeoutMs;
     [ObservableProperty] private bool? _pnEnabled;
+    /// <summary>原因字典路径（可选）：空表示不使用；保存时写入 sidecar 的 reasons_path。</summary>
+    [ObservableProperty] private string? _reasonDictionaryPath;
     [ObservableProperty] private string _status = "";
 
     /// <summary>保存成功后触发；窗口据此关闭对话框（DialogResult = true）。</summary>
@@ -232,6 +239,8 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
         _firstNm = snapshot.Profile.Messages.FirstOrDefault(m => m.IsNm);
 
         _existing = snapshot.DbcPath is null ? null : NmSidecarStore.Load(snapshot.DbcPath);
+        // 既有 sidecar 的 reasons_path 回显到编辑器；用户不动它时保存仍沿用该值。
+        PrefillReasonDictionaryPath(_existing?.ReasonsPath);
 
         // sidecar 记录的 DBC 哈希与当前快照不一致：布局类输入来自旧 DBC，
         // 不能静默回填成「已确认」的值；计时/选择器仍按既有逻辑预填。
@@ -516,6 +525,9 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
     /// <summary>导入文件选择委托：返回选中路径；null 表示用户取消。</summary>
     public Func<string?>? OpenFilePicker { get; set; }
 
+    /// <summary>原因字典文件选择委托：返回选中路径；null 表示用户取消。</summary>
+    public Func<string?>? ReasonDictionaryPicker { get; set; }
+
     private static uint ParseId(string hex)
         => uint.Parse(hex.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
 
@@ -564,7 +576,10 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
         Features: BuildFeatures(),
         Nodes: BuildNodes(),
         DbcPath: _snapshot.DbcPath,
-        DbcHash: _snapshot.DbcHash);
+        DbcHash: _snapshot.DbcHash,
+        // 用户显式改过（选择/清除/手输）优先；否则导入文件优先（与其它非编辑器
+        // 字段同契约），最后保留目标项目既有值。
+        ReasonsPath: EffectiveReasonsPath);
 
     /// <summary>
     /// 逐字段合并：导入/用户改过的值优先，未改动的字段沿用既有 sidecar。
@@ -659,11 +674,18 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
             var profile = NmSupplementMerger.Merge(_snapshot.Profile, ToSupplement());
             var end = _snapshot.Report.Window.End;
             // 试算必须带上真实 DBC：SignalDecode 等能力依赖它，不能传 null。
-            var (dbc, dbcNote) = await Task.Run(LoadDbcForTrial);
+            // 试算与主分析同口径：sidecar 配置了字典就必须加载，否则试算看到的原因行
+            // 与面板分析结果不一致。读盘 + 哈希与 DBC 解析一起放进后台线程。
+            var trialInputs = await Task.Run(() => (
+                Dbc: LoadDbcForTrial(),
+                Reason: LoadReasonDictionaryForTrial()));
+            var (dbc, dbcNote) = trialInputs.Dbc;
+            var reasonLoad = trialInputs.Reason;
             var report = await Task.Run(() => NmAnalyzer.Analyze(new NmAnalysisRequest(
                 _snapshot.SourceId, _snapshot.Channel, _snapshot.Frames,
-                dbc, profile, _snapshot.Report.Window.Start, end, "trial")));
-            _trialSummary = BuildTrialSummary(report, profile, dbcNote);
+                dbc, profile, _snapshot.Report.Window.Start, end, "trial",
+                Reasons: reasonLoad.Dictionary, ReasonDictionaryNote: reasonLoad.Note)));
+            _trialSummary = BuildTrialSummary(report, profile, dbcNote, reasonLoad.Note);
             OnPropertyChanged(nameof(TrialSummary));
             Status = "试算完成";
         }
@@ -699,13 +721,38 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
         }
     }
 
-    private string BuildTrialSummary(NmReport report, NmProfile profile, string dbcNote)
+    /// <summary>
+    /// 试算路径的原因字典加载：路径取编辑器生效值（含刚选择/清除的未保存改动）；
+    /// DBC 路径缺失时无法解析相对路径。
+    /// </summary>
+    private (LoadedNmReasonDictionary? Dictionary, string? Note) LoadReasonDictionaryForTrial()
+    {
+        var reasonsPath = EffectiveReasonsPath;
+        if (string.IsNullOrWhiteSpace(reasonsPath)) return (null, null);
+        if (_snapshot.DbcPath is null)
+            return (null, "原因字典已配置，但没有 DBC 路径无法解析相对路径");
+        var full = NmReasonDictionaryStore.ResolvePath(_snapshot.DbcPath, reasonsPath);
+        try
+        {
+            return (NmReasonDictionaryStore.LoadFrom(full), null);
+        }
+        catch (NmReasonDictionaryException ex)
+        {
+            return (null, "原因字典不可用：" + ex.Message);
+        }
+    }
+
+    private string BuildTrialSummary(
+        NmReport report, NmProfile profile, string dbcNote, string? reasonNote)
     {
         var lines = new List<string>
         {
             $"试算：识别 {report.Messages.Count} 条报文；" +
             $"能力 {report.Capabilities.Count(c => c.Available)} 项可用",
         };
+        // 字典加载状态与 DBC 状态同级展示：失败不能只在报告 Unknowns 里，
+        // 试算窗口也要能直接看到。
+        if (reasonNote is { Length: > 0 }) lines.Add(reasonNote);
 
         foreach (var message in report.Messages.Take(5))
         {
@@ -831,6 +878,61 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
                && offset >= 0 && length >= 0;
     }
 
+    /// <summary>选择原因字典文件；此处不解析内容，试算/分析时才给出加载结果。</summary>
+    [RelayCommand]
+    private void BrowseReasonDictionary()
+    {
+        if (ReasonDictionaryPicker is null)
+        {
+            Status = "未配置原因字典选择器";
+            return;
+        }
+        var path = ReasonDictionaryPicker();
+        if (string.IsNullOrWhiteSpace(path)) return; // 用户取消选择。
+        SetReasonDictionaryPath(path);
+        Status = "已选择原因字典（尚未保存）：" + path;
+    }
+
+    /// <summary>清除原因字典配置；保存后从 sidecar 删除 reasons_path。</summary>
+    [RelayCommand]
+    private void ClearReasonDictionary()
+    {
+        SetReasonDictionaryPath(null);
+        Status = "已清除原因字典（尚未保存）";
+    }
+
+    /// <summary>保存与试算的生效值：用户改过则用编辑器值，否则沿用导入/既有 sidecar。
+    /// 三个来源都做同一套空串/空白归一化，避免「显示空白但被当成已配置」。</summary>
+    private string? EffectiveReasonsPath => _reasonDictionaryEdited
+        ? NormalizeReasonPath(ReasonDictionaryPath)
+        : NormalizeReasonPath(_importedSupplement?.ReasonsPath)
+          ?? NormalizeReasonPath(_existing?.ReasonsPath);
+
+    private static string? NormalizeReasonPath(string? path)
+        => string.IsNullOrWhiteSpace(path) ? null : path;
+
+    private void SetReasonDictionaryPath(string? path)
+    {
+        _reasonDictionarySync = true;
+        ReasonDictionaryPath = path;
+        _reasonDictionarySync = false;
+        _reasonDictionaryEdited = true;
+    }
+
+    /// <summary>内部回填（构造/导入）：只更新显示值，不算用户编辑。</summary>
+    private void PrefillReasonDictionaryPath(string? path)
+    {
+        _reasonDictionarySync = true;
+        ReasonDictionaryPath = path;
+        _reasonDictionarySync = false;
+    }
+
+    partial void OnReasonDictionaryPathChanged(string? value)
+    {
+        if (_reasonDictionarySync) return;
+        _reasonDictionaryEdited = true;
+    }
+
     /// <summary>导出当前编辑器内容为任意路径的 `*.nmprofile.json`（不写项目 sidecar）。</summary>
     [RelayCommand]
     private void ExportProfile()
@@ -950,6 +1052,19 @@ public sealed partial class NmInputWizardViewModel : ObservableObject
         {
             PnEnabled = pn;
             _importedFields.Add("pn_enabled");
+        }
+        if (NormalizeReasonPath(imported.ReasonsPath) is { } reasonsPath)
+        {
+            // 导入视为显式配置来源：覆盖此前未保存的手动选择。
+            _reasonDictionaryEdited = false;
+            PrefillReasonDictionaryPath(reasonsPath);
+        }
+        else if (!_reasonDictionaryEdited)
+        {
+            // 后一次导入不含 reasons_path：生效值回落到既有 sidecar，
+            // 显示值必须同步回落，否则会出现「文本框显示上一次导入的路径，
+            // 保存却写入 null/既有值」。
+            PrefillReasonDictionaryPath(_existing?.ReasonsPath);
         }
 
         if (imported.NmMessageSelectors is { } selectors)

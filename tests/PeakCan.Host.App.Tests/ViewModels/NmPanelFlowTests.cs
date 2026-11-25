@@ -660,6 +660,21 @@ public class NmPanelFlowTests
     }
 
     [Fact]
+    public void InterpretNmEvent_ReasonChange_RedactsRawValues()
+    {
+        var vm = NewVm();
+        vm.NmSelectedEvent = new NmEventRowVm(
+            1.5, "1.500", "reason_change", "0x18FFFAF4",
+            "BMS_Wakeup_reasons: 0x0 → 0x30（Waked up by NW PDU）", "measured", 0, "0x18FFFAF4");
+
+        vm.InterpretNmEventInAiCommand.Execute(null);
+
+        // spec §11：原始取值不发 LLM；信号名与解释文本保留。
+        vm.ChatInput.Should().NotContain("0x0 →").And.NotContain("0x30");
+        vm.ChatInput.Should().Contain("0x??").And.Contain("Waked up by NW PDU");
+    }
+
+    [Fact]
     public void InterpretNmEvent_SwitchesToChatTabAndShowsHint()
     {
         var vm = NewVm();
@@ -1071,6 +1086,9 @@ public class NmPanelFlowTests
                         new NmSegment(12, 13, "immediate"),
                         new NmSegment(13, 14, "unknown"),
                     }),
+                // 原因变化标记只落在匹配的报文行上；给 0x18FFFAF4 一行让 reason 标记可达。
+                new NmMessageReport("0x18FFFAF4", true, "BMS_NWM", "BMS", 1, 0, 10, stats,
+                    new[] { new NmSegment(0, 10, "active") }),
             },
             Array.Empty<NmNodeReport>(),
             new[]
@@ -1088,6 +1106,27 @@ public class NmPanelFlowTests
             Array.Empty<string>(), Array.Empty<string>(),
             Array.Empty<NmCapabilityState>(), Array.Empty<NmInputMissing>(),
             Array.Empty<NmTruncation>());
+        // 面板现在也发射原因段与静默相位：常量表新增 kind 后，这里必须真的产生。
+        report = report with
+        {
+            ReasonTimelines = ReasonTimelinesWithTransition(),
+            SilencePhases = new[]
+            {
+                new NmSilencePhase(3, 4, NmSilencePhaseKind.ReleaseWait,
+                    NmSilenceBasis.NmSenderStillActive, 0, 0, 0, 0, null,
+                    NmStsEvidence.NotAvailable, false, 0, "detail"),
+                new NmSilencePhase(4, 5, NmSilencePhaseKind.PrepareSleep,
+                    NmSilenceBasis.NmSenderStoppedAfterDrain, 0, 0, 0, 0, null,
+                    NmStsEvidence.NotAvailable, false, 0, "detail"),
+                // 留 [6.5,7] 不被相位覆盖，保证残余通用静默带 kind（silence）仍被发射。
+                new NmSilencePhase(5, 6, NmSilencePhaseKind.Sleep,
+                    NmSilenceBasis.NmSenderStoppedAfterDrain, 0, 0, 0, 0, null,
+                    NmStsEvidence.NotAvailable, false, 0, "detail"),
+                new NmSilencePhase(6, 6.5, NmSilencePhaseKind.Unknown,
+                    NmSilenceBasis.WindowTooShort, 0, 0, 0, 0, null,
+                    NmStsEvidence.NotAvailable, false, 0, "detail"),
+            },
+        };
 
         var emitted = TraceViewerViewModel.BuildTimelineRows(report)
             .SelectMany(r => r.Segments.Select(s => s.Kind)
@@ -1095,8 +1134,124 @@ public class NmPanelFlowTests
             .Distinct()
             .ToArray();
 
-        emitted.Should().BeEquivalentTo(NmTimelineKinds.All,
-            "面板发射的每个 kind 都必须进常量表，才能被转换器/图例覆盖");
+        // 原因段按取值着色（reason:N / reason_uncertain:N）：动态 kind 不在常量表里，
+        // 但必须映射到显式色板，不能落回未知色。
+        var dynamicReason = emitted
+            .Where(k => NmTimelineKinds.IsReasonKind(k) && k != NmTimelineKinds.Reason)
+            .ToArray();
+        dynamicReason.Should().NotBeEmpty("按取值着色的原因段必须发射 reason:N");
+        dynamicReason.Should().OnlyContain(k =>
+            NmSegmentBrushConverter.BrushFor(k) != NmSegmentBrushConverter.UnknownBrush);
+
+        emitted.Except(dynamicReason).Should().BeEquivalentTo(NmTimelineKinds.All,
+            "面板发射的每个静态 kind 都必须进常量表，才能被转换器/图例覆盖");
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_SilencePhases_EmitThreeKinds()
+    {
+        var report = MakeNetworkReport(
+            window: new NmWindow(0, 20, "full"),
+            phases: new[]
+            {
+                Phase(10, 12, NmSilencePhaseKind.ReleaseWait, NmSilenceBasis.NmSenderStillActive),
+                Phase(12, 14, NmSilencePhaseKind.PrepareSleep, NmSilenceBasis.NmSenderStoppedAfterDrain),
+                Phase(14, 16, NmSilencePhaseKind.Sleep, NmSilenceBasis.NmSenderStoppedAfterDrain),
+            });
+
+        var row = TraceViewerViewModel.BuildTimelineRows(report).Single(r => r.Label == "整网状态");
+
+        row.Segments.Select(s => s.Kind).Should().Contain(new[]
+        {
+            NmTimelineKinds.SilenceReleaseWait,
+            NmTimelineKinds.SilencePrepareSleep,
+            NmTimelineKinds.SilenceBusSleep,
+        });
+        row.Segments.Should().OnlyContain(s => s.Evidence == "inferred");
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_PhasesReplaceGenericSilenceBand()
+    {
+        var report = MakeNetworkReport(
+            window: new NmWindow(0, 20, "full"),
+            events: new[] { new NmEvent(10, "all_nm_silent", null, null, "x", 0, "measured") },
+            phases: new[]
+            {
+                Phase(10, 12, NmSilencePhaseKind.ReleaseWait, NmSilenceBasis.NmSenderStillActive),
+            });
+
+        var row = TraceViewerViewModel.BuildTimelineRows(report).Single(r => r.Label == "整网状态");
+
+        row.Segments.Should().ContainSingle(s => s.Kind == NmTimelineKinds.SilenceReleaseWait);
+        row.Segments.Should().NotContain(s => s.Kind == NmTimelineKinds.Silence
+            && s.Start < 12 && s.End > 10,
+            "相位覆盖过的区间不能再叠一条灰色带");
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_DoesNotMergeAcrossKinds()
+    {
+        var report = MakeNetworkReport(
+            window: new NmWindow(0, 20, "full"),
+            phases: new[]
+            {
+                Phase(10, 12, NmSilencePhaseKind.ReleaseWait, NmSilenceBasis.NmSenderStillActive),
+                Phase(12, 14, NmSilencePhaseKind.PrepareSleep, NmSilenceBasis.NmSenderStoppedAfterDrain),
+            });
+
+        var row = TraceViewerViewModel.BuildTimelineRows(report).Single(r => r.Label == "整网状态");
+        var phaseSegments = row.Segments
+            .Where(s => NmTimelineKinds.IsSilencePhaseKind(s.Kind))
+            .ToArray();
+
+        phaseSegments.Should().HaveCount(2, "相邻但 kind 不同的相位不能被合并成一条");
+        phaseSegments.Select(s => s.Kind).Distinct().Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_PartialCoverage_KeepsUnknownResidual()
+    {
+        var report = MakeNetworkReport(
+            window: new NmWindow(0, 20, "full"),
+            events: new[] { new NmEvent(10, "all_nm_silent", null, null, "x", 0, "measured") },
+            phases: new[]
+            {
+                Phase(10, 12, NmSilencePhaseKind.ReleaseWait, NmSilenceBasis.NmSenderStillActive),
+            });
+
+        var row = TraceViewerViewModel.BuildTimelineRows(report).Single(r => r.Label == "整网状态");
+
+        row.Segments.Should().Contain(s => s.Kind == NmTimelineKinds.Silence && s.Start >= 12);
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_NoPhases_KeepsLegacySilenceBand()
+    {
+        var report = MakeNetworkReport(
+            window: new NmWindow(0, 20, "full"),
+            events: new[] { new NmEvent(10, "all_nm_silent", null, null, "x", 0, "measured") });
+
+        var row = TraceViewerViewModel.BuildTimelineRows(report).Single(r => r.Label == "整网状态");
+
+        row.Segments.Should().Contain(s => s.Kind == NmTimelineKinds.Silence);
+    }
+
+    [Fact]
+    public void BuildNetworkTimelineRow_TailPhase_MarksTruncated()
+    {
+        var report = MakeNetworkReport(
+            window: new NmWindow(0, 20, "full"),
+            phases: new[]
+            {
+                Phase(18, 20, NmSilencePhaseKind.PrepareSleep,
+                    NmSilenceBasis.NmSenderStoppedAfterDrain) with { IsWindowTruncated = true },
+            });
+
+        var row = TraceViewerViewModel.BuildTimelineRows(report).Single(r => r.Label == "整网状态");
+
+        row.Segments.Single(s => s.Kind == NmTimelineKinds.SilencePrepareSleep)
+            .IsWindowTruncated.Should().BeTrue();
     }
 
     [Fact]
@@ -1222,7 +1377,7 @@ public class NmPanelFlowTests
         vm.SetNmMarkerHover("bus_gap", "", 1.0, "总线无帧", "");
 
         vm.NmHoverTitle.Should().Be("总线无帧");
-        vm.NmHoverHint.Should().Contain("点击跳转");
+        vm.NmHoverHint.Should().Contain("点击把绿色锚点移到");
     }
 
     [Theory]
@@ -1305,7 +1460,7 @@ public class NmPanelFlowTests
         vm.NmHoverKind.Should().Be("active");
         vm.NmHoverTitle.Should().Be("发送中 · 0x500 NM (A)");
         vm.NmHoverRange.Should().Be("1.20s – 2.40s · 持续 1.20s");
-        vm.NmHoverHint.Should().Be("点击跳转到 1.20s");
+        vm.NmHoverHint.Should().Be("点击把绿色锚点移到 1.20s");
 
         vm.ClearNmSegmentHover();
         vm.NmHoverTitle.Should().BeEmpty();
@@ -1356,6 +1511,561 @@ public class NmPanelFlowTests
             .Should().Contain("超时");
     }
 
+    private static NmReasonTimeline ReasonTimelineForTest() => new(
+        "BMS_Wakeup_reasons", "0x18FFFAF4", true,
+        NmReasonKind.Raw, NmReasonKind.Raw,
+        [new NmReasonSegment(0.2, 0.2, 0x30,
+            [new NmReasonLabel("Waked up by NW PDU", "dbc")],
+            // WindowEnd 必须 EndUnknown=true（与 NmReasonAnalyzer 的产出契约一致）。
+            false, true, NmReasonSegmentEnd.WindowEnd, null, [1, 0, 0x30])],
+        [], [], []);
+
+    [Fact]
+    public void BuildTimelineRows_AppendsReasonRowsBeforeNetworkRow()
+    {
+        var report = MakeReport(
+                messages:
+                [
+                    new NmMessageReport("0x500", false, "NM", "A", 1, 0, 1,
+                        new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
+                        [new NmSegment(0, 1, "active")]),
+                ]) with
+        {
+            ReasonTimelines = [ReasonTimelineForTest()],
+            Episodes = [new NmEpisode(0, 0, 10, "active", null, ["0x500"], false, false)],
+        };
+
+        var rows = TraceViewerViewModel.BuildTimelineRows(report);
+
+        var reasonIndex = rows.ToList().FindIndex(
+            r => r.Label.Contains("原因 BMS_Wakeup_reasons", StringComparison.Ordinal));
+        reasonIndex.Should().BeGreaterThan(0, "原因行在报文行之后");
+        rows[^1].Label.Should().Be("整网状态");
+        reasonIndex.Should().BeLessThan(rows.Count - 1, "原因行在网络行之前");
+    }
+
+    [Fact]
+    public void BuildTimelineRows_UnreadableFieldRow_IsLabeled()
+    {
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with
+            {
+                Segments = [],
+                UnreadableFrameTimes = [0.5],
+            }],
+        };
+
+        var row = Assert.Single(
+            TraceViewerViewModel.BuildTimelineRows(report),
+            r => r.Label.StartsWith("原因 ", StringComparison.Ordinal));
+        row.Label.Should().Contain("字段不可读",
+            "DLC 全程不足时，行标签必须明确说明，而不是一条空行");
+        row.Segments.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void BuildTimelineRows_UnresolvedFieldRow_ShowsUnknown()
+    {
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with
+            {
+                Segments = [],
+                Unknowns = ["BMS_Wakeup_reasons：DBC 中未找到该信号（0x18FFFAF4）"],
+            }],
+        };
+
+        var row = Assert.Single(
+            TraceViewerViewModel.BuildTimelineRows(report),
+            r => r.Label.StartsWith("原因 ", StringComparison.Ordinal));
+        row.Label.Should().Contain("字段不可用")
+            .And.Contain("未找到该信号",
+                "配置错误（DBC 里没有这个信号）与 DLC 不可读不是一回事，必须显示 Unknowns");
+    }
+
+    [Fact]
+    public void BuildReasonTimelineRows_SingleFrameSegment_SaysOneFrame()
+    {
+        var report = MakeReport() with
+        {
+            ReasonTimelines =
+            [
+                ReasonTimelineForTest() with
+                {
+                    Segments =
+                    [
+                        new NmReasonSegment(0.2, 0.2, 0x30, [], false, false,
+                            NmReasonSegmentEnd.Changed, 0.6, [1, 0, 0x30]),
+                    ],
+                },
+            ],
+        };
+
+        var row = Assert.Single(TraceViewerViewModel.BuildReasonTimelineRows(report));
+        row.Segments
+            .Should().ContainSingle(s => s.Kind.StartsWith(NmTimelineKinds.ReasonValuePrefix, StringComparison.Ordinal))
+            .Which.DurationText.Should().Be("仅 1 帧");
+    }
+
+    [Fact]
+    public void BuildReasonTimelineRows_DifferentRawValues_GetDistinctKinds_SameValueReusesKind()
+    {
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with { Segments = ReasonSegmentsWithGaps() }],
+        };
+
+        var row = Assert.Single(TraceViewerViewModel.BuildReasonTimelineRows(report));
+        var confirmed = row.Segments
+            .Where(s => s.Kind.StartsWith(NmTimelineKinds.ReasonValuePrefix, StringComparison.Ordinal))
+            .ToArray();
+
+        // 不同原始值必须能看出区别：整行同色就是用户看到的「一坨」。
+        confirmed.Should().HaveCount(3);
+        confirmed[0].Kind.Should().NotBe(confirmed[1].Kind,
+            "0x00 与 0x30 是两个值，必须用不同颜色");
+        confirmed[1].Kind.Should().Be(confirmed[2].Kind,
+            "同一个原始值再次出现必须复用颜色，否则无从比较");
+    }
+
+    [Fact]
+    public void BuildReasonTimelineRows_UnobservedGap_IsUncertainBandNotConfirmedValue()
+    {
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with { Segments = ReasonSegmentsWithGaps() }],
+        };
+
+        var row = Assert.Single(TraceViewerViewModel.BuildReasonTimelineRows(report));
+        var confirmed = row.Segments
+            .Where(s => s.Kind.StartsWith(NmTimelineKinds.ReasonValuePrefix, StringComparison.Ordinal))
+            .ToArray();
+        var uncertain = row.Segments
+            .Where(s => s.Kind.StartsWith(NmTimelineKinds.ReasonUncertainPrefix, StringComparison.Ordinal))
+            .ToArray();
+
+        // 确认色块只画到最后一个确认帧，不得把未观测区间画成同一个值仍在。
+        confirmed.Select(s => (s.Start, s.End)).Should().Equal(
+            (0.1, 0.2), (0.6, 4.0), (5.0, 9.0));
+
+        // 未观测区间单独成段，色相可辨（数据模型给出区间边界，不精确到时刻）。
+        uncertain.Select(s => (s.Start, s.End)).Should().Equal(
+            (0.2, 0.6), (4.0, 5.0));
+        uncertain[0].Kind.Should().NotBe(confirmed[0].Kind,
+            "未观测区间不能被画成确认值");
+    }
+
+    private static NmReasonSegment[] ReasonSegmentsWithGaps() =>
+    [
+        new NmReasonSegment(0.1, 0.2, 0x00, [], false, false,
+            NmReasonSegmentEnd.Changed, 0.6, [1, 0, 0x00]),
+        new NmReasonSegment(0.6, 4.0, 0x30, [], false, false,
+            NmReasonSegmentEnd.EpisodeEnd, 5.0, [1, 0, 0x30]),
+        new NmReasonSegment(5.0, 9.0, 0x30, [], false, true,
+            NmReasonSegmentEnd.WindowEnd, null, [1, 0, 0x30]),
+    ];
+
+    [Fact]
+    public void BuildReasonTimelineRows_EpisodeEndSameValue_DoesNotClaimChange()
+    {
+        // 真实数据（BMS_Wakeup_reasons 0x30 段 [0.609, 9.714]）：跨 episode 后下一段
+        // 仍是同一个值，且没有 reason_change。文案不能说“清除/值变化”。
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with
+            {
+                Segments =
+                [
+                    new NmReasonSegment(0.6, 4.0, 0x30, [], false, false,
+                        NmReasonSegmentEnd.EpisodeEnd, 5.0, [1, 0, 0x30]),
+                    new NmReasonSegment(5.0, 9.0, 0x30, [], false, true,
+                        NmReasonSegmentEnd.WindowEnd, null, [1, 0, 0x30]),
+                ],
+            }],
+        };
+
+        var row = Assert.Single(TraceViewerViewModel.BuildReasonTimelineRows(report));
+        var confirmed = row.Segments.Single(s => s.Start == 0.6);
+        confirmed.Tooltip.Should().Contain("仍为同一值")
+            .And.NotContain("清除发生区间",
+                "下一段仍是同一原始值，声称“清除”会与事件表无 reason_change 自相矛盾");
+
+        var uncertain = row.Segments.Single(s =>
+            s.Kind.StartsWith(NmTimelineKinds.ReasonUncertainPrefix, StringComparison.Ordinal));
+        uncertain.Tooltip.Should().Contain("无法确认是否")
+            .And.NotContain("值变化发生在");
+    }
+
+    [Fact]
+    public void BuildReasonTimelineRows_EpisodeEndDifferentValue_ReportsClearInterval()
+    {
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with
+            {
+                Segments =
+                [
+                    new NmReasonSegment(0.6, 4.0, 0x30, [], false, false,
+                        NmReasonSegmentEnd.EpisodeEnd, 5.0, [1, 0, 0x30]),
+                    new NmReasonSegment(5.0, 9.0, 0x01, [], false, true,
+                        NmReasonSegmentEnd.WindowEnd, null, [1, 0, 0x01]),
+                ],
+            }],
+        };
+
+        var row = Assert.Single(TraceViewerViewModel.BuildReasonTimelineRows(report));
+        var confirmed = row.Segments.Single(s => s.Start == 0.6);
+        confirmed.Tooltip.Should().Contain("清除发生区间 4.000s – 5.000s");
+    }
+
+    [Fact]
+    public void BuildReasonTimelineRows_DurationWording_MatchesConfidence()
+    {
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with
+            {
+                Segments =
+                [
+                    // 起点未知（首帧前无观测）：只能是下界。
+                    new NmReasonSegment(0.2, 0.4, 0x01, [], true, false,
+                        NmReasonSegmentEnd.Changed, 1.0, [1, 0, 0x01]),
+                    // 起点有界且 Changed：可以说“观测区间”。
+                    new NmReasonSegment(1.0, 3.0, 0x02, [], false, false,
+                        NmReasonSegmentEnd.Changed, 4.0, [1, 0, 0x02]),
+                    // EpisodeEnd：终点不是值变化帧，只能下界。
+                    new NmReasonSegment(4.0, 6.0, 0x03, [], false, true,
+                        NmReasonSegmentEnd.WindowEnd, null, [1, 0, 0x03]),
+                ],
+            }],
+        };
+
+        var row = Assert.Single(TraceViewerViewModel.BuildReasonTimelineRows(report));
+        var confirmed = row.Segments
+            .Where(s => s.Kind.StartsWith(NmTimelineKinds.ReasonValuePrefix, StringComparison.Ordinal))
+            .ToArray();
+
+        confirmed[0].DurationText.Should().Be("≥ 0.200s");
+        confirmed[1].DurationText.Should().Be("观测区间 2.000s");
+        confirmed[2].DurationText.Should().Be("≥ 2.000s");
+    }
+
+    [Fact]
+    public void BuildReasonTimelineRows_UnreadableRecoveryWithDifferentValue_SaysChangeTimeUnknown()
+    {
+        // 不可读后恢复为不同值：分析器确实产了 transition，文案不能说“无法确认是否变化”。
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with
+            {
+                Segments =
+                [
+                    new NmReasonSegment(0.1, 0.1, 0x00, [], false, false,
+                        NmReasonSegmentEnd.Unreadable, 1.6, [1, 0, 0x00]),
+                    new NmReasonSegment(1.6, 2.0, 0x30, [], false, true,
+                        NmReasonSegmentEnd.WindowEnd, null, [1, 0, 0x30]),
+                ],
+            }],
+        };
+
+        var row = Assert.Single(TraceViewerViewModel.BuildReasonTimelineRows(report));
+        var confirmed = row.Segments.Single(s =>
+            s.Start == 0.1 && s.Kind.StartsWith(NmTimelineKinds.ReasonValuePrefix, StringComparison.Ordinal));
+        confirmed.Tooltip.Should().Contain("恢复后值已不同")
+            .And.NotContain("无法确认是否变化");
+
+        var uncertain = row.Segments.Single(s =>
+            s.Kind.StartsWith(NmTimelineKinds.ReasonUncertainPrefix, StringComparison.Ordinal));
+        uncertain.Tooltip.Should().Contain("恢复后值已不同")
+            .And.NotContain("无法确认是否变化");
+    }
+
+    [Fact]
+    public void BuildReasonTimelineRows_TruncatedSegments_DoesNotClaimValueChanged()
+    {
+        // 段数超过 200 时下一段被丢弃：无法比较下一段取值，不得断言“清除/变化”。
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with
+            {
+                Segments =
+                [
+                    new NmReasonSegment(0.6, 4.0, 0x30, [], false, false,
+                        NmReasonSegmentEnd.EpisodeEnd, 5.0, [1, 0, 0x30]),
+                ],
+            }],
+            Truncations =
+            [
+                new NmTruncation("reason:segments:0x18FFFAF4:BMS_Wakeup_reasons", 200, 260),
+            ],
+        };
+
+        var row = Assert.Single(TraceViewerViewModel.BuildReasonTimelineRows(report));
+        row.Label.Should().Contain("截断");
+        var confirmed = row.Segments.Single(s =>
+            s.Kind.StartsWith(NmTimelineKinds.ReasonValuePrefix, StringComparison.Ordinal));
+        confirmed.Tooltip.Should().Contain("超出展示上限")
+            .And.NotContain("清除发生区间");
+
+        var uncertain = row.Segments.Single(s =>
+            s.Kind.StartsWith(NmTimelineKinds.ReasonUncertainPrefix, StringComparison.Ordinal));
+        uncertain.Tooltip.Should().Contain("超出展示上限")
+            .And.NotContain("值变化发生在");
+    }
+
+    [Fact]
+    public void SeekToNmTimeOrIgnore_MovesGreenAnchor()
+    {
+        // 标定规则行的「触发」也是定位入口，必须走同一条可见路径。
+        var vm = NewVm();
+
+        vm.SeekToNmTimeOrIgnoreCommand.Execute(3.5);
+        vm.AnchorTimestampSeconds.Should().Be(3.5);
+        vm.NmSeekStatus.Should().Contain("3.50s");
+
+        // 无证据时刻（null）不得把锚点拉到 0 秒。
+        vm.SeekToNmTimeOrIgnoreCommand.Execute((double?)null);
+        vm.AnchorTimestampSeconds.Should().Be(3.5);
+    }
+
+    [Fact]
+    public void RefreshAtAnchor_ClearsStaleSeekStatus()
+    {
+        // 用户随后拖绿线/换窗口时，“已把锚点移到 2.50s”必须失效，不能一直挂着旧时刻。
+        var vm = NewVm();
+        vm.SeekToNmTimeCommand.Execute(2.5);
+        vm.NmSeekStatus.Should().Contain("2.50s");
+
+        vm.RefreshAtAnchor(5.0);
+
+        vm.AnchorTimestampSeconds.Should().Be(5.0);
+        vm.NmSeekStatus.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SeekToNmTime_MovesGreenAnchor_AndShowsStatus()
+    {
+        // 回放已废除：_masterService.Seek 只改一个没人显示的时间戳。
+        // 用户可感知的“定位到某时刻”是绿色锚点（图表竖线 + 监视列表最新值）。
+        var vm = NewVm();
+
+        vm.SeekToNmTimeCommand.Execute(2.5);
+
+        vm.AnchorTimestampSeconds.Should().Be(2.5);
+        vm.NmSeekStatus.Should().Contain("2.50s").And.Contain("绿色锚点");
+    }
+
+    [Fact]
+    public void ApplyNmReport_ReasonHint_ShowsPerFieldUnknownsEvenWithSegments()
+    {
+        var vm = NewVm();
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with
+            {
+                Unknowns = ["BMS_Wakeup_reasons：kind=bitmask 未展开，按原始值显示"],
+            }],
+            ReasonDictionaryPath = "reasons.nmreasons.json",
+        };
+
+        vm.ApplyNmReport(MakeSnapshot(report, MakeProfile()));
+
+        // 有段不等于没有降级：位掩码未展开这类字段级说明必须仍然可见。
+        vm.NmReasonHint.Should().Contain("bitmask").And.Contain("未展开");
+    }
+
+    [Fact]
+    public void BuildReasonTimelineRows_WindowEndSegment_IsWindowTruncated()
+    {
+        var row = Assert.Single(
+            TraceViewerViewModel.BuildReasonTimelineRows(
+                MakeReport() with { ReasonTimelines = [ReasonTimelineForTest()] }));
+        // ReasonTimelineForTest 的段是 WindowEnd：时间条必须显示窗口截断。
+        row.Segments.Should().ContainSingle()
+            .Which.IsWindowTruncated.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ApplyNmReport_ReasonHint_UnreadableField_SaysUnreadable()
+    {
+        var vm = NewVm();
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with
+            {
+                Segments = [],
+                Unknowns = [],
+                UnreadableFrameTimes = [0.5],
+            }],
+            ReasonDictionaryPath = "reasons.nmreasons.json",
+        };
+
+        vm.ApplyNmReport(MakeSnapshot(report, MakeProfile()));
+
+        // 行标签与顶部提示必须说同一件事：DLC 不足 ≠ 窗口内没有帧。
+        vm.NmReasonHint.Should().Contain("字段不可读").And.NotContain("没有可观测帧");
+    }
+
+    [Fact]
+    public void ApplyNmReport_ReasonHint_AllFieldsUnreadable()
+    {
+        var vm = NewVm();
+        var report = MakeReport() with
+        {
+            ReasonTimelines = [ReasonTimelineForTest() with { Segments = [] }],
+            ReasonDictionaryPath = "reasons.nmreasons.json",
+        };
+
+        vm.ApplyNmReport(MakeSnapshot(report, MakeProfile()));
+
+        // 有字典、有字段，但一条可用时间线也没有：不能静默。
+        vm.NmReasonHint.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void BuildTimelineRows_NoDictionary_HasNoReasonRows()
+    {
+        Assert.DoesNotContain(TraceViewerViewModel.BuildTimelineRows(MakeReport()),
+            r => r.Label.StartsWith("原因 ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReasonTransitions_ProduceEventRows()
+    {
+        var report = MakeReport(
+            events:
+            [
+                new NmEvent(7.0, "burst_observed", "A", "0x500", "3 帧短间隔", 0, "measured"),
+            ]) with
+        {
+            Episodes =
+            [
+                new NmEpisode(0, 0, 1, "active", null, ["0x500"], false, false),
+                new NmEpisode(1, 5, 9, "active", null, ["0x500"], false, false),
+            ],
+            ReasonTimelines = ReasonTimelinesWithTransition(),
+        };
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(report, MakeProfile()));
+
+        var row = vm.NmEventRows.Should().ContainSingle(r => r.Type == "reason_change").Subject;
+        // 精确断言：Old/New 写反、误用 OldLabels 都必须变红。
+        row.Detail.Should().Be("BMS_Wakeup_reasons: 0x0 → 0x30（Waked up by NW PDU）");
+        row.TypeLabel.Should().Be("原因变化");
+        row.EvidenceKind.Should().Be("measured");
+        // transition 在 6.0s，落在第二个 episode：episode 归属必须真的算。
+        row.EpisodeIndex.Should().Be(1);
+        // 事件表按时间排序：原因变化（6.0s）在突发（7.0s）之前。
+        vm.NmEventRows.Select(r => r.T).Should().BeInAscendingOrder();
+        vm.NmEventRows[0].Type.Should().Be("reason_change");
+    }
+
+    [Fact]
+    public void BuildTimelineRows_ReasonTransition_AddsMarkerOnMessageRow()
+    {
+        var report = MakeReport(
+            messages:
+            [
+                new NmMessageReport("0x18FFFAF4", true, "BMS_NWM", "BMS", 1, 0, 1,
+                    new NmCycleStats(500, 500, 500, 500, 0, 0, 1, 500, 100),
+                    [new NmSegment(0, 1, "active")]),
+            ]) with
+        {
+            ReasonTimelines = ReasonTimelinesWithTransition(),
+        };
+
+        var rows = TraceViewerViewModel.BuildTimelineRows(report);
+        var messageRow = rows.Single(r => r.Label.StartsWith("0x18FFFAF4", StringComparison.Ordinal));
+        var marker = messageRow.Markers.Should().ContainSingle().Subject;
+        marker.Kind.Should().Be(NmTimelineKinds.Reason);
+        marker.T.Should().Be(6.0);
+        NmEventShapeConverter.ShapeFor(marker.Kind)
+            .Should().NotBeSameAs(NmEventShapeConverter.UnknownShape,
+                "原因标记必须使用注册形状，不能落到未知六边形");
+    }
+
+    [Fact]
+    public void ReasonChange_IsVisibleUnderSignalCategory()
+    {
+        var report = MakeReport() with { ReasonTimelines = ReasonTimelinesWithTransition() };
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(report, MakeProfile()));
+
+        vm.NmSelectedEventTypeFilter = "信号";
+
+        // 被字典覆盖的信号不再产 signal_change；原因变化必须接替它留在「信号」分类。
+        vm.NmEventRows.Should().ContainSingle(r => r.Type == "reason_change");
+    }
+
+    private static NmReasonTimeline[] ReasonTimelinesWithTransition() =>
+    [
+        ReasonTimelineForTest() with
+        {
+            Transitions =
+            [
+                new NmReasonTransition(6.0, "BMS_Wakeup_reasons", "0x18FFFAF4", true,
+                    0x00, 0x30, [],
+                    [new NmReasonLabel("Waked up by NW PDU", "dbc")]),
+            ],
+        },
+    ];
+
+    [Fact]
+    public void ApplyNmReport_ReasonHint_DictionaryLoadFailureShowsNote()
+    {
+        var vm = NewVm();
+        var report = MakeReport() with
+        {
+            Unknowns = ["原因字典不可用：原因字典不存在：C:\\nets\\missing.json"],
+        };
+
+        vm.ApplyNmReport(MakeSnapshot(report, MakeProfile()));
+
+        // 配置了但加载失败时不能误报成“未配置”：失败原因必须直接可见。
+        vm.NmReasonHint.Should().Contain("原因字典不可用").And.Contain("missing.json");
+        vm.NmReasonHint.Should().NotContain("未加载");
+    }
+
+    [Fact]
+    public void BuildReasonTimelineRows_TooltipIncludesFirstFrameBytes()
+    {
+        var row = Assert.Single(
+            TraceViewerViewModel.BuildReasonTimelineRows(
+                MakeReport() with { ReasonTimelines = [ReasonTimelineForTest()] }));
+
+        // spec §8：原因行 tooltip 必须给出该段首帧原始载荷，且逐字节可读
+        // （一整串 010030 用户读不懂，要带 byte 序号）。
+        row.Segments.Should().ContainSingle()
+            .Which.Tooltip.Should().Contain("首帧原始载荷 01 00 30（byte0→byte2）");
+    }
+
+    [Fact]
+    public void ApplyNmReport_ReasonHint_NoDictionary()
+    {
+        var vm = NewVm();
+        vm.ApplyNmReport(MakeSnapshot(MakeReport(), MakeProfile()));
+        vm.NmReasonHint.Should().Contain("reasons_path");
+    }
+
+    [Fact]
+    public void ApplyNmReport_ReasonHint_DictionaryConfiguredButEmpty()
+    {
+        var vm = NewVm();
+        var report = MakeReport() with { ReasonDictionaryPath = "reasons.nmreasons.json" };
+        vm.ApplyNmReport(MakeSnapshot(report, MakeProfile()));
+        vm.NmReasonHint.Should().Contain("未产生可用时间线");
+    }
+
+    [Fact]
+    public void ApplyNmReport_ReasonHint_HiddenWhenTimelinePresent()
+    {
+        var vm = NewVm();
+        var report = MakeReport() with { ReasonTimelines = [ReasonTimelineForTest()] };
+        vm.ApplyNmReport(MakeSnapshot(report, MakeProfile()));
+        vm.NmReasonHint.Should().BeEmpty();
+    }
+
     private static NmReport MakeReport(
         NmMessageReport[]? messages = null,
         NmEvent[]? events = null,
@@ -1382,7 +2092,8 @@ public class NmPanelFlowTests
         NmEpisode[]? episodes = null,
         NmEvent[]? events = null,
         NmFinding[]? findings = null,
-        NmWindow? window = null)
+        NmWindow? window = null,
+        NmSilencePhase[]? phases = null)
         => new(
             window ?? new NmWindow(0, 10, "full"), "src", null,
             episodes ?? Array.Empty<NmEpisode>(),
@@ -1395,7 +2106,13 @@ public class NmPanelFlowTests
             Array.Empty<NmCapabilityState>(),
             Array.Empty<NmInputMissing>(),
             Array.Empty<NmTruncation>(),
-            EngineVersion: NmAnalyzer.EngineVersion);
+            EngineVersion: NmAnalyzer.EngineVersion)
+        { SilencePhases = phases ?? Array.Empty<NmSilencePhase>() };
+
+    private static NmSilencePhase Phase(
+        double start, double end, NmSilencePhaseKind kind, NmSilenceBasis basis)
+        => new(start, end, kind, basis, 0, 0, 0, 0, null,
+            NmStsEvidence.NotAvailable, false, 0, "detail");
 
     private static NmProfile MakeProfile(
         NmProfileSource source = NmProfileSource.Dbc,

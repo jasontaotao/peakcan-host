@@ -34,6 +34,16 @@ public partial class NmInputWizardWindow : Window
             };
             return dialog.ShowDialog(this) == true ? dialog.FileName : null;
         };
+        vm.ReasonDictionaryPicker = () =>
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "选择原因字典",
+                Filter = "NM 原因字典 (*.nmreasons.json)|*.nmreasons.json|JSON (*.json)|*.json",
+                CheckFileExists = true,
+            };
+            return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+        };
     }
 
     /// <summary>保存成功后自动关闭；本窗口只以 ShowDialog 打开，DialogResult 合法。</summary>

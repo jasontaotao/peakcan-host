@@ -36,6 +36,9 @@ public sealed partial class TraceViewerViewModel
 
     public void RefreshAtAnchor(double timestampSeconds)
     {
+        // 任何一次锚点移动（拖绿线、会话恢复、面板点击）都让上一次的
+        // 「已把绿色锚点移到 X」失效；点击路径随后会重新写它。
+        NmSeekStatus = "";
         _anchorTimestampSeconds = timestampSeconds;
         OnPropertyChanged(nameof(IsGreenLineAnchorActive));
         OnPropertyChanged(nameof(AnchorDeltaMilliseconds));

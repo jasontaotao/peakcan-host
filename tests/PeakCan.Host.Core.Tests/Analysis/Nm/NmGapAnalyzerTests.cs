@@ -85,6 +85,21 @@ public class NmGapAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_HeadSilence_DoesNotEmitPhases()
+    {
+        // 窗口 0–5，首个 episode 从 3s 开始：头部 3s 静默是记录边界，
+        // 没有「最后一帧 NM」作为超时锚点，不得产出相位。
+        var nm = new[] { Nm(3), Nm(3.5), Nm(4.0) };
+        var input = new NmGapInput("src", nm, nm.Select(f => f.Frame).ToArray(), Profile(),
+            Episodes((3.0, 4.0)), new NmWindow(0, 5, "full"), Diag());
+
+        var result = NmGapAnalyzer.Analyze(input);
+
+        Assert.Contains(result.Findings, f => f.Code == "NM_TRACE_BOUNDARY");
+        Assert.Empty(result.SilencePhases);
+    }
+
+    [Fact]
     public void Analyze_BusWideSilence_ProducesBusWideFindingWithUnknown()
     {
         var nm = new[] { Nm(0), Nm(0.5), Nm(4.0) };

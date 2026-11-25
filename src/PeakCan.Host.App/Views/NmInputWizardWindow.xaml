@@ -135,6 +135,25 @@
                     <TextBlock Text="PN 启用" />
                     <CheckBox IsChecked="{Binding PnEnabled}" IsThreeState="True" />
 
+                    <!-- 原因字典：显式路径写入 sidecar 的 reasons_path；分析时由 NM 面板消费。
+                         相对路径按 DBC 目录解析，留空表示不使用原因字典。 -->
+                    <TextBlock Text="原因字典（可选）" FontWeight="SemiBold" Margin="0,10,0,2" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding ReasonDictionaryPath, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button Grid.Column="1" Content="选择…" Margin="6,0,0,0"
+                                Command="{Binding BrowseReasonDictionaryCommand}" />
+                        <Button Grid.Column="2" Content="清除" Margin="6,0,0,0"
+                                Command="{Binding ClearReasonDictionaryCommand}" />
+                    </Grid>
+                    <TextBlock FontSize="10" Foreground="#666666" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Text="相对路径按 DBC 目录解析；留空表示不使用原因字典。" />
+
                     <!-- 节点站地址：NidCheck 在 UI 内解锁的唯一路径 -->
                     <TextBlock Text="节点站地址（0–255）" FontWeight="SemiBold" Margin="0,10,0,2" />
                     <ItemsControl ItemsSource="{Binding NodeAddresses}">

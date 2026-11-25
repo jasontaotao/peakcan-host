@@ -143,4 +143,6 @@ public sealed record NmUserSupplement(
     // 创建时间：Save 时填充，已有文件保留原值（spec §6.6.6）。
     DateTimeOffset? CreatedAt = null,
     // 生成该 sidecar 时的 profile 结构版本。
-    int ProfileVersion = 1);
+    int ProfileVersion = 1,
+    // 独立原因字典的显式路径（相对 nmprofile 目录或绝对路径）；null = 未配置。
+    string? ReasonsPath = null);

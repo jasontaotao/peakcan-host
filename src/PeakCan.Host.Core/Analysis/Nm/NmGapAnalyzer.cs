@@ -1,3 +1,5 @@
+using PeakCan.HIL.Core.Dbc;
+
 namespace PeakCan.Host.Core.Analysis.Nm;
 
 public sealed record NmGapInput(
@@ -10,13 +12,24 @@ public sealed record NmGapInput(
     NmSelectionDiagnostics Diagnostics,
     // 统一时序（spec §5.2）：null 时回落到 Profile.Timings / M1 默认，
     // 兼容只关心 gap 逻辑的调用方与测试。
-    NmGlobalTiming? Timing = null);
+    NmGlobalTiming? Timing = null,
+    // 标准帧的 DBC sender 解析；null = 只按 J1939 SA 归属扩展帧。
+    DbcDocument? Dbc = null);
 
 public sealed record NmGapResult(
     IReadOnlyList<NmFinding> Findings,
     IReadOnlyList<NmEvent> Events,
     IReadOnlyList<string> Unknowns,
-    IReadOnlyList<NmObservation> Observations);
+    IReadOnlyList<NmObservation> Observations)
+{
+    /// <summary>静默空档的相位窗口（全部 inferred）；空列表 = 未产生。</summary>
+    public IReadOnlyList<NmSilencePhase> SilencePhases { get; init; }
+        = Array.Empty<NmSilencePhase>();
+
+    /// <summary>相位分析新增的 unknowns；由 Analyzer 并入报告。</summary>
+    public IReadOnlyList<string> PhaseUnknowns { get; init; }
+        = Array.Empty<string>();
+}
 
 /// <summary>
 /// 空档归因，严格按 spec §7.5 的优先级：先网络级、后单报文。
@@ -30,6 +43,8 @@ public static class NmGapAnalyzer
         var events = new List<NmEvent>();
         var unknowns = new List<string>();
         var observations = new List<NmObservation>();
+        var phases = new List<NmSilencePhase>();
+        var phaseUnknowns = new List<string>();
 
         // 统一时序优先（spec §5.2）：避免 episode 切分用 2200、静默判定用 2000 的漂移。
         var globalTiming = input.Timing
@@ -59,6 +74,15 @@ public static class NmGapAnalyzer
                 $"全部 NM 报文静默 {gapEnd - gapStart:F2}s（≥ 超时 {timeoutMs}ms）",
                 "inferred", IsInference: true));
             unknowns.Add("all_nm_silent_reason_unknown（release / 下电 / 记录停止 / bus sleep 无法区分）");
+
+            // 静默相位：只做推断，不出 finding；首部静默不在此处（没有超时锚点）。
+            var phaseResult = NmSilencePhaseAnalyzer.Analyze(new NmSilencePhaseInput(
+                input.Episodes[i], gapStart, gapEnd, IsTail: false,
+                input.NmFrames, input.AllFrames, input.Profile, globalTiming,
+                input.Window.End, input.Dbc));
+            phases.AddRange(phaseResult.Phases);
+            foreach (var unknown in phaseResult.Unknowns)
+                phaseUnknowns.Add($"{unknown}（after episode {input.Episodes[i].Index}）");
         }
 
         // 1b) 窗口首尾的纯静默：开头是记录边界，结尾是 NM 先停、录制仍在继续。
@@ -94,6 +118,15 @@ public static class NmGapAnalyzer
                     $"全部 NM 报文静默 {input.Window.End - lastEpisode.End:F2}s（≥ 超时 {timeoutMs}ms）",
                     "inferred", IsInference: true));
                 unknowns.Add("all_nm_silent_reason_unknown（release / 下电 / 记录停止 / bus sleep 无法区分）");
+
+                // 尾部静默：与间隙共用同一分析器，只有 IsTail/结束点不同。
+                var tailPhase = NmSilencePhaseAnalyzer.Analyze(new NmSilencePhaseInput(
+                    lastEpisode, lastEpisode.End, input.Window.End, IsTail: true,
+                    input.NmFrames, input.AllFrames, input.Profile, globalTiming,
+                    input.Window.End, input.Dbc));
+                phases.AddRange(tailPhase.Phases);
+                foreach (var unknown in tailPhase.Unknowns)
+                    phaseUnknowns.Add($"{unknown}（after episode {lastEpisode.Index}）");
             }
         }
 
@@ -218,7 +251,11 @@ public static class NmGapAnalyzer
         }
 
         return new NmGapResult(
-            findings, events, unknowns.Distinct().ToArray(), observations);
+            findings, events, unknowns.Distinct().ToArray(), observations)
+        {
+            SilencePhases = phases,
+            PhaseUnknowns = phaseUnknowns.Distinct().ToArray(),
+        };
     }
 
     /// <summary>区间与任意相邻 episode 之间的全静默区间有交集时，不做单报文归因。</summary>

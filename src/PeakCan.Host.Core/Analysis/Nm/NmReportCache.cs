@@ -33,7 +33,11 @@ public sealed record NmCacheKey(
     int FrameCount,
     int TraceLoadVersion,
     string CanonicalProfileHash,
-    string EngineVersion);
+    string EngineVersion)
+{
+    /// <summary>原因字典内容哈希；无字典为 "none"。init 属性避免破坏既有构造点。</summary>
+    public string ReasonDictionaryHash { get; init; } = "none";
+}
 
 /// <summary>
 /// 进程内报告缓存。线程安全（分析可能在 Task.Run 里完成）。

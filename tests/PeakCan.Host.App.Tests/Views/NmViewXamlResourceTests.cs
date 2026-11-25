@@ -95,6 +95,18 @@ public class NmViewXamlResourceTests
     }
 
     [Fact]
+    public void NmPanel_BindsReasonHint()
+    {
+        var repoRoot = FindRepoRoot();
+        repoRoot.Should().NotBeNull();
+        var content = File.ReadAllText(
+            Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerViewNmPanel.xaml"));
+
+        // 未配置/不可用字典时必须有一段可见提示；绑定漏了就等于静默无原因行。
+        content.Should().Contain("Text=\"{Binding NmReasonHint}\"");
+    }
+
+    [Fact]
     public void NmEventMarkers_UseSharedHoverCardInsteadOfNativeToolTip()
     {
         var repoRoot = FindRepoRoot();

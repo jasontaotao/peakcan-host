@@ -63,6 +63,27 @@ public class NmTimingTests
     }
 
     [Fact]
+    public void FromProfile_WaitBusSleepExplicit_SetsDeclared()
+    {
+        // 静默相位推断依赖「WaitBusSleep 是否被显式声明」：
+        // 默认值 2000 与显式 2000 的结论强度不同，不能用值反推。
+        var timing = NmTimingDefaults.FromProfile(
+            new NmTimings(WaitBusSleepMs: 2500), null);
+
+        Assert.Equal(2500, timing.WaitBusSleepMs);
+        Assert.True(timing.WaitBusSleepDeclared);
+    }
+
+    [Fact]
+    public void FromProfile_WaitBusSleepAbsent_IsNotDeclared()
+    {
+        var timing = NmTimingDefaults.FromProfile(null, null);
+
+        Assert.Equal(2000, timing.WaitBusSleepMs);
+        Assert.False(timing.WaitBusSleepDeclared);
+    }
+
+    [Fact]
     public void FromProfile_NoM1Value_UsesProfileBurstValues()
     {
         var timing = NmTimingDefaults.FromProfile(null, new NmStandardTimings

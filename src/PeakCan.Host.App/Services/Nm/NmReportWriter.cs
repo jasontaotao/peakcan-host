@@ -185,6 +185,20 @@ public static class NmReportWriter
             }
         }
         sb.AppendLine();
+        if (r.SilencePhases.Count > 0)
+        {
+            sb.AppendLine("## Silence Phases");
+            sb.AppendLine("> 全部为 inferred：按 NM 超时边界与总线活动推断的窗口，不是实测节点状态。");
+            sb.AppendLine();
+            sb.AppendLine("| phase | basis | start | end | nm_sender_app_frames | other_sender_frames | unattributed_frames | bus_max_gap_ms | nmsts | truncated | detail |");
+            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|");
+            foreach (var p in r.SilencePhases)
+            {
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"| {NmSilencePhaseText.PhaseName(p.Kind)} | {NmSilencePhaseText.BasisName(p.Basis)} | {p.Start:F3} | {p.End:F3} | {p.NmSenderAppFrameCount} | {p.OtherSenderFrameCount} | {p.UnattributedFrameCount} | {(p.BusMaxGapSec is { } gap ? gap * 1000.0 : double.NaN):F0} | {p.NmSts} | {p.IsWindowTruncated} | {Esc(red.Apply(p.Detail))} |"));
+            }
+            sb.AppendLine();
+        }
         sb.AppendLine("## Unmodeled Rules");
         if (r.UnmodeledRules is null || r.UnmodeledRules.Count == 0)
         {
@@ -215,9 +229,75 @@ public static class NmReportWriter
             sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"| {e.T:F3} | {e.Type} | {subject} | {Esc(red.Apply(e.Detail))} | {e.EvidenceKind} |"));
         }
+        // 原因变化不进 report.Events（AI 工具契约保持现状），但用户导出的
+        // Events 表必须能看到变化事件，否则面板与交付物口径不一致。
+        foreach (var timeline in r.ReasonTimelines)
+        {
+            foreach (var tr in timeline.Transitions)
+            {
+                var labels = tr.NewLabels.Count == 0
+                    ? "含义未配置"
+                    : string.Join(" / ", tr.NewLabels.Select(l => OneLine(Esc(red.Apply(l.Text)))));
+                sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                    $"| {tr.T:F3} | reason_change | {tr.CanIdHex} | {tr.Signal}: 0x{tr.OldRaw:X} → 0x{tr.NewRaw:X}（{labels}） | measured |"));
+            }
+        }
+        sb.AppendLine();
+        sb.AppendLine("## Reason Timelines");
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+            $"- reasons_path: `{(redact ? "（已脱敏）" : r.ReasonDictionaryPath ?? "—")}`"));
+        sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+            $"- reason_dict_hash: `{r.ReasonDictionaryHash ?? "—"}`"));
+        if (r.ReasonTimelines.Count == 0)
+        {
+            sb.AppendLine(r.ReasonDictionaryPath is null
+                ? "- （未配置原因字典）"
+                : "- （已配置原因字典，但未产生可用时间线）");
+        }
+        else
+        {
+            if (r.ReasonTimelines.Any(t => t.Segments.Count > 0))
+            {
+                sb.AppendLine("| signal | can_id | start | end | observed | raw | labels | source | completeness |");
+                sb.AppendLine("|---|---|---|---|---|---|---|---|---|");
+                foreach (var timeline in r.ReasonTimelines)
+                {
+                    foreach (var s in timeline.Segments)
+                    {
+                        var labels = s.Labels.Count == 0
+                            ? "含义未配置"
+                            : string.Join(" / ", s.Labels.Select(l => OneLine(Esc(red.Apply(l.Text)))));
+                        var sources = s.Labels.Count == 0
+                            ? "none"
+                            : string.Join("/", s.Labels.Select(l => l.Source));
+                        // spec §7.5：只有起点有界且 EndReason=Changed 才能省略 ≥。
+                        var completeness = s.StartUnknown || s.EndReason != NmReasonSegmentEnd.Changed
+                            ? "≥"
+                            : "观测区间";
+                        var next = s.EndReason == NmReasonSegmentEnd.WindowEnd
+                            ? "之后无可观测帧，无法判断"
+                            : s.NextObservedAt is { } n
+                                ? string.Create(CultureInfo.InvariantCulture, $"下次观测 {n:F3}s")
+                                : "之后无可观测帧，无法判断";
+                        sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                            $"| {OneLine(timeline.Signal)} | {timeline.CanIdHex} | {s.Start:F3} | {s.End:F3} | {s.End - s.Start:F3} | 0x{s.RawValue:X} | {labels} | {sources} | {completeness}（{next}） |"));
+                    }
+                }
+            }
+
+            var reasonUnknowns = r.ReasonTimelines.SelectMany(t => t.Unknowns).ToArray();
+            if (reasonUnknowns.Length > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Unknowns:");
+                foreach (var u in reasonUnknowns)
+                    sb.AppendLine("- " + (redact ? RedactLocalPaths(red.Apply(u)) : red.Apply(u)));
+            }
+        }
         sb.AppendLine();
         sb.AppendLine("## Unknowns");
-        foreach (var u in r.Unknowns) sb.AppendLine(CultureInfo.InvariantCulture, $"- {u}");
+        foreach (var u in r.Unknowns)
+            sb.AppendLine("- " + (redact ? RedactLocalPaths(red.Apply(u)) : red.Apply(u)));
         sb.AppendLine();
         sb.AppendLine("## Assumptions");
         foreach (var a in r.Assumptions) sb.AppendLine(CultureInfo.InvariantCulture, $"- {a}");
@@ -261,8 +341,97 @@ public static class NmReportWriter
               .Append(Csv(e.EvidenceKind)).Append(',')
               .Append(e.EpisodeIndex.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
         }
+
+        // 原因变化事件：列与 Events 表完全一致，只是多几行。
+        foreach (var timeline in report.ReasonTimelines)
+        {
+            foreach (var tr in timeline.Transitions)
+            {
+                var labels = tr.NewLabels.Count == 0
+                    ? "含义未配置"
+                    : string.Join(" / ", tr.NewLabels.Select(l => OneLine(red.Apply(l.Text))));
+                sb.Append(tr.T.ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(Csv("reason_change")).Append(',')
+                  .Append(Csv(tr.CanIdHex)).Append(',')
+                  .Append(Csv($"{tr.Signal}: 0x{tr.OldRaw:X} → 0x{tr.NewRaw:X}（{labels}）")).Append(',')
+                  .Append(Csv("measured")).Append(',')
+                  .Append(NmEpisodeBuilder.IndexAt(tr.T, report.Episodes).ToString(CultureInfo.InvariantCulture))
+                  .Append("\r\n");
+            }
+        }
+
+        // 原因表段：既有 Events 表头与列不变，空两行后追加独立段。
+        sb.Append("\r\n\r\n# Reason\r\n");
+        sb.Append("signal,can_id,start,end,observed,raw,labels,sources,completeness,next_observed,end_reason\r\n");
+        foreach (var timeline in report.ReasonTimelines)
+        {
+            foreach (var s in timeline.Segments)
+            {
+                var labels = s.Labels.Count == 0
+                    ? "含义未配置"
+                    : string.Join(" / ", s.Labels.Select(l => OneLine(red.Apply(l.Text))));
+                var sources = s.Labels.Count == 0
+                    ? "none"
+                    : string.Join("/", s.Labels.Select(l => l.Source));
+                sb.Append(Csv(OneLine(timeline.Signal))).Append(',')
+                  .Append(Csv(timeline.CanIdHex)).Append(',')
+                  .Append(s.Start.ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(s.End.ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
+                  .Append((s.End - s.Start).ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
+                  .Append("0x").Append(s.RawValue.ToString("X", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(Csv(labels)).Append(',')
+                  .Append(Csv(sources)).Append(',')
+                  .Append(s.StartUnknown || s.EndReason != NmReasonSegmentEnd.Changed
+                      ? ">=" : "observed").Append(',')
+                  .Append(s.NextObservedAt?.ToString("0.###", CultureInfo.InvariantCulture) ?? "").Append(',')
+                  .Append(ReasonEndText(s.EndReason)).Append("\r\n");
+            }
+        }
+
+        if (report.SilencePhases.Count > 0)
+        {
+            sb.Append("\r\n\r\n# Silence Phases\r\n");
+            sb.Append("phase,basis,start,end,nm_sender_app_frames,other_sender_frames,unattributed_frames,bus_max_gap_ms,nmsts,truncated,detail\r\n");
+            foreach (var p in report.SilencePhases)
+            {
+                sb.Append(Csv(NmSilencePhaseText.PhaseName(p.Kind))).Append(',')
+                  .Append(Csv(NmSilencePhaseText.BasisName(p.Basis))).Append(',')
+                  .Append(p.Start.ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(p.End.ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(p.NmSenderAppFrameCount.ToString(CultureInfo.InvariantCulture)).Append(',')
+                  .Append(p.OtherSenderFrameCount.ToString(CultureInfo.InvariantCulture)).Append(',')
+                  .Append(p.UnattributedFrameCount.ToString(CultureInfo.InvariantCulture)).Append(',')
+                  .Append(p.BusMaxGapSec?.ToString("0.###", CultureInfo.InvariantCulture) ?? "").Append(',')
+                  .Append(Csv(p.NmSts.ToString())).Append(',')
+                  .Append(p.IsWindowTruncated ? "true" : "false").Append(',')
+                  .Append(Csv(OneLine(red.Apply(p.Detail)))).Append("\r\n");
+            }
+        }
         return sb.ToString();
     }
+
+    /// <summary>脱敏导出时抹掉本地绝对路径（Unknowns / 字典加载失败说明里可能带路径）。</summary>
+    private static string RedactLocalPaths(string text)
+        => LocalPathRegex.Replace(text, "（已脱敏路径）");
+
+    /// <summary>表格/CSV 单元格里把换行压成空格：字典 JSON 文本可以带 \n。</summary>
+    private static string OneLine(string text)
+        => text.Replace('\r', ' ').Replace('\n', ' ');
+
+    private static string ReasonEndText(NmReasonSegmentEnd end) => end switch
+    {
+        NmReasonSegmentEnd.Changed => "changed",
+        NmReasonSegmentEnd.EpisodeEnd => "episode_end",
+        NmReasonSegmentEnd.Unreadable => "unreadable",
+        NmReasonSegmentEnd.WindowEnd => "window_end",
+        _ => end.ToString().ToLowerInvariant(),
+    };
+
+    // 盘符、UNC、单斜杠根路径都要认；排除 URL（"http://" 前一个字符是 ':'，
+    // 第二个斜杠前一个字符是 '/'，两者都被 lookbehind 挡住）。
+    private static readonly Regex LocalPathRegex = new(
+        @"(?<![\w:/])(?:[A-Za-z]:[\\/]|[\\/]{2}|[\\/])[^\r\n]*",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>Markdown 表格单元格转义：竖线会截断列，反斜杠转义。</summary>
     private static string Esc(string? value) => (value ?? "").Replace("|", "\\|");

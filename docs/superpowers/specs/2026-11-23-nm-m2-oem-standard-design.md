@@ -1836,11 +1836,20 @@ payload `08 01 00 00 00 00 00 00`，ID `0x18FFFA27`（低字节 0x27）：
 - 全总线最大空档仅 0.920502 s
 - 12.677 s 后 AWB=1 且有 10 帧快发
 
-**不可证明**：这 364 帧应用报文的 sender 未归因到 BMS；企标 §5.3.1/§5.3.2 规定睡眠和预睡眠模式禁止发送应用报文（`spec.txt:247-262`），因此不能用「有应用报文」推断 BMS 处于网络模式。
+**更正（2026-11-25，按 J1939 SA + DBC sender 重新归属）**：上表 364 帧非 NM 帧的 **sender 全部可归属到 BMS**（ID 低字节 SA=0xF4；DBC sender 也全是 BMS）。这不是“无法归属”，而是旧分析器没有做应用帧归属。归属后事实是：
+
+- 前 2 s（+9.714 → +11.714）：BMS 自身仍在发送约 354 帧应用报文 → **BMS 醒着，处于网络模式（RSS）**，该区间**不能**判为准备休眠。
+- +11.714（最后一帧 NM + T_NM_TIMEOUT）后：应用报文停止，仅剩 +11.717 → +11.747 的 7 帧尾巴；企标 §5.3.2 明确“预睡眠禁止发送 NM/应用报文（为了清空发送缓存，允许把发送队列中已有的报文发完）”，这 7 帧与**清空发送缓存**一致。
+- +11.747 → +12.667：总线 0.92 s 无任何帧，与“预睡眠期间总线活动需静止”一致；但节点内部状态仍不可观测。
+- +12.667 应用报文 + NM 快发恢复 → 在 T_WAIT_BUS_SLEEP 内被唤醒。
+
+**仍不可证明**：节点是否真的进入预睡眠（内部定时器/状态机不可观测）；0.92 s 无帧也可能是记录停止或断电（概率低但不可排除）。因此相位只标 **inferred**，不出 finding。
 
 正确表述：
 
-> NM 全静默，原因未知（释放/下电/记录停止/bus sleep 无法区分）；随后观察到 AWB=1 + 快发的恢复行为。是否符合释放/重唤醒条款为 **inferred**，不能确认正常。
+> NM 全静默，原因不能直接观测。按“发送者归属 + NM 超时边界”可推断：前 2 s 发送者仍在网络模式（RSS）；随后发送者应用报文停止、总线静止，与预睡眠行为一致（推断）；+12.677 s 后观察到 AWB=1 + 快发的恢复行为。是否符合释放/重唤醒条款仍为 **inferred**，不能确认正常。
+
+**新相位规格**：见 `docs/superpowers/specs/2026-11-25-nm-silence-phase-design.md`。该规格定义 `release_wait` / `prepare_sleep` / `sleep` 三相位、发送者归属、清缓存/唤醒宽限，以及“未显式配置 WaitBusSleep 不推断 Sleep”。
 
 **不得报 `NM_SENDER_SILENT_BEYOND_TIMEOUT`**：该 finding 的前提是「其它 NM 节点仍在发送」，此处不成立。正确输出：`NM_ALL_NM_SILENT`（info）+ observation。
 
@@ -1855,6 +1864,8 @@ payload `08 01 00 00 00 00 00 00`，ID `0x18FFFA27`（低字节 0x27）：
 | **`NM_REPEAT_MESSAGE_DURATION_EXCEEDED`（第一段）** | RMS 实测 1.584s，无快发允许 1.440–1.560s，**超 +24ms** |
 | **`NM_REPEAT_MESSAGE_DURATION_EXCEEDED`（第二段）** | RMS 实测 1.789s，有快发允许 1.640–1.760s，**超 +29ms** |
 | observation `all_nm_silent` | 9.713674–12.677179，且标 `inferred`（原因未知） |
+| `silence_phases`：`release_wait` | 9.714–11.714，basis `NmSenderStillActive`（BMS 仍在发应用报文） |
+| `silence_phases`：`prepare_sleep` | 11.714–12.677，basis `NmSenderStoppedAfterDrain`（仅 7 帧清缓存尾巴，随后 0.92 s 总线无帧） |
 
 **必须不出现**：
 

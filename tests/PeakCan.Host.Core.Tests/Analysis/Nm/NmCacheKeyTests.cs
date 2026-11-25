@@ -92,6 +92,21 @@ public class NmCacheKeyTests
         Assert.NotEqual(Key(), bumped);
     }
 
+    [Fact]
+    public void ReasonDictionaryHashChange_MissesCache()
+    {
+        // 换了一份内容不同但路径相同的字典：解释来源已变，不能复用旧报告。
+        var a = Key() with { ReasonDictionaryHash = "dict-a" };
+        var b = Key() with { ReasonDictionaryHash = "dict-b" };
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void DefaultReasonDictionaryHash_IsNone()
+    {
+        Assert.Equal("none", Key().ReasonDictionaryHash);
+    }
+
     /// <summary>
     /// spec §10.1「移除 DbcHash」：key 不得再有 DBC 内容哈希字段。
     /// <para>

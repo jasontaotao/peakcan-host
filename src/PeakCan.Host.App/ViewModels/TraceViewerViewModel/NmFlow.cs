@@ -111,6 +111,8 @@ public sealed partial class TraceViewerViewModel
             var dbcHash = ComputeNmDbcHash(dbc, dbcPath);
 
             var supplement = dbcPath is null ? null : NmSidecarStore.Load(dbcPath);
+            // 原因字典按 sidecar 的显式 reasons_path 加载；相对路径相对 DBC 目录。
+            var reasonLoad = LoadReasonDictionary(dbcPath, supplement?.ReasonsPath);
             // spec §6.6.6：sidecar 记录的是另一份 DBC 时，布局字节与报文选择器都按旧 DBC
             // 绑定，必须一并丢弃；timings/features/nodes 等仍按用户输入合并。
             var staleSidecar = supplement?.DbcHash is { Length: > 0 } sidecarHash
@@ -162,7 +164,11 @@ public sealed partial class TraceViewerViewModel
                     NmCanonicalProfileHash.Compute(profile, standardId),
                     ":",
                     NmDbcSignalHash.Compute(dbc)),
-                NmAnalyzer.EngineVersion);
+                NmAnalyzer.EngineVersion)
+            {
+                ReasonDictionaryHash = NmReasonCacheToken.For(
+                    reasonLoad.Dictionary, reasonLoad.Note),
+            };
 
             // 缓存读写仍在同一后台临界区内，保证命中/写入不会与 UI 线程交错。
             if (_nmCache.TryGet(key, out var cached))
@@ -177,7 +183,8 @@ public sealed partial class TraceViewerViewModel
 
             var request = new NmAnalysisRequest(
                 sourceId, query.Channel, frames, dbc, profile, start, end, windowRef,
-                Standard: selected);
+                Standard: selected, Reasons: reasonLoad.Dictionary,
+                ReasonDictionaryNote: reasonLoad.Note);
 
             var report = NmAnalyzer.Analyze(request, ct);
             StoreNmReport(key, report);
@@ -193,6 +200,25 @@ public sealed partial class TraceViewerViewModel
     }
 
     private static readonly string[] DbcHashConflictSources = ["sidecar", "dbc"];
+
+    /// <summary>
+    /// 显式加载原因字典。路径为空返回 (null, null)；加载失败返回错误说明，不抛到调用方。
+    /// </summary>
+    private static (LoadedNmReasonDictionary? Dictionary, string? Note) LoadReasonDictionary(
+        string? dbcPath, string? reasonsPath)
+    {
+        if (string.IsNullOrWhiteSpace(reasonsPath)) return (null, null);
+        if (dbcPath is null) return (null, "原因字典已配置，但没有 DBC 路径无法解析相对路径");
+        var full = NmReasonDictionaryStore.ResolvePath(dbcPath, reasonsPath);
+        try
+        {
+            return (NmReasonDictionaryStore.LoadFrom(full), null);
+        }
+        catch (NmReasonDictionaryException ex)
+        {
+            return (null, "原因字典不可用：" + ex.Message);
+        }
+    }
 
     /// <summary>DBC hash 不匹配时把冲突写进 profile，使 NM_CONFIG_CONFLICT finding 与面板黄色条出现。</summary>
     private static NmProfile AppendDbcHashConflict(NmProfile profile, string oldHash, string newHash)

@@ -433,7 +433,8 @@ BO_ 1280 NM_Message: 8 ECU_A
         };
 
         var report = NmAnalyzer.Analyze(
-            new NmAnalysisRequest("src", null, frames, null, Profile(), 0, 2.0),
+            // 窗口拉到 4s：不取消时会产尾部静默相位，取消后必须为空。
+            new NmAnalysisRequest("src", null, frames, null, Profile(), 0, 4.0),
             checkpoint =>
             {
                 if (checkpoint == NmAnalyzerCheckpoint.AfterEpisodes) cts.Cancel();
@@ -445,6 +446,7 @@ BO_ 1280 NM_Message: 8 ECU_A
         Assert.Empty(report.Messages);
         Assert.Empty(report.Findings);
         Assert.Empty(report.Events);
+        Assert.Empty(report.SilencePhases);
     }
 
     [Fact]

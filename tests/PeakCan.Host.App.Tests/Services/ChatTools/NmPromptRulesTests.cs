@@ -71,6 +71,17 @@ public class NmPromptRulesTests
     }
 
     [Fact]
+    public void BuildM1_SilencePhasesAreInferredNotMeasured()
+    {
+        var text = NmPromptRules.BuildM1();
+
+        Assert.Contains("silence_phases", text);
+        Assert.Contains("不得写成 measured", text);
+        // 不新增编号规则：1–10 的编号语义保持不变。
+        for (var i = 1; i <= 10; i++) Assert.Contains($"\n{i}. ", text);
+    }
+
+    [Fact]
     public void BuildM1_KeepsTenRuleNumberingAndRule6Example()
     {
         // 现有 1–10 条编号语义保持不变；规则 9 必须逐字指向 M2 三字段。

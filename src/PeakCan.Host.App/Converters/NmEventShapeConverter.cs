@@ -16,6 +16,9 @@ public sealed class NmEventShapeConverter : IValueConverter
     public static readonly Geometry ByteShape = Freeze(new RectangleGeometry(new System.Windows.Rect(0.75, 0.75, 7.5, 7.5)));
     public static readonly Geometry BitShape = Freeze(Geometry.Parse("M 4.5,0 L 9,4.5 L 4.5,9 L 0,4.5 Z"));
     public static readonly Geometry SignalShape = Freeze(new EllipseGeometry(new System.Windows.Point(4.5, 4.5), 4.2, 4.2));
+    /// <summary>原因变化：菱形（与信号圆形、字节方形、位菱形区分——四边菱形略小）。</summary>
+    public static readonly Geometry ReasonShape =
+        Freeze(Geometry.Parse("M 2.25,1 L 7.5,2.25 L 6.75,7.5 L 1.5,6.75 Z"));
     /// <summary>未知标记：六边形 + 品红色，仍能看出是异常而不是正常事件。</summary>
     public static readonly Geometry UnknownShape =
         Freeze(Geometry.Parse("M 2.25,0 L 6.75,0 L 9,4.5 L 6.75,9 L 2.25,9 L 0,4.5 Z"));
@@ -30,6 +33,7 @@ public sealed class NmEventShapeConverter : IValueConverter
         NmTimelineKinds.Byte => ByteShape,
         NmTimelineKinds.Bit => BitShape,
         NmTimelineKinds.Signal => SignalShape,
+        NmTimelineKinds.Reason => ReasonShape,
         _ => UnknownShape,
     };
 

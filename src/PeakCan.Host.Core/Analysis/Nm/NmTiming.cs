@@ -62,7 +62,15 @@ public sealed record NmGlobalTiming(
     /// 是否有任何一层**显式声明**了快发周期 <c>ImmediateCycleMs</c>。
     /// 见 <see cref="NmEffectiveTiming.ImmediateCycleDeclared"/>。
     /// </summary>
-    bool ImmediateCycleDeclared = false)
+    bool ImmediateCycleDeclared = false,
+    /// <summary>
+    /// 是否有任何一层**显式声明**了 <c>WaitBusSleepMs</c>。
+    /// <para>
+    /// 静默相位推断用它决定是否输出 <c>sleep</c> 相位：未声明时值仍是默认 2000，
+    /// 但那是兜底假设而不是配置，不能当作「睡眠边界已知」。不能用值反推。
+    /// </para>
+    /// </summary>
+    bool WaitBusSleepDeclared = false)
 {
     /// <summary>周期容差毫秒：max(ratio×cycle, 下限)。</summary>
     public int ToleranceMsFor(int cycleMs)
@@ -180,7 +188,10 @@ public static class NmTimingDefaults
                     ? NmRepeatWindowSource.StandardDual
                     : NmRepeatWindowSource.None,
             ImmediateCycleDeclared: m1?.ImmediateCycleMs is not null
-                || standard?.ImmediateCycleMs is not null);
+                || standard?.ImmediateCycleMs is not null,
+            // 静默相位：只有显式配置的 WaitBusSleep 才能用来推断 sleep 相位。
+            WaitBusSleepDeclared: m1?.WaitBusSleepMs is not null
+                || standard?.WaitBusSleepMs is not null);
     }
 }
 

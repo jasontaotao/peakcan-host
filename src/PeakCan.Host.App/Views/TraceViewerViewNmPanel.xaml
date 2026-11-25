@@ -118,6 +118,11 @@
             <TextBlock Text="{Binding NmPartialText}" FontWeight="SemiBold" Foreground="#7A4300" TextWrapping="Wrap" />
         </Border>
 
+        <!-- 原因字典状态：只有“未加载 / 配置了但产不出时间线 / 字段级降级”才显示。 -->
+        <TextBlock Margin="6,2,6,4" FontSize="10" Foreground="#666666" TextWrapping="Wrap"
+                   Text="{Binding NmReasonHint}"
+                   Visibility="{Binding NmReasonHint, Converter={StaticResource NonEmptyStringToVis}}" />
+
         </StackPanel>
         </ScrollViewer>
 
@@ -630,8 +635,26 @@
                              Foreground="{x:Static conv:NmSegmentBrushConverter.EpisodeBrush}" />
                         <Run Text="■ 静默（无 NM 报文）  "
                              Foreground="{x:Static conv:NmSegmentBrushConverter.SilentBrush}" />
+                        <Run Text="■ 释放等待（推断）  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.SilenceReleaseWaitBrush}" />
+                        <Run Text="■ 准备休眠（推断）  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.SilencePrepareSleepBrush}" />
+                        <Run Text="■ 总线睡眠（推断）  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.SilenceBusSleepBrush}" />
+                        <Run Text="■ 无法判定（推断）  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.SilencePhaseUnknownBrush}" />
                         <Run Text="│ 记录边界"
                              Foreground="{x:Static conv:NmSegmentBrushConverter.BoundaryBrush}" />
+                    </TextBlock>
+                    <!-- 原因行按原始值分配颜色（取值顺序见各行 hover）；浅色带是未观测区间。 -->
+                    <TextBlock FontSize="10" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0">
+                        <Run Text="原因行  " Foreground="#666666" />
+                        <Run Text="■ 按出现顺序循环用色（超过 8 种重复）  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.ReasonValueBrush0}" />
+                        <Run Text="■ 浅色 = 未观测区间（变化无法精确定位）  "
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.ReasonUncertainBrush0}" />
+                        <Run Text="◇ 原因变化时刻"
+                             Foreground="{x:Static conv:NmSegmentBrushConverter.ReasonBrush}" />
                     </TextBlock>
                     </StackPanel>
                 </Expander>
@@ -684,6 +707,11 @@
                         ToolTipService.ShowOnDisabled="True"
                         Margin="0,0,6,4" />
             </WrapPanel>
+            <!-- 点击定位的可见反馈放在固定底栏：封顶区常见状态下已超 150px，
+                 放在那里会被滚出首屏，用户又会觉得“点了没反应”。 -->
+            <TextBlock Text="{Binding NmSeekStatus}" TextWrapping="Wrap" FontSize="10"
+                       Foreground="#1D6F42" Margin="0,0,0,2"
+                       Visibility="{Binding NmSeekStatus, Converter={StaticResource NonEmptyStringToVis}}" />
             <TextBlock Text="{Binding NmStatus}" TextWrapping="Wrap" Foreground="#444444" />
         </StackPanel>
 

@@ -71,6 +71,28 @@ public class TraceViewerViewXamlTests
         chatPanel.Should().NotContain("工具 ▼");
         chatPanel.Should().Contain("icons:FluentIconGlyphs.ChevronDown");
     }
+    /// <summary>
+    /// J1939 重组面板必须限定在「监视列表」页内。放在 TabControl 之外（固定底行）
+    /// 会让 AI 对话、网络管理等无关 tab 永久损失 180px 纵向空间。
+    /// </summary>
+    [Fact]
+    public void J1939ReassemblyPanel_IsScopedToWatchListTab()
+    {
+        var repoRoot = FindRepoRoot();
+        repoRoot.Should().NotBeNull();
+
+        var doc = System.Xml.Linq.XDocument.Load(
+            Path.Combine(repoRoot!, "src/PeakCan.Host.App/Views/TraceViewerView.xaml"));
+
+        var panel = doc.Descendants()
+            .Single(e => e.Name.LocalName == "GroupBox"
+                && (string?)e.Attribute("Header") == "J1939 重组");
+
+        var hostTab = panel.Ancestors().FirstOrDefault(a => a.Name.LocalName == "TabItem");
+        hostTab.Should().NotBeNull("重组面板必须位于某个 TabItem 内");
+        ((string?)hostTab!.Attribute("Header")).Should().Be("监视列表");
+    }
+
     private static string? FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

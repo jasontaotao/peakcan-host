@@ -35,6 +35,14 @@ public class NmReportWriterTests
         Array.Empty<NmTruncation>(),
         EngineVersion: NmAnalyzer.EngineVersion);
 
+    private static NmSilencePhase Phase()
+        => new(11.714, 12.677, NmSilencePhaseKind.PrepareSleep,
+            NmSilenceBasis.NmSenderStoppedAfterDrain,
+            NonNmFrameCount: 10, NmSenderAppFrameCount: 7, OtherSenderFrameCount: 3,
+            UnattributedFrameCount: 0, BusMaxGapSec: 0.920502,
+            NmSts: NmStsEvidence.ReadySleepAtLastFrame, IsWindowTruncated: false,
+            AfterEpisodeIndex: 0, Detail: "超时后仅 7 帧清缓存尾巴；0.92s 总线无帧");
+
     private static NmToolSnapshot Snapshot(NmReport report, NmProfile? profile = null,
         string? dbcPath = "/nets/net.dbc", string? dbcHash = "abcd")
         => new("src", null, dbcPath, dbcHash,
@@ -122,6 +130,35 @@ public class NmReportWriterTests
         md.Should().Contain("- `nid_mapping` 未检查：未选中企标 profile");
         md.Should().Contain("- `unknown_id` 不通过：1 帧的 CAN ID 不在 DBC 或 profile 声明中");
         md.Should().Contain("- `dlc_mismatch` 通过：实测 DLC 与声明一致");
+    }
+
+    [Fact]
+    public void Markdown_EmitsSilencePhasesSection()
+    {
+        var md = NmReportWriter.WriteMarkdown(
+            Snapshot(Report() with { SilencePhases = new[] { Phase() } }));
+
+        md.Should().Contain("## Silence Phases");
+        md.Should().Contain("prepare_sleep");
+        md.Should().Contain("nm_sender_stopped_after_drain");
+        md.Should().Contain("全部为 inferred");
+    }
+
+    [Fact]
+    public void Markdown_WithoutSilencePhases_OmitsSection()
+    {
+        NmReportWriter.WriteMarkdown(Snapshot(Report()))
+            .Should().NotContain("## Silence Phases");
+    }
+
+    [Fact]
+    public void Csv_AppendsSilencePhaseSection_FirstHeaderUnchanged()
+    {
+        var csv = NmReportWriter.WriteCsv(Report() with { SilencePhases = new[] { Phase() } });
+
+        csv.Split("\r\n")[0].Should().Be("time,type,subject,detail,evidence_kind,episode_index");
+        csv.Should().Contain("# Silence Phases");
+        csv.Should().Contain("prepare_sleep,nm_sender_stopped_after_drain");
     }
 
     [Fact]
@@ -543,5 +580,221 @@ public class NmReportWriterTests
         // 三态必须可区分。
         text.Should().Contain("已覆盖");
         text.Should().Contain("部分覆盖");
+    }
+
+    // ==== 原因时间线导出（spec §9） ====
+
+    private static NmReport ReasonReport() => Report() with
+    {
+        ReasonTimelines =
+        [
+            new NmReasonTimeline(
+                "BMS_Wakeup_reasons", "0x18FFFAF4", true,
+                NmReasonKind.Raw, NmReasonKind.Raw,
+                [new NmReasonSegment(0.609, 9.714, 0x30,
+                    [new NmReasonLabel("Waked up by NW PDU", "dbc")],
+                    false, false, NmReasonSegmentEnd.EpisodeEnd, 12.677, [1, 0, 0x30])],
+                [
+                    new NmReasonTransition(0.609, "BMS_Wakeup_reasons", "0x18FFFAF4", true,
+                        0x00, 0x30,
+                        [new NmReasonLabel("Default", "dbc")],
+                        [new NmReasonLabel("Waked up by NW PDU", "dbc")]),
+                ],
+                [], []),
+        ],
+        ReasonDictionaryPath = "reasons.nmreasons.json",
+        ReasonDictionaryHash = "dict-hash",
+    };
+
+    [Fact]
+    public void Markdown_ContainsReasonTimelinesAndSources()
+    {
+        var md = NmReportWriter.WriteMarkdown(Snapshot(ReasonReport()));
+
+        md.Should().Contain("## Reason Timelines");
+        md.Should().Contain("reasons_path");
+        md.Should().Contain("reason_dict_hash");
+        md.Should().Contain("Waked up by NW PDU");
+        // 解释来源必须逐行可追溯，不能只给文本。
+        md.Should().Contain("| dbc |");
+        // spec §7.5：只有起点有界且 EndReason=Changed 才能省略 ≥；
+        // EpisodeEnd 段必须写 ≥，并给出下次观测时刻。
+        md.Should().Contain("≥");
+        md.Should().Contain("下次观测 12.677s");
+    }
+
+    [Fact]
+    public void Csv_KeepsExistingHeaderAndAppendsReasonSection()
+    {
+        var csv = NmReportWriter.WriteCsv(ReasonReport());
+
+        // 既有 Events 表头是下游契约，不能因为新增原因段而改变。
+        csv.Split("\r\n")[0].Should().Be("time,type,subject,detail,evidence_kind,episode_index");
+        csv.Should().Contain("# Reason");
+        csv.Should().Contain("BMS_Wakeup_reasons,0x18FFFAF4");
+        csv.Should().Contain("Waked up by NW PDU");
+        csv.Should().Contain("dbc");
+        csv.Should().Contain("signal,can_id,start,end,observed,raw,labels,sources,completeness,next_observed,end_reason");
+        // EpisodeEnd 的清除区间右端与结束原因必须可重构，而不是只剩 >=。
+        csv.Should().Contain("episode_end");
+        csv.Should().Contain("12.677");
+        csv.Should().Contain(">=");
+    }
+
+    [Fact]
+    public void MarkdownAndCsv_IncludeReasonChangeEventRows()
+    {
+        var md = NmReportWriter.WriteMarkdown(Snapshot(ReasonReport()));
+        md.Should().Contain("| reason_change |");
+        md.Should().Contain("BMS_Wakeup_reasons: 0x0 → 0x30（Waked up by NW PDU）");
+
+        var csv = NmReportWriter.WriteCsv(ReasonReport());
+        csv.Should().Contain(",reason_change,");
+        csv.Should().Contain("BMS_Wakeup_reasons: 0x0 → 0x30（Waked up by NW PDU）");
+    }
+
+    [Fact]
+    public void RedactedExport_HidesLocalPathsInReasonPathAndUnknowns()
+    {
+        var report = ReasonReport() with
+        {
+            ReasonDictionaryPath = @"C:\nets\reasons.nmreasons.json",
+            Unknowns = ["原因字典不可用：原因字典不存在：C:\\nets\\missing.json"],
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report), redact: true);
+
+        md.Should().NotContain(@"C:\nets",
+            "脱敏导出不能把本地绝对路径留在报告里（含 Unknowns）");
+    }
+
+    [Fact]
+    public void RedactedExport_HidesForwardSlashAndUncPaths()
+    {
+        // 用户完全可能用正斜杠或 UNC 写 reasons_path；ResolvePath 会原样保留。
+        var report = ReasonReport() with
+        {
+            Unknowns =
+            [
+                "原因字典不可用：原因字典不存在：C:/clients/acme/nm/reasons.json",
+                "原因字典不可用：原因字典不存在：//fileserver/customer/reasons.json",
+                "原因字典不可用：原因字典不存在：/home/user/customer/reasons.json",
+            ],
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report), redact: true);
+
+        md.Should().NotContain("C:/clients");
+        md.Should().NotContain("//fileserver");
+        // Linux/macOS 风格的单斜杠根路径也会从配置复制进来。
+        md.Should().NotContain("/home/user");
+        md.Should().Contain("（已脱敏路径）");
+    }
+
+    [Fact]
+    public void Markdown_NoSegments_DoesNotLeaveBareUnknownsLabel()
+    {
+        var report = ReasonReport() with
+        {
+            ReasonTimelines =
+            [
+                new NmReasonTimeline(
+                    "NoSuchSignal", "0x18FFFAF4", true,
+                    NmReasonKind.Raw, NmReasonKind.Raw, [], [], [], []),
+            ],
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        // 没有段也没有 Unknowns 时，不能只留一个空的 "Unknowns:" 标签。
+        md.Should().NotContain("Unknowns:");
+    }
+
+    [Fact]
+    public void Markdown_NoReasonDictionary_ShowsPlaceholder()
+    {
+        // 没有配置字典时不能留下一张空表 + 裸 "Unknowns:" 标签。
+        var md = NmReportWriter.WriteMarkdown(Snapshot(Report()));
+
+        md.Should().Contain("（未配置原因字典）");
+        md.Should().NotContain("| signal | can_id | start | end |");
+    }
+
+    [Fact]
+    public void Markdown_EmptyAndConflictingLabels_AreBothExplicit()
+    {
+        var report = ReasonReport() with
+        {
+            ReasonTimelines =
+            [
+                new NmReasonTimeline(
+                    "BMS_Wakeup_reasons", "0x18FFFAF4", true,
+                    NmReasonKind.Raw, NmReasonKind.Raw,
+                    [
+                        new NmReasonSegment(0.1, 0.1, 0x00, [], false, false,
+                            NmReasonSegmentEnd.Changed, 0.2, [1, 0, 0x00]),
+                        new NmReasonSegment(0.2, 0.2, 0x30,
+                            [
+                                new NmReasonLabel("DBC 文本", "dbc"),
+                                new NmReasonLabel("字典文本", "dictionary"),
+                            ],
+                            false, false, NmReasonSegmentEnd.Changed, 0.3, [1, 0, 0x30]),
+                    ],
+                    [], [], []),
+            ],
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        md.Should().Contain("含义未配置");
+        md.Should().Contain("| none |");
+        md.Should().Contain("DBC 文本 / 字典文本");
+        md.Should().Contain("dbc/dictionary");
+    }
+
+    [Fact]
+    public void Markdown_LabelWithNewline_DoesNotSplitTableRow()
+    {
+        var report = ReasonReport() with
+        {
+            ReasonTimelines =
+            [
+                new NmReasonTimeline(
+                    "BMS_Wakeup_reasons", "0x18FFFAF4", true,
+                    NmReasonKind.Raw, NmReasonKind.Raw,
+                    [new NmReasonSegment(0.2, 0.2, 0x30,
+                        [new NmReasonLabel("line1\nline2", "dictionary")],
+                        false, false, NmReasonSegmentEnd.Changed, 0.3, [1, 0, 0x30])],
+                    [], [], []),
+            ],
+        };
+
+        var md = NmReportWriter.WriteMarkdown(Snapshot(report));
+
+        md.Should().NotContain("line1\nline2",
+            "字典文本里的换行会把 Markdown 表格行拆成两行");
+        md.Should().Contain("line1 line2");
+    }
+
+    [Fact]
+    public void Csv_LabelWithCommaAndQuote_IsEscaped()
+    {
+        var report = ReasonReport() with
+        {
+            ReasonTimelines =
+            [
+                new NmReasonTimeline(
+                    "BMS_Wakeup_reasons", "0x18FFFAF4", true,
+                    NmReasonKind.Raw, NmReasonKind.Raw,
+                    [new NmReasonSegment(0.2, 0.2, 0x30,
+                        [new NmReasonLabel("a,b\"c", "dictionary")],
+                        false, false, NmReasonSegmentEnd.Changed, 0.3, [1, 0, 0x30])],
+                    [], [], []),
+            ],
+        };
+
+        var csv = NmReportWriter.WriteCsv(report);
+
+        csv.Should().Contain("\"a,b\"\"c\"");
     }
 }

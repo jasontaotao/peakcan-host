@@ -208,6 +208,33 @@ public sealed class GetNmOverviewTool : ChatToolBase
                 ["is_inference"] = o.IsInference,
                 ["rule_id"] = o.RuleId,
             }).ToArray());
+        // 静默相位：全部 inferred；AI 不得把窗口写成节点已睡眠。
+        // 与 episodes/messages/findings 同口径截断，避免长记录撑大工具输出。
+        root["silence_phases"] = new JsonArray(report.SilencePhases.Take(20).Select(p => (JsonNode)new JsonObject
+        {
+            ["phase"] = NmSilencePhaseText.PhaseName(p.Kind),
+            ["basis"] = NmSilencePhaseText.BasisName(p.Basis),
+            ["start"] = p.Start,
+            ["end"] = p.End,
+            ["evidence_kind"] = p.EvidenceKind,
+            ["is_inference"] = p.IsInference,
+            ["non_nm_frame_count"] = p.NonNmFrameCount,
+            ["nm_sender_app_frame_count"] = p.NmSenderAppFrameCount,
+            ["other_sender_frame_count"] = p.OtherSenderFrameCount,
+            ["unattributed_frame_count"] = p.UnattributedFrameCount,
+            ["bus_max_gap_ms"] = p.BusMaxGapSec is { } gap ? gap * 1000.0 : null,
+            ["nmsts"] = p.NmSts.ToString(),
+            ["is_window_truncated"] = p.IsWindowTruncated,
+            ["after_episode_index"] = p.AfterEpisodeIndex,
+            ["detail"] = NmEventPrivacy.RedactText(p.Detail, allowedCanIds),
+            ["senders"] = new JsonArray(p.Senders.Select(s => (JsonNode)new JsonObject
+            {
+                ["sender"] = s.Sender,
+                ["is_nm_sender"] = s.IsNmSender,
+                ["frame_count"] = s.FrameCount,
+            }).ToArray()),
+            ["senders_truncated"] = p.SendersTruncated,
+        }).ToArray());
         // spec §15：Unmodeled 只发条款号，不发条款正文。
         root["unmodeled_rules"] = report.UnmodeledRules is null
             ? new JsonArray()
@@ -253,6 +280,8 @@ public sealed class GetNmOverviewTool : ChatToolBase
             NmToolOutput.AddTruncation(root, "messages", 50, report.Messages.Count);
         if (report.Findings.Count > 30)
             NmToolOutput.AddTruncation(root, "findings", 30, report.Findings.Count);
+        if (report.SilencePhases.Count > 20)
+            NmToolOutput.AddTruncation(root, "silence_phases", 20, report.SilencePhases.Count);
 
         return root.ToJsonString();
     }

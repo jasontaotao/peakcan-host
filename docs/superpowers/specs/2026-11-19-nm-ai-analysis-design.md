@@ -707,6 +707,24 @@ profile 加载/保存时校验：
 
 - 所有 finding 附“证据时间 + 归因依据”，不直接下“睡眠/掉线”结论。
 
+#### 静默相位推断（2026-11-25 新增）
+
+全网 NM 静默 ≥ timeout 的空档额外输出结构化相位（`NmReport.SilencePhases`），供 UI/导出/AI 使用：
+
+- `release_wait`：静默起点起 `TimeoutMs` 窗口；若 NM 发送者仍在发应用报文，标“仍在网络模式（RSS，推断）”。
+- `prepare_sleep`：随后 `WaitBusSleepMs` 窗口；发送者应用报文在清缓存宽限（1 个 NM 周期）后停止、总线仍有活动证据 → 与预睡眠行为一致（推断）。
+- `sleep`：再之后的窗口；仅当 `WaitBusSleepMs` 被显式配置且发送者无应用报文时推断。
+- `Unknown`：总线无帧、发送者未归属、停发前 NMSts=Repeat Message State、超时后仍有发送者应用报文（与预睡眠矛盾）、WaitBusSleep 取默认值等情形。
+
+硬约束：
+
+- 全部相位 `EvidenceKind = inferred`，**不得**出 finding，不得写成 `measured`。
+- 发送者归属：J1939 用 ID 低字节 SA，标准帧用 DBC sender；未归属不升级。
+- 首部静默（记录边界）不做相位。
+- `NM_ALL_NM_SILENT` 的产生条件与严重级别不变。
+
+完整判据、真值表与测试见 `docs/superpowers/specs/2026-11-25-nm-silence-phase-design.md`。
+
 ### 7.6 唤醒与突发
 
 - 突发：静默 ≥ cycle 后，出现 ≥ 2 个间隔 < 0.5 × cycle 的连续帧。
@@ -768,7 +786,7 @@ Finding 只描述“观测 + 可能方向”，不下 pass/fail。首批 code：
 ### 7.9 不可知项（必须出现在 `Unknowns`）
 
 - 接收端本地 NM 超时状态（trace 只看到发送）。
-- 真正的总线睡眠（只能观察“NM 静默”，不能证明睡眠）。
+- 真正的总线睡眠（仍不可直接观测；`SilencePhases` 的 `prepare_sleep`/`sleep` 只是按 NM 超时与 WaitBusSleep 的时间窗口推断，必须标 `inferred`）。
 - 节点内部状态机/唤醒原因（除非内容字典定义了对应字节）。
 - 未录制节点是否存在。
 - 记录仪是否丢帧（只能给出 `log_gap_suspected`）。

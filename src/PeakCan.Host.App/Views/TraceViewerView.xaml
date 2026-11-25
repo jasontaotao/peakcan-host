@@ -283,23 +283,19 @@
                  the right, scrollbars always reachable via window's
                  right edge. -->
             <Border Grid.Column="2" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1,0,0,0">
-                <!-- Task 12 (J1939 L2): 固定高度底行承载 "J1939 重组" 面板——Auto 行会随
-                     重组行数增长把上方 TabControl 挤扁；固定 180 让重组表自身滚动
-                    （DataGrid 内置 ScrollViewer），Sampling Table 所在区域保持不受挤压。 -->
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="180" />
-                    </Grid.RowDefinitions>
-                    <!-- SelectedIndex 由 VM 驱动：NM 面板的「让 AI 解读/总结」需要把用户
-                         带到 AI 对话页，否则预填内容在没有选中的 Tab 里不可见。
-                         索引契约见 TraceViewerViewModel.ChatPanelTabIndex。 -->
-                    <TabControl Grid.Row="0"
-                                SelectedIndex="{Binding RightPanelSelectedIndex}">
+                <!-- SelectedIndex 由 VM 驱动：NM 面板的「让 AI 解读/总结」需要把用户
+                     带到 AI 对话页，否则预填内容在没有选中的 Tab 里不可见。
+                     索引契约见 TraceViewerViewModel.ChatPanelTabIndex。 -->
+                <TabControl SelectedIndex="{Binding RightPanelSelectedIndex}">
                     <!-- Tab 1: Watch List (v3.15.0 MINOR source of truth).
                          Always visible regardless of window size. -->
                     <TabItem Header="监视列表">
-                        <DataGrid ItemsSource="{Binding WatchedSignals}"
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="180" />
+                            </Grid.RowDefinitions>
+                            <DataGrid Grid.Row="0" ItemsSource="{Binding WatchedSignals}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
                                   EnableRowVirtualization="True"
@@ -362,6 +358,36 @@
                                 </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
+                        <!-- Task 12 (J1939 L2) 重组消息视图（spec §9.2）：双击行 → 跳转 TP.CM 首帧。
+                             SelectedItem 必须走 TwoWay——行点击回写 VM 的 SelectedReassembled，
+                             MouseBinding 的 CommandParameter 才能拿到当前行（brief 原稿 Mode=OneWay
+                             永不回写、双击恒 no-op，缺陷修正）。
+                             位置限定在「监视列表」页内：放在 TabControl 之外的固定底行会让
+                             AI 对话、网络管理等无关 tab 永久损失 180px 纵向空间。 -->
+                        <GroupBox Grid.Row="1" Header="J1939 重组" Margin="0,8,0,0">
+                            <DataGrid ItemsSource="{Binding ReassembledMessages}"
+                                      AutoGenerateColumns="False" IsReadOnly="True"
+                                      HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                      SelectedItem="{Binding SelectedReassembled, Mode=TwoWay}">
+                                <DataGrid.InputBindings>
+                                    <MouseBinding MouseAction="LeftDoubleClick"
+                                                  Command="{Binding SeekToReassembledCommand}"
+                                                  CommandParameter="{Binding SelectedReassembled}" />
+                                </DataGrid.InputBindings>
+                                <DataGrid.Columns>
+                                    <!-- 完成时刻 → 顶层 TimestampSec：诊断行（Message=null）也显示事件时刻。
+                                         SA/PGN/模式/长度 走 Message.*：null 行空白即可（WPF 对 null 路径静默留空）。 -->
+                                    <DataGridTextColumn Header="完成时刻" Binding="{Binding TimestampSec, StringFormat=F3}" Width="90" />
+                                    <DataGridTextColumn Header="SA" Binding="{Binding Message.Sa, StringFormat=0x{0:X2}}" Width="60" />
+                                    <DataGridTextColumn Header="PGN" Binding="{Binding Message.Pgn, StringFormat=0x{0:X4}}" Width="80" />
+                                    <DataGridTextColumn Header="模式" Binding="{Binding Message.Mode}" Width="70" />
+                                    <DataGridTextColumn Header="长度" Binding="{Binding Message.Payload.Length}" Width="60" />
+                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90" />
+                                    <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </GroupBox>
+                        </Grid>
                     </TabItem>
                     <!-- Tab 2: Sampling Table (v3.49.0 MINOR Q1). Hidden when
                          no watched signals exist; otherwise always present. -->
@@ -387,35 +413,6 @@
                         <ContentControl Content="{Binding NmPanelContent}" />
                     </TabItem>
                     </TabControl>
-
-                <!-- Task 12 (J1939 L2) 重组消息视图（spec §9.2）：双击行 → 跳转 TP.CM 首帧。
-                     SelectedItem 必须走 TwoWay——行点击回写 VM 的 SelectedReassembled，
-                     MouseBinding 的 CommandParameter 才能拿到当前行（brief 原稿 Mode=OneWay
-                     永不回写、双击恒 no-op，缺陷修正）。 -->
-                <GroupBox Grid.Row="1" Header="J1939 重组" Margin="0,8,0,0">
-                    <DataGrid ItemsSource="{Binding ReassembledMessages}"
-                              AutoGenerateColumns="False" IsReadOnly="True"
-                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                              SelectedItem="{Binding SelectedReassembled, Mode=TwoWay}">
-                        <DataGrid.InputBindings>
-                            <MouseBinding MouseAction="LeftDoubleClick"
-                                          Command="{Binding SeekToReassembledCommand}"
-                                          CommandParameter="{Binding SelectedReassembled}" />
-                        </DataGrid.InputBindings>
-                        <DataGrid.Columns>
-                            <!-- 完成时刻 → 顶层 TimestampSec：诊断行（Message=null）也显示事件时刻。
-                                 SA/PGN/模式/长度 走 Message.*：null 行空白即可（WPF 对 null 路径静默留空）。 -->
-                            <DataGridTextColumn Header="完成时刻" Binding="{Binding TimestampSec, StringFormat=F3}" Width="90" />
-                            <DataGridTextColumn Header="SA" Binding="{Binding Message.Sa, StringFormat=0x{0:X2}}" Width="60" />
-                            <DataGridTextColumn Header="PGN" Binding="{Binding Message.Pgn, StringFormat=0x{0:X4}}" Width="80" />
-                            <DataGridTextColumn Header="模式" Binding="{Binding Message.Mode}" Width="70" />
-                            <DataGridTextColumn Header="长度" Binding="{Binding Message.Payload.Length}" Width="60" />
-                            <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90" />
-                            <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*" />
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </GroupBox>
-                </Grid>
             </Border>
         </Grid>
     </DockPanel>

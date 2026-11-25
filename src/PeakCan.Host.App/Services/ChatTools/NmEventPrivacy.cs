@@ -25,6 +25,10 @@ internal static partial class NmEventPrivacy
         "byte_change" or "bit_change" => HexValueRegex().Replace(detail, RedactedHexValue),
         // "WakeReason: 85 → 2" → "WakeReason: 变化"
         "signal_change" => RedactSignalChange(detail),
+        // "BMS_Wakeup_reasons: 0x0 → 0x30（Waked up by NW PDU）"
+        // → "BMS_Wakeup_reasons: 0x?? → 0x??（Waked up by NW PDU）"
+        // 信号名与解释文本是结构信息（§11 M2 允许），原始取值必须抹掉。
+        "reason_change" => HexValueRegex().Replace(detail, RedactedHexValue),
         // burst_observed / all_nm_silent / sender_silent / bus_wide_silence
         // 只含时间、时长、帧数，无需脱敏。
         _ => detail,

@@ -93,6 +93,35 @@ BO_ 1536 CAN_MSG_A: 8 ECU_A
     }
 
     [Fact]
+    public async Task GetNmOverview_IncludesSilencePhases()
+    {
+        var phase = new NmSilencePhase(11.714, 12.677, NmSilencePhaseKind.PrepareSleep,
+            NmSilenceBasis.NmSenderStoppedAfterDrain,
+            NonNmFrameCount: 10, NmSenderAppFrameCount: 7, OtherSenderFrameCount: 3,
+            UnattributedFrameCount: 0, BusMaxGapSec: 0.920502,
+            NmSts: NmStsEvidence.ReadySleepAtLastFrame, IsWindowTruncated: false,
+            AfterEpisodeIndex: 0, Detail: "超时后仅 7 帧清缓存尾巴；0.92s 总线无帧");
+        var ctx = new FakeChatToolContext
+        {
+            NmSnapshotValue = Snapshot() with
+            {
+                Report = Report() with { SilencePhases = new[] { phase } },
+            },
+        };
+        var tool = new GetNmOverviewTool(ctx, NullLogger<GetNmOverviewTool>.Instance);
+
+        var json = JsonNode.Parse(await tool.ExecuteAsync("{}", CancellationToken.None))!.AsObject();
+
+        var phases = json["silence_phases"]!.AsArray();
+        phases.Should().HaveCount(1);
+        phases[0]!["phase"]!.GetValue<string>().Should().Be("prepare_sleep");
+        phases[0]!["basis"]!.GetValue<string>().Should().Be("nm_sender_stopped_after_drain");
+        phases[0]!["is_inference"]!.GetValue<bool>().Should().BeTrue();
+        phases[0]!["evidence_kind"]!.GetValue<string>().Should().Be("inferred");
+        phases[0]!["nm_sender_app_frame_count"]!.GetValue<int>().Should().Be(7);
+    }
+
+    [Fact]
     public async Task GetNmOverview_EmitsClauseTraceabilityAndStandardId()
     {
         // I4：findings 的条款追溯与报告的 standard_id 必须离开 Core。

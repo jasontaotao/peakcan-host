@@ -41,6 +41,80 @@ public class NmSegmentBrushConverterTests
     }
 
     [Fact]
+    public void ReasonValueKinds_MapToDistinctPaletteColors()
+    {
+        // 原因行的每个原始值必须有独立颜色：整行同色等于没有信息。
+        Map(NmTimelineKinds.ReasonValue(0)).Should().NotBeSameAs(Map(NmTimelineKinds.ReasonValue(1)));
+        Map(NmTimelineKinds.ReasonValue(2)).Should().NotBeSameAs(Map(NmTimelineKinds.ReasonValue(3)));
+        // 同一取值必须稳定复用同一颜色。
+        Map(NmTimelineKinds.ReasonValue(3)).Should().BeSameAs(Map(NmTimelineKinds.ReasonValue(3)));
+        Map(NmTimelineKinds.ReasonValue(0)).Should().NotBeSameAs(NmSegmentBrushConverter.UnknownBrush,
+            "原因值颜色是显式映射，不能落到未知兜底色");
+    }
+
+    [Fact]
+    public void ReasonPalette_FirstEightValues_AreAllDistinct()
+    {
+        var brushes = Enumerable.Range(0, 8)
+            .Select(i => Map(NmTimelineKinds.ReasonValue(i)))
+            .ToArray();
+
+        brushes.Distinct().Should().HaveCount(8,
+            "色板内颜色必须互不相同；循环复用只允许发生在第 9 个取值之后");
+    }
+
+    [Fact]
+    public void ReasonShape_IsUniqueAmongMarkerShapes()
+    {
+        var shapes = new[]
+        {
+            NmEventShapeConverter.BurstShape,
+            NmEventShapeConverter.GapShape,
+            NmEventShapeConverter.ByteShape,
+            NmEventShapeConverter.BitShape,
+            NmEventShapeConverter.SignalShape,
+            NmEventShapeConverter.ReasonShape,
+        };
+
+        shapes.Distinct().Should().HaveCount(shapes.Length,
+            "原因标记与既有标记形状重复会导致“看不出是原因变化”");
+    }
+
+    [Fact]
+    public void ReasonUncertainKind_IsVisuallyDistinctFromConfirmedValue()
+    {
+        Map(NmTimelineKinds.ReasonUncertain(0)).Should()
+            .NotBeSameAs(Map(NmTimelineKinds.ReasonValue(0)),
+                "未观测区间不能被画成确认值，否则清除区间不可见");
+        Map(NmTimelineKinds.ReasonUncertain(0)).Should()
+            .NotBeSameAs(NmSegmentBrushConverter.UnknownBrush);
+    }
+
+    [Fact]
+    public void SilencePhaseKinds_MapToDistinctBrushes_NotSilentOrUnknown()
+    {
+        var kinds = new[]
+        {
+            NmTimelineKinds.SilenceReleaseWait,
+            NmTimelineKinds.SilencePrepareSleep,
+            NmTimelineKinds.SilenceBusSleep,
+            NmTimelineKinds.SilencePhaseUnknown,
+        };
+
+        var brushes = kinds.Select(Map).ToArray();
+
+        brushes.Distinct().Should().HaveCount(kinds.Length,
+            "三种静默相位必须彼此可辨");
+        foreach (var brush in brushes)
+        {
+            brush.Should().NotBeSameAs(Map(NmTimelineKinds.Silence),
+                "相位与「原因不可区分」的旧静默带必须区分");
+            brush.Should().NotBeSameAs(NmSegmentBrushConverter.UnknownBrush,
+                "相位是显式映射，不能落回未知兜底色");
+        }
+    }
+
+    [Fact]
     public void NonStringValue_FallsBackToUnknownBrush()
     {
         _sut.Convert(42, typeof(object), null, CultureInfo.InvariantCulture)
@@ -73,6 +147,24 @@ public class NmSegmentBrushConverterTests
             .Should().BeSameAs(NmSegmentBrushConverter.EpisodeBrush);
         NmSegmentBrushConverter.BrushFor(NmTimelineKinds.Boundary)
             .Should().BeSameAs(NmSegmentBrushConverter.BoundaryBrush);
+    }
+
+    [Fact]
+    public void ReasonKind_HasDistinctBrushFromUnknown()
+    {
+        Map(NmTimelineKinds.Reason).Should().BeSameAs(NmSegmentBrushConverter.ReasonBrush);
+        Map(NmTimelineKinds.Reason).Should().NotBeSameAs(NmSegmentBrushConverter.UnknownBrush,
+            "原因段是正常数据，不能画成未知色");
+    }
+
+    [Fact]
+    public void ReasonShape_IsRegisteredAndDistinct()
+    {
+        // 未注册会落到未知六边形（品红），会被误读成异常事件。
+        NmEventShapeConverter.ShapeFor(NmTimelineKinds.Reason)
+            .Should().BeSameAs(NmEventShapeConverter.ReasonShape);
+        NmEventShapeConverter.ShapeFor(NmTimelineKinds.Reason)
+            .Should().NotBeSameAs(NmEventShapeConverter.UnknownShape);
     }
 
     [Fact]

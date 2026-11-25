@@ -254,6 +254,26 @@ public sealed record NmReport(
     /// </summary>
     public IReadOnlyList<NmClauseCoverageRow> ClauseCoverage { get; init; }
         = Array.Empty<NmClauseCoverageRow>();
+
+    /// <summary>
+    /// 原因字段的原始值时间线（第一版）。空列表 = 未配置字典或没有可用字段；
+    /// 每条时间线的 Unknowns 记录降级原因，消费方不得据此推断语义。
+    /// </summary>
+    public IReadOnlyList<NmReasonTimeline> ReasonTimelines { get; init; }
+        = Array.Empty<NmReasonTimeline>();
+
+    /// <summary>原因字典文件路径；null = 未配置。</summary>
+    public string? ReasonDictionaryPath { get; init; }
+
+    /// <summary>原因字典内容 SHA256；与 Path 一起构成解释来源身份。</summary>
+    public string? ReasonDictionaryHash { get; init; }
+
+    /// <summary>
+    /// 全网 NM 静默空档的相位窗口（全部 <c>inferred</c>）。
+    /// 空列表 = 未产生相位（无静默空档/未跑 gap 阶段/报告被取消前结束）。
+    /// </summary>
+    public IReadOnlyList<NmSilencePhase> SilencePhases { get; init; }
+        = Array.Empty<NmSilencePhase>();
 }
 
 /// <summary>数据体检的三态结果（spec §9.2）。</summary>

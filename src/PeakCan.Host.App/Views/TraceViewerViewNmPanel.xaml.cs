@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.Windows;
+using PeakCan.Host.App.Converters;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -97,7 +98,13 @@ public partial class TraceViewerViewNmPanel : UserControl
         _nmHoveredMarker = null;
         _nmHoveredSegment = segment;
         vm.SetNmSegmentHover(segment.Kind, FindRowVm((DependencyObject)sender)?.Label ?? "",
-            segment.Start, segment.End, segment.Evidence, segment.IsWindowTruncated);
+            segment.Start, segment.End, segment.Evidence, segment.IsWindowTruncated,
+            segment.DurationText,
+            // 原因段/静默相位的 Tooltip 是结构化详情（标签/原始值/来源/清除区间、
+            // 帧数/发送者/时序依据），其它段的 Tooltip 只是无障碍全名，不塞进可见卡片。
+            // 原因段按取值着色后 kind 是 "reason:N" / "reason_uncertain:N"。
+            NmTimelineKinds.IsReasonKind(segment.Kind)
+                || NmTimelineKinds.IsSilencePhaseKind(segment.Kind) ? segment.Tooltip : "");
         ShowCard((UIElement)sender, vm);
     }
 

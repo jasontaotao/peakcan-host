@@ -24,5 +24,6 @@ public static class NmPromptRules
 - findings 的 is_inference=true 表示推断，false 表示实测；没有证据时归入不可知。
 - 没有 NM_CONFIG_CONFLICT 证据时，不许说配置错了。
 - 没有 NID 样本时，不许说 NID 正常。
+- silence_phases 的 release_wait / prepare_sleep / sleep 全部是 inferred；NM 发送者的应用报文证明该发送者仍在网络模式，不得写成 measured，也不得据此确认节点已睡眠。
 """;
 }

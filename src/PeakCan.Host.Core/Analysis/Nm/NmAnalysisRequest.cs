@@ -17,4 +17,7 @@ public sealed record NmAnalysisRequest(
     string WindowRef = "full",
     // 已加载的企标 profile；null 表示未选。加载/展平需要文件 IO 与 extends 注册表，
     // 属于调用方职责（NmFlow），NmAnalyzer 保持纯函数。
-    NmStandardProfile? Standard = null);
+    NmStandardProfile? Standard = null,
+    // 原因字典：null 表示未配置。Note 非空用于报告 Unknowns（加载失败的明确说明）。
+    LoadedNmReasonDictionary? Reasons = null,
+    string? ReasonDictionaryNote = null);

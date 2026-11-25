@@ -698,7 +698,8 @@ public class NmInputWizardViewModelTests
             NmSidecarStore.Save(sourceDbc, new NmUserSupplement(
                 IdMapping: NmIdMappingMode.SharedId,
                 Timings: new NmTimings(CycleMs: 250, TimeoutMs: 1000, RepeatMessageMs: 100),
-                Features: new NmFeatures(ActiveWakeupBitEnabled: true)));
+                Features: new NmFeatures(ActiveWakeupBitEnabled: true),
+                ReasonsPath: "reasons.nmreasons.json"));
 
             var source = Wizard(dbcPath: sourceDbc);
             source.SaveFilePicker = _ => exportPath;
@@ -716,6 +717,64 @@ public class NmInputWizardViewModelTests
             saved.Timings!.CycleMs.Should().Be(250);
             saved.Timings.RepeatMessageMs.Should().Be(100);
             saved.Features!.ActiveWakeupBitEnabled.Should().BeTrue();
+            // reasons_path 是编辑器之外的字段，导入/导出必须原样透传。
+            saved.ReasonsPath.Should().Be("reasons.nmreasons.json");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Import_ReasonsPathOnly_IsRecognizableAndSaved()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var dbcPath = Path.Combine(dir, "net.dbc");
+            var importPath = Path.Combine(dir, "reasons-only.nmprofile.json");
+            NmSidecarStore.SaveTo(importPath,
+                new NmUserSupplement(ReasonsPath: "reasons.nmreasons.json"));
+
+            var w = Wizard(dbcPath: dbcPath);
+            w.OpenFilePicker = () => importPath;
+            w.ImportProfileCommand.Execute(null);
+
+            // 只有 reasons_path 也是一份可识别的 NM 配置，不能当成空文件拒绝。
+            w.Status.Should().NotContain("不包含可识别的 NM 配置");
+            w.SaveCommand.Execute(null);
+
+            var saved = NmSidecarStore.Load(dbcPath);
+            saved.Should().NotBeNull();
+            saved!.ReasonsPath.Should().Be("reasons.nmreasons.json");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Trial_ShowsReasonDictionaryFailure()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var dbcPath = Path.Combine(dir, "net.dbc");
+            NmSidecarStore.Save(dbcPath,
+                new NmUserSupplement(ReasonsPath: "missing.nmreasons.json"));
+            var frames = new[]
+            {
+                new ReplayFrame(0.1, 0x500, 8,
+                    new byte[] { 0x11, 0, 0, 0, 0, 0, 0, 0 }, FrameFlags.None),
+            };
+            var w = Wizard(frames, dbcPath);
+
+            await w.TrialCommand.ExecuteAsync(null);
+
+            // 试算与主分析同口径：字典加载失败必须在试算摘要里可见。
+            w.TrialSummary.Should().Contain("原因字典不可用");
         }
         finally
         {
@@ -756,5 +815,189 @@ public class NmInputWizardViewModelTests
         w.TimeoutMs = 200;
 
         w.Validate().Should().Contain("超时必须大于周期");
+    }
+
+    [Fact]
+    public void BrowseReasonDictionary_ThenSave_PersistsPath()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var dbcPath = Path.Combine(dir, "net.dbc");
+            var w = Wizard(dbcPath: dbcPath);
+            w.ReasonDictionaryPath.Should().BeNull();
+            w.ReasonDictionaryPicker = () => @"C:\logs\bms.nmreasons.json";
+
+            w.BrowseReasonDictionaryCommand.Execute(null);
+
+            w.ReasonDictionaryPath.Should().Be(@"C:\logs\bms.nmreasons.json");
+            w.SaveCommand.Execute(null);
+
+            NmSidecarStore.Load(dbcPath)!.ReasonsPath
+                .Should().Be(@"C:\logs\bms.nmreasons.json");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ClearReasonDictionary_OverridesExistingSidecarPath()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var dbcPath = Path.Combine(dir, "net.dbc");
+            NmSidecarStore.Save(dbcPath,
+                new NmUserSupplement(ReasonsPath: "old.nmreasons.json"));
+
+            var w = Wizard(dbcPath: dbcPath);
+
+            w.ReasonDictionaryPath.Should().Be("old.nmreasons.json");
+            w.ClearReasonDictionaryCommand.Execute(null);
+            w.SaveCommand.Execute(null);
+
+            NmSidecarStore.Load(dbcPath)!.ReasonsPath.Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Trial_UsesEditedReasonDictionaryPath()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var dbcPath = Path.Combine(dir, "net.dbc");
+            var missing = Path.Combine(dir, "missing.nmreasons.json");
+            var w = Wizard(dbcPath: dbcPath);
+            w.ReasonDictionaryPicker = () => missing;
+
+            w.BrowseReasonDictionaryCommand.Execute(null);
+            w.ReasonDictionaryPath.Should().Be(missing);
+
+            await w.TrialCommand.ExecuteAsync(null);
+
+            // 没保存也能在试算里看到刚选字典的加载结果；失败必须显式显示。
+            w.TrialSummary.Should().Contain("原因字典不可用");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Import_PrefillsReasonDictionaryPath()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var profilePath = Path.Combine(dir, "imported.nmprofile.json");
+            NmSidecarStore.SaveTo(profilePath,
+                new NmUserSupplement(ReasonsPath: "imported.nmreasons.json"));
+
+            var w = Wizard();
+            w.OpenFilePicker = () => profilePath;
+
+            w.ImportProfileCommand.Execute(null);
+
+            w.ReasonDictionaryPath.Should().Be("imported.nmreasons.json");
+            w.ToSupplement().ReasonsPath.Should().Be("imported.nmreasons.json");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Import_SecondWithoutReasonsPath_SyncsDisplayToEffectiveValue()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var pathA = Path.Combine(dir, "a.nmprofile.json");
+            var pathB = Path.Combine(dir, "b.nmprofile.json");
+            NmSidecarStore.SaveTo(pathA,
+                new NmUserSupplement(ReasonsPath: "a.nmreasons.json"));
+            NmSidecarStore.SaveTo(pathB, new NmUserSupplement(NidByte: 2));
+
+            var w = Wizard();
+            w.OpenFilePicker = () => pathA;
+            w.ImportProfileCommand.Execute(null);
+            w.ReasonDictionaryPath.Should().Be("a.nmreasons.json");
+
+            // 后一次导入不含 reasons_path：显示值必须与生效值一起回落。
+            w.OpenFilePicker = () => pathB;
+            w.ImportProfileCommand.Execute(null);
+
+            w.ReasonDictionaryPath.Should().BeNull();
+            w.ToSupplement().ReasonsPath.Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void WhitespaceReasonsPath_IsNormalizedToNullOnSave()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var dbcPath = Path.Combine(dir, "net.dbc");
+            NmSidecarStore.Save(dbcPath, new NmUserSupplement(ReasonsPath: "   "));
+
+            var w = Wizard(dbcPath: dbcPath);
+            w.ToSupplement().ReasonsPath.Should().BeNull();
+            w.SaveCommand.Execute(null);
+
+            NmSidecarStore.Load(dbcPath)!.ReasonsPath.Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Import_WhitespaceReasonsPathOnly_IsRejected()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var importPath = Path.Combine(dir, "blank.nmprofile.json");
+            NmSidecarStore.SaveTo(importPath,
+                new NmUserSupplement(ReasonsPath: "   "));
+
+            var w = Wizard();
+            w.OpenFilePicker = () => importPath;
+
+            w.ImportProfileCommand.Execute(null);
+
+            w.Status.Should().Contain("不包含可识别的 NM 配置");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Trial_WithoutDbcPath_ReportsReasonDictionaryCannotResolve()
+    {
+        var w = Wizard(dbcPath: null);
+        w.ReasonDictionaryPath = "x.nmreasons.json";
+
+        await w.TrialCommand.ExecuteAsync(null);
+
+        // 不给 DBC 路径时不能静默跳过：配置了字典就要说清“无法解析”。
+        w.TrialSummary.Should().Contain("没有 DBC 路径");
     }
 }
