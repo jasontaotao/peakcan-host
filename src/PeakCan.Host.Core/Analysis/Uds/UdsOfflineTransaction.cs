@@ -27,6 +27,15 @@ public sealed record UdsOfflineTransaction(
 {
     public int EvidenceIndex => Request.FirstEvidenceIndex;
     public double FirstTimestamp => Request.FirstTimestamp;
+
+    /// <summary>请求结束到首个响应的毫秒数；没有响应时为 null。</summary>
+    public double? FirstResponseMs { get; init; }
+
+    /// <summary>请求开始到最终响应的毫秒数；事务未闭合时为 null（不能拿“最后一个响应”冒充总耗时）。</summary>
+    public double? TotalMs { get; init; }
+
+    /// <summary>P2/P2* 的来源事务（例如 <c>ECU:0x50</c>）；无会话控制响应时为 <c>Unknown</c>。</summary>
+    public string TimingSource { get; init; } = "Unknown";
 }
 
 /// <summary>
