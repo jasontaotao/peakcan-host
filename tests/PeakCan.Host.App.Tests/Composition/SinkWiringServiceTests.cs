@@ -65,6 +65,10 @@ public class SinkWiringServiceTests
         builder.Services.AddSingleton<DbcService>();
         builder.Services.AddSingleton<SignalViewModel>();
         builder.Services.AddSingleton<TraceService>();
+        // DbcDecodeBackgroundService takes LiveFrameSlot as a ctor dependency;
+        // production wiring (AppHostBuilder) registers it too. Without it the
+        // minimal graph here fails to resolve at host startup.
+        builder.Services.AddSingleton<LiveFrameSlot>();
         // M11: DBC decode offload worker; same singleton→hosted-service
         // pattern as AppHostBuilder uses for production wiring.
         builder.Services.AddSingleton<DbcDecodeBackgroundService>();

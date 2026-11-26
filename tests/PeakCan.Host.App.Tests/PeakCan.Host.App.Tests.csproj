@@ -38,6 +38,15 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- WPF 约束：一个 AppDomain 只能有一个 Application，控件测试并行会互相踩。
+       runner 从输出目录读 xunit.runner.json；SDK 默认只把它收进 None 项、
+       不设 CopyToOutputDirectory，所以必须显式声明拷贝（照 Core.Tests 先例）。 -->
+  <ItemGroup>
+    <None Update="xunit.runner.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\PeakCan.Host.App\PeakCan.Host.App.csproj" />
     <ProjectReference Include="..\..\src\PeakCan.Host.Core\PeakCan.Host.Core.csproj" />
