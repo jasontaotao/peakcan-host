@@ -36,7 +36,8 @@ public static class ClassicIsoTpPci
             case 0: // Single Frame
             {
                 var len = data[0] & 0x0F;
-                if (len > data.Length - 1) return false;
+                // 0 长度 SF 没有可分析内容；当作噪声，而不是产出一个空 PDU 后静默消失。
+                if (len == 0 || len > data.Length - 1) return false;
                 pci = new(ClassicPciKind.SingleFrame, 1, len, 0);
                 return true;
             }

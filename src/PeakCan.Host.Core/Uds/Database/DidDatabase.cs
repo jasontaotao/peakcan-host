@@ -60,7 +60,13 @@ public sealed partial class DidDatabase
     /// user-JSON entries. Called by <c>OdxImportService</c> before a fresh ODX
     /// import so re-importing a second ODX does not accumulate stale data.
     /// </summary>
-    public void Clear() => All = BuiltInDefaults().ToList().AsReadOnly();
+    public void Clear()
+    {
+        All = BuiltInDefaults().ToList().AsReadOnly();
+        // 用户 JSON 的条目随之被移除；状态必须如实反映“当前定义不再来自 JSON”，
+        // 否则离线报告会同时声称 “ODX 已加载” 和 “用户 JSON 已加载”。
+        UserJsonLoadStatus = UserJsonLoadStatus.NotConfigured;
+    }
 
     /// <summary>
     /// Append ODX-imported DID definitions to the existing built-in +

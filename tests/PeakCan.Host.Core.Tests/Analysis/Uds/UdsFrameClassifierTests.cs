@@ -51,6 +51,16 @@ public sealed class UdsFrameClassifierTests
     }
 
     [Fact]
+    public void Zero_length_single_frame_is_noise_not_a_silent_frame()
+    {
+        var frames = new[] { Frame(0x7E0, new byte[] { 0x00 }) };
+        var c = new UdsFrameClassifier().Classify(frames, Addr);
+
+        c.Should().ContainSingle().Which.Class.Should().Be(UdsFrameClass.Noise);
+        c[0].NoiseReason.Should().Be(UdsNoiseReason.InvalidPci);
+    }
+
+    [Fact]
     public void Counts_close_on_mixed_log()
     {
         var frames = new[]

@@ -114,6 +114,16 @@ public sealed class UdsTransactionBuilderTests
     }
 
     [Fact]
+    public void Negative_response_with_trailing_bytes_does_not_close_the_transaction()
+    {
+        // 周期帧 7F 22 31 00（4 字节）不是最终 NRC；长度必须恰为 3。
+        var r = Build(Req(0x22, 0xF1, 0x90), Resp(0x7F, 0x22, 0x31, 0x00));
+
+        r.Transactions.Should().ContainSingle().Which.FinalKind.Should().Be(UdsFinalKind.None);
+        r.ValidationFailures.Should().ContainSingle();
+    }
+
+    [Fact]
     public void Negative_response_other_than_pending_closes_as_negative_with_nrc()
     {
         var r = Build(

@@ -57,7 +57,9 @@ public sealed class UdsTransactionBuilder
 
             if (resSid == NegativeResponseSid)
             {
-                if (pdu.Payload.Length < 3)
+                // 负响应长度必须恰为 3（SID 0x7F + 请求 SID + NRC）；带尾巴的
+                // 周期帧不算最终 NRC（spec §8.5）。
+                if (pdu.Payload.Length != 3)
                 {
                     failed.Add(pdu);
                     continue;

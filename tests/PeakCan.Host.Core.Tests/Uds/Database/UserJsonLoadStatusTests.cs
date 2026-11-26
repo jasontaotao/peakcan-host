@@ -62,6 +62,21 @@ public class UserJsonLoadStatusTests
     }
 
     [Fact]
+    public void Clear_reports_that_json_definitions_no_longer_apply()
+    {
+        // OdxImportService 在 ODX 导入前调用 Clear()：用户 JSON 条目被移除，
+        // 状态不得继续声称 Loaded，否则报告会同时写“ODX 已加载 + JSON 已加载”。
+        var did = new DidDatabase(TempJson("{\"dids\":[]}"), NullLogger<DidDatabase>.Instance, TestOptions);
+        var routine = new RoutineDatabase(TempJson("{\"routines\":[]}"), NullLogger<RoutineDatabase>.Instance, TestOptions);
+
+        did.Clear();
+        routine.Clear();
+
+        did.UserJsonLoadStatus.Should().Be(UserJsonLoadStatus.NotConfigured);
+        routine.UserJsonLoadStatus.Should().Be(UserJsonLoadStatus.NotConfigured);
+    }
+
+    [Fact]
     public void Loaded_when_json_valid()
     {
         var did = new DidDatabase(TempJson("{\"dids\":[]}"), NullLogger<DidDatabase>.Instance, TestOptions);

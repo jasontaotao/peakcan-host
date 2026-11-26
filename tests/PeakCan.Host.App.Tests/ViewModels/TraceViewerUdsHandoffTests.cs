@@ -61,6 +61,19 @@ public sealed class TraceViewerUdsHandoffTests
     }
 
     [Fact]
+    public void Confirmed_draft_replacement_swaps_in_the_handoff_prompt()
+    {
+        var vm = ChatVm();
+        vm.ChatInput = "旧草稿";
+        vm.ConfirmReplaceDraft = _ => true;
+
+        vm.AcceptChatHandoff(new UdsChatHandoffPayload("新问题", "提示", Guid.NewGuid(), "summary", "tx"));
+
+        vm.ChatInput.Should().Be("新问题");
+        vm.ChatPrefillHint.Should().Be("提示");
+    }
+
+    [Fact]
     public void System_message_without_handoff_has_no_uds_rules()
     {
         var vm = ChatVm();

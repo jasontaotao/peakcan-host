@@ -12,10 +12,28 @@ public sealed class WpfUdsExportPrompt(IFileDialogService dialogs) : IUdsExportP
 {
     public string? ChooseSavePath(out bool isCsv)
     {
+        // 先定格式再开保存框：只靠过滤器选择无法改变 DefaultExt，
+        // 用户不手敲 .csv 就会得到 Markdown 内容却叫 .md（spec §13.2）。
+        var format = MessageBox.Show(
+            "导出格式？\n\n是：CSV（每行一个事务）\n否：Markdown 报告\n取消：不导出",
+            "导出报告", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+        if (format == MessageBoxResult.Cancel)
+        {
+            isCsv = false;
+            return null;
+        }
+
+        isCsv = format == MessageBoxResult.Yes;
         var path = dialogs.ShowSaveDialog(
-            "Markdown (*.md)|*.md|CSV (*.csv)|*.csv", ".md", initialDirectory: null);
-        isCsv = path is not null
-            && Path.GetExtension(path).Equals(".csv", StringComparison.OrdinalIgnoreCase);
+            isCsv ? "CSV (*.csv)|*.csv" : "Markdown (*.md)|*.md",
+            isCsv ? ".csv" : ".md",
+            initialDirectory: null);
+        if (path is null) return null;
+
+        // 用户手敲了别的扩展名时按所选格式纠正。
+        var desired = isCsv ? ".csv" : ".md";
+        if (!Path.GetExtension(path).Equals(desired, StringComparison.OrdinalIgnoreCase))
+            path = Path.ChangeExtension(path, desired);
         return path;
     }
 

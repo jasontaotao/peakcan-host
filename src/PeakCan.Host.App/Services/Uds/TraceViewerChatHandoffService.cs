@@ -21,7 +21,17 @@ public sealed class TraceViewerChatHandoffService(
         if (window is null) return;
 
         if (window.DataContext is TraceViewerViewModel viewModel)
+        {
+            // spec §14.3：已有未发送草稿时先确认；拒绝则保留原文。
+            viewModel.ConfirmReplaceDraft ??= _ =>
+                System.Windows.MessageBox.Show(
+                    "AI 输入框里有未发送的草稿。\n\n要替换为本次 UDS 分析问题吗？",
+                    "在 AI 中解读", System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Question)
+                == System.Windows.MessageBoxResult.Yes;
+
             viewModel.AcceptChatHandoff(payload);
+        }
 
         if (!window.IsVisible) window.Show();
         else window.Activate();

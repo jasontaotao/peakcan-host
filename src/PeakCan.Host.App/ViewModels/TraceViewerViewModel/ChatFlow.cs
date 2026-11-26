@@ -138,16 +138,30 @@ public sealed partial class TraceViewerViewModel
     /// </summary>
     private UdsChatHandoffPayload? _udsHandoff;
 
+    /// <summary>
+    /// 覆盖草稿确认（spec §14.3）。null = 不弹窗、也不覆盖（测试/无 UI 环境的默认）。
+    /// 生产由 <c>TraceViewerChatHandoffService</c> 注入 MessageBox 实现。
+    /// </summary>
+    internal Func<string, bool>? ConfirmReplaceDraft { get; set; }
+
     internal void AcceptChatHandoff(UdsChatHandoffPayload payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
         _udsHandoff = payload;
 
-        // 用户可能正在写草稿：静默覆盖 = 丢输入。已有不同草稿时不覆盖，
-        // 用提示条说明如何继续（spec §14.3）。
+        // 用户可能正在写草稿：静默覆盖 = 丢输入。有不同草稿时先问；
+        // 拒绝或无法确认时保留原文并说明原因。
         if (!string.IsNullOrWhiteSpace(ChatInput) && ChatInput != payload.Prompt)
         {
-            ChatPrefillHint = "输入框已有未发送的草稿，未自动覆盖；清空后可重新点击「在 AI 中解读」";
+            if (ConfirmReplaceDraft?.Invoke(payload.Prompt) == true)
+            {
+                PrefillChatInput(payload.Prompt);
+                ChatPrefillHint = payload.Hint;
+            }
+            else
+            {
+                ChatPrefillHint = "输入框已有未发送的草稿，未覆盖；清空后可重新点击「在 AI 中解读」";
+            }
         }
         else
         {

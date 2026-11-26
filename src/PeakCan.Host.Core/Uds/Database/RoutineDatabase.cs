@@ -56,7 +56,12 @@ public sealed partial class RoutineDatabase
     /// Clear() removes everything. Called by <c>OdxImportService</c> before a
     /// fresh ODX import.
     /// </summary>
-    public void Clear() => All = Array.Empty<RoutineDefinition>();
+    public void Clear()
+    {
+        All = Array.Empty<RoutineDefinition>();
+        // 同 DidDatabase.Clear：用户 JSON 的条目已被移除，状态不得继续声称 Loaded。
+        UserJsonLoadStatus = UserJsonLoadStatus.NotConfigured;
+    }
 
     /// <summary>
     /// Append ODX-imported routine definitions. Mirrors
