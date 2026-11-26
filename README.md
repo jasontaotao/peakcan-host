@@ -6,12 +6,13 @@ Windows 专用 WPF 桌面主机，适配 **PEAK PCAN-USB FD / Pro FD** 与 **ZLG
 通用 CAN 总线监控工具，支持 DBC 解码、手动/循环/多帧发送、实时信号视图、
 ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
 
-> **状态:** v3.67.1。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
+> **状态:** v3.68.0。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
 > UDS 诊断栈 + Flash Pipeline、脚本引擎、HIL 测试执行（单/多通道）、
-> 多通道录制与回放、报告侧 per-channel DBC 解码、**网络管理（NM）分析**。
+> 多通道录制与回放、报告侧 per-channel DBC 解码、**网络管理（NM）分析**、**DBC 字节位图**。
 > **3732 个单元测试通过、11 跳过**（Core 1132 / Infrastructure 716 / App 1465 / Cli 73 /
 > Mobile.Core 275 / Security 48 / PromptCacheProbe 23，2026-09-15 全量基线）；
 > NM M1 定向测试 Core 190 / App 225 通过（2026-11-20）；
+> DBC 字节位图定向测试 Core 21 / App 87 通过（2026-11-26）；
 > 依赖 **PeakCan.HIL.Core 0.23.1**（控制流/参数化/多通道模型 + DBC NM 属性；sibling 仓库存在时走 ProjectReference，
 > 否则 NuGet 包，host / studio 双侧 pin 已对齐）；NetArchTest 强制执行架构规则；
 > 每次推送 `main` 自动运行 CI。
@@ -41,11 +42,19 @@ ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
   共享 ID 抑制；DBC 缺项时通过补全对话框写入 `*.nmprofile.json`，能力门控返回
   `missing_inputs`；NM 面板（时间条 + 事件表 + 导出）与 `get_nm_profile` /
   `get_nm_overview` / `get_nm_events` 三个聊天工具。M1 不做接收端状态机裁决。
+- **NM 唤醒原因时间线 + 静默相位推断（v3.68.0）** — `*.nmreasons.json` 字典由
+  `nmprofile.json` 的 `reasons_path` 显式引用，逐帧解码唤醒/保持唤醒原因；时间条新增原因行，
+  事件表新增 `reason_change` 行，Markdown/CSV 导出带原因段。静默空档按 NM 超时、发送者归属
+  与应用报文活动推断 `release_wait` / `prepare_sleep` / `sleep`，面板分色、导出同步；
+  相位只进结构化数据与 observation，不产生 finding。
 - **AI 推理 v1（v3.52.0）** — 本地证据（DID 数据 + trace 片段）驱动的失败原因分析，AI Analysis 面板。
 
 ### DBC 与信号
 
 - **DBC 文件加载** — UI 线程外解析 `.dbc`；消息表带发送者、DLC、信号列表；值表枚举。
+- **DBC 字节位图（v3.68.0）** — 选中消息即显示经典 8 字节 / CAN FD 64 字节的位分布；
+  Intel/Motorola 与解码器逐行同构，mux 分支切换、重叠标注、越界/DLC 异常可见提示；
+  二期以 33ms 节流实时刷新当前选中消息（0 位变淡 + 信号表“当前值”），切标签页自动停表。
 - **信号视图 + 图表** — 实时 DBC 解码（原始 hex + 物理值），OxyPlot / ScottPlot 双引擎图表，
   green-line 锚点 watch 同步。
 - **发送面板** — 手动发送（CAN ID + hex，CAN FD 标志，标准/扩展帧）、**循环发送**、
