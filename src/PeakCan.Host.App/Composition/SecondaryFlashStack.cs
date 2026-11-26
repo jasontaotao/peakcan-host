@@ -161,7 +161,7 @@ internal sealed class SecondaryFlashStack : ISecondaryFlashStack
 }
 
 /// <summary>
-/// Production <see cref="ISecondaryFlashStackFactory"/>: resolves the shared send/router/timer
+/// Production <see cref="ISecondaryFlashStackFactory"/>: resolves the shared send/router
 /// singletons from DI once at construction, then builds a fresh <see cref="SecondaryFlashStack"/>
 /// per <see cref="Build"/> call with a freshly-constructed IsoTpLayer + UdsClient + key algorithm
 /// for the given profile's programming CAN-ID pair and SecurityAccess step.
@@ -170,35 +170,52 @@ internal sealed class SecondaryFlashStack : ISecondaryFlashStack
 /// <see cref="FlashPanelViewModel"/> receives the same factory across the app lifetime but a
 /// FRESH stack per flash run (no shared mutable state between runs).
 /// </para>
+/// <para>
+/// <b>Timer scope:</b> the timer is created per <see cref="Build"/> via
+/// <c>timerFactory</c>, not injected as a shared instance. A shared timer leaks the
+/// previous run's ECU-negotiated P2/P2* into the next run — visible when a later run
+/// disables the SessionControl step (allowed by <c>FlashStep</c>), which would then
+/// run on the prior ECU's timings. A factory delegate (rather than a fresh
+/// <c>new UdsTimer()</c> inline) keeps a test seam for injecting a custom timer shape.
+/// </para>
 /// </summary>
 internal sealed class SecondaryFlashStackFactory : ISecondaryFlashStackFactory
 {
     private readonly CoreSendService _sendService;
     private readonly ChannelRouter _router;
-    private readonly UdsTimer _timer;
+    private readonly Func<UdsTimer> _timerFactory;
     private readonly ILogger<IsoTpLayer> _isoTpLogger;
     private readonly ILogger<UdsSession> _sessionLogger;
     private readonly ILogger<SecondaryFlashStack> _stackLogger;
 
     /// <summary>Internal ctor — resolved by DI; tests reach it via InternalsVisibleTo.</summary>
+    /// <param name="sendService">Shared send service (address-agnostic).</param>
+    /// <param name="router">Shared channel router for receive fan-out.</param>
+    /// <param name="timerFactory">
+    /// Creates a FRESH timer for each <see cref="Build"/>. Must not return a shared
+    /// instance — that reintroduces cross-run timing residue.
+    /// </param>
+    /// <param name="isoTpLogger">Logger threaded into the per-run IsoTpLayer.</param>
+    /// <param name="sessionLogger">Logger threaded into the per-run UdsSession.</param>
+    /// <param name="stackLogger">Logger for stack teardown diagnostics.</param>
     internal SecondaryFlashStackFactory(
         CoreSendService sendService,
         ChannelRouter router,
-        UdsTimer timer,
+        Func<UdsTimer> timerFactory,
         ILogger<IsoTpLayer> isoTpLogger,
         ILogger<UdsSession> sessionLogger,
         ILogger<SecondaryFlashStack> stackLogger)
     {
         ArgumentNullException.ThrowIfNull(sendService);
         ArgumentNullException.ThrowIfNull(router);
-        ArgumentNullException.ThrowIfNull(timer);
+        ArgumentNullException.ThrowIfNull(timerFactory);
         ArgumentNullException.ThrowIfNull(isoTpLogger);
         ArgumentNullException.ThrowIfNull(sessionLogger);
         ArgumentNullException.ThrowIfNull(stackLogger);
 
         _sendService = sendService;
         _router = router;
-        _timer = timer;
+        _timerFactory = timerFactory;
         _isoTpLogger = isoTpLogger;
         _sessionLogger = sessionLogger;
         _stackLogger = stackLogger;
@@ -264,7 +281,9 @@ internal sealed class SecondaryFlashStackFactory : ISecondaryFlashStackFactory
 
         // Secondary UdsClient (4-arg ctor from UdsClient.cs:94): binds its read-only
         // _keyAlgorithm to the run-specific algo, not the diagnostic singleton's Placeholder.
-        var client = new UdsClient(isoTp, keyAlgo, _timer, _sessionLogger);
+        // The timer is created per Build so a previous run's negotiated P2/P2* cannot
+        // survive into this one (see the factory's class-level doc).
+        var client = new UdsClient(isoTp, keyAlgo, _timerFactory(), _sessionLogger);
         var sink = new IsoTpSinkAdapter(isoTp);
 
         return new SecondaryFlashStack(_router, isoTp, sink, client, dllKey, _stackLogger);

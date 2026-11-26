@@ -195,10 +195,18 @@ public sealed partial class TransportParamsViewModel : ObservableObject
 
     private static (string P2, string P2Star) FormatTiming(UdsSession session)
     {
-        var source = session.HasNegotiatedTiming ? "ECU 0x10 协商" : "本地默认";
+        var source = FormatTimingSource(session.TimingSource);
         return ($"{session.P2Timeout} ms（{source}）",
                 $"{session.P2StarTimeout} ms（{source}）");
     }
+
+    /// <summary>三态来源标注。用枚举而非 bool，避免「用户配置」被显示成「本地默认」。</summary>
+    internal static string FormatTimingSource(UdsTimingSource source) => source switch
+    {
+        UdsTimingSource.EcuNegotiated => "ECU 0x10 协商",
+        UdsTimingSource.UserConfig => "用户配置",
+        _ => "本地默认",
+    };
 
     private static (string StMin, string BlockSize) FormatFlowControl(IsoTpTxSnapshot snap)
     {

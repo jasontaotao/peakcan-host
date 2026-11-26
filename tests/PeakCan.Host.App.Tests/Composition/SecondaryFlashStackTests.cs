@@ -45,7 +45,7 @@ public sealed class SecondaryFlashStackTests
     };
 
     private static SecondaryFlashStackFactory CreateFactory(CoreSendService? send = null,
-        ChannelRouter? router = null, UdsTimer? timer = null)
+        ChannelRouter? router = null, Func<UdsTimer>? timerFactory = null)
     {
         // Real CoreSendService + router + timer: Build only CAPTURES the send delegate
         // (it is never invoked in these tests — no flash is driven), so a real sender
@@ -54,7 +54,7 @@ public sealed class SecondaryFlashStackTests
         return new SecondaryFlashStackFactory(
             send ?? new CoreSendService(NullLogger<PeakCan.Host.App.Services.SendService>.Instance),
             router ?? new ChannelRouter(),
-            timer ?? new UdsTimer(),
+            timerFactory ?? (() => new UdsTimer()),
             NullLogger<IsoTpLayer>.Instance,
             NullLogger<UdsSession>.Instance,
             NullLogger<SecondaryFlashStack>.Instance);
@@ -66,7 +66,7 @@ public sealed class SecondaryFlashStackTests
     public void Factory_Ctor_Null_Send_Throws()
     {
         var act = () => new SecondaryFlashStackFactory(
-            null!, new ChannelRouter(), new UdsTimer(),
+            null!, new ChannelRouter(), () => new UdsTimer(),
             NullLogger<IsoTpLayer>.Instance, NullLogger<UdsSession>.Instance,
             NullLogger<SecondaryFlashStack>.Instance);
         act.Should().Throw<ArgumentNullException>();
@@ -80,7 +80,7 @@ public sealed class SecondaryFlashStackTests
         var act = () => new SecondaryFlashStackFactory(
             new CoreSendService(NullLogger<PeakCan.Host.App.Services.SendService>.Instance),
             null!,
-            new UdsTimer(),
+            () => new UdsTimer(),
             NullLogger<IsoTpLayer>.Instance,
             NullLogger<UdsSession>.Instance,
             NullLogger<SecondaryFlashStack>.Instance);
@@ -92,6 +92,41 @@ public sealed class SecondaryFlashStackTests
     {
         var act = () => CreateFactory().Build(null!, Profile);
         act.Should().Throw<ArgumentNullException>();
+    }
+
+    // ========================================================================
+    // 每次 Build 必须拿到全新的 UdsTimer。
+    //
+    // 原实现把 DI 单例 timer 传给每次 Build 的 UdsClient，而 Dispose 不碰 timer。
+    // 于是第一次刷写协商的 P2/P2* 会残留到第二次；若第二次禁用了 SessionControl
+    // 步骤（FlashStep 只默认禁用 PreCheck/Verify，SessionControl 可手动关），
+    // 第二次就用上一次 ECU 的值，可能与当前 ECU 不符。
+    // ========================================================================
+
+    [Fact]
+    public void Build_Returns_A_Fresh_Timer_Per_Run_So_Negotiated_Timing_Does_Not_Leak()
+    {
+        var factory = CreateFactory();
+
+        var first = factory.Build(SecurityStep(SecurityAccessMode.Manual), Profile);
+        var second = factory.Build(SecurityStep(SecurityAccessMode.Manual), Profile);
+        try
+        {
+            // 模拟第一次刷写协商出一组非默认值。
+            first.Client.TimerForTesting.P2StarTimeout = TimeSpan.FromMilliseconds(7500);
+
+            second.Client.TimerForTesting.P2StarTimeout.Should().Be(
+                UdsTimer.DefaultP2StarTimeout,
+                "第二次刷写必须从默认时序开始，不能继承上一台 ECU 的协商值");
+            second.Client.TimerForTesting.Should().NotBeSameAs(
+                first.Client.TimerForTesting,
+                "每次 Build 的 timer 必须是独立实例，否则跨运行残留无从避免");
+        }
+        finally
+        {
+            first.Dispose();
+            second.Dispose();
+        }
     }
 
     [Fact]

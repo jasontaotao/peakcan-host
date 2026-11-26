@@ -79,7 +79,8 @@ public class IsoTpSinkAdapterTests
     [Fact]
     public void OnFrame_FrameWithDifferentCanId_DoesNotRaiseMessageReceived()
     {
-        // IsoTpLayer internally filters by _config.ResponseId (ReceiveFlow L29).
+        // IsoTpLayer internally filters by the live runtime snapshot's ResponseId
+        // (ReceiveFlow.ProcessFrame), which ReconfigureAsync can change at runtime.
         // The adapter is a transparent pass-through and must NOT also filter —
         // the filter already lives in the layer, duplicating it would risk
         // drift between adapter and layer CanIdConfig.

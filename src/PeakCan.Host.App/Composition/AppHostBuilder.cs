@@ -205,13 +205,29 @@ public partial class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.App.Services.Scripting.DbcApi>();
 
         // v1.1.0: UDS diagnostic stack.
-        builder.Services.AddSingleton<PeakCan.Host.Core.Uds.UdsTimer>();
+        // UdsTimer 刻意不注册为 DI 单例：诊断栈自己 new（UdsClient ctor 的
+        // timer: null 分支），刷写栈每次 Build 各 new 一只。共享单例正是「上一轮
+        // 协商值残留到下一轮」的来源——两栈的时序本来就该隔离。
+        // 通讯参数持久化：%APPDATA%\PeakCan.Host\uds-transport.json。
+        // 不用 IConfiguration 索引器——那只改进程内副本，不落盘（用户的痛点是
+        // 「每次分析要手敲地址」，必须跨重启记忆）。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore>(sp =>
+        {
+            var store = new PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore(
+                sp.GetRequiredService<ILogger<PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore>>());
+            store.Load();
+            return store;
+        });
         builder.Services.AddSingleton<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>(sp =>
         {
+            // 启动即用持久化的地址与时序，而不是写死的 0x7E0/0x7E8。
+            var saved = sp.GetRequiredService<PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore>().Current;
             var config = new PeakCan.HIL.Core.Uds.IsoTp.CanIdConfig
             {
-                RequestId = 0x7E0,  // Default UDS physical request ID
-                ResponseId = 0x7E8  // Default UDS physical response ID
+                RequestId = saved.RequestId,
+                ResponseId = saved.ResponseId,
+                FunctionalId = saved.FunctionalId,
+                IsExtendedFrame = saved.IsExtendedFrame,
             };
             // v1.6.5 PATCH Item 1: IsoTpLayer IS EXEMPT from rate-limit.
             // ISO 15765-2 has its own STmin pacing (consecutive-frame
@@ -321,9 +337,10 @@ public partial class AppHostBuilder
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.RoutinePanelViewModel>();
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.DtcPanelViewModel>();
         // C4 flashing pipeline: the per-flash secondary stack factory (resolves the shared
-        // CoreSendService/ChannelRouter/UdsTimer/loggers once) + the Flashing-tab panel VM
-        // (owns the stack lifecycle + pipeline execution). Registered as singletons so the
-        // FlashPanelViewModel holds a stable factory but builds a FRESH stack per Start.
+        // CoreSendService/ChannelRouter/loggers once; the UdsTimer is created per Build, see
+        // the factory's class doc) + the Flashing-tab panel VM (owns the stack lifecycle +
+        // pipeline execution). Registered as singletons so the FlashPanelViewModel holds a
+        // stable factory but builds a FRESH stack per Start.
         // Registered BEFORE UdsViewModel so the orchestrator's ctor can resolve it (6th panel).
         //
         // Both ctors are `internal` (the factory + the VM expose App-internal seam contracts —
@@ -335,7 +352,9 @@ public partial class AppHostBuilder
             new PeakCan.Host.App.Composition.SecondaryFlashStackFactory(
                 sp.GetRequiredService<PeakCan.Host.App.Composition.CoreSendService>(),
                 sp.GetRequiredService<PeakCan.Host.Infrastructure.Channel.ChannelRouter>(),
-                sp.GetRequiredService<PeakCan.Host.Core.Uds.UdsTimer>(),
+                // 每次 Build 都要一只新 timer：共享实例会把上一轮刷写协商的 P2/P2*
+                // 带到下一轮（禁用 SessionControl 步骤时尤其明显）。
+                () => new PeakCan.Host.Core.Uds.UdsTimer(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.Core.Uds.UdsSession>>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.Composition.SecondaryFlashStack>>()));
@@ -345,11 +364,37 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel>>(),
                 sp.GetRequiredService<PeakCan.HIL.Core.IFileDialogService>(),
                 sp.GetRequiredService<IHostApplicationLifetime>(),
-                sp.GetRequiredService<PeakCan.Host.App.Services.FlashConfigurationService>()));
-        // Read-only communication-parameters panel: polls the diagnostic IsoTpLayer/UdsClient
-        // singletons + the FlashPanelViewModel's in-flight secondary stack. Public ctor, so
-        // plain registration suffices — UdsViewModel's optional ctor param auto-resolves to it.
-        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.TransportParamsViewModel>();
+                sp.GetRequiredService<PeakCan.Host.App.Services.FlashConfigurationService>(),
+                // 同寻址守卫要读诊断栈「当前」的 ResponseId——诊断 CAN ID 已可运行时重配，
+                // 写死 0x7E8 会让守卫在用户改过地址后失效。
+                () => sp.GetRequiredService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>().Config.ResponseId));
+        // Communication-parameters panel: polls the diagnostic IsoTpLayer/UdsClient
+        // singletons + the FlashPanelViewModel's in-flight secondary stack, and hosts the
+        // editable form. Attach the settings store so the form starts from the persisted
+        // values and 「应用」 can write them back.
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.TransportParamsViewModel>(sp =>
+        {
+            var isoTp = sp.GetRequiredService<PeakCan.Host.Core.Uds.IsoTp.IsoTpLayer>();
+            var client = sp.GetRequiredService<PeakCan.Host.Core.Uds.UdsClient>();
+            var flash = sp.GetRequiredService<PeakCan.Host.App.ViewModels.Uds.FlashPipeline.FlashPanelViewModel>();
+            var store = sp.GetRequiredService<PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore>();
+            var logger = sp.GetService<ILogger<PeakCan.Host.App.ViewModels.Uds.TransportParamsViewModel>>();
+
+            var vm = new PeakCan.Host.App.ViewModels.Uds.TransportParamsViewModel(isoTp, client, flash, logger);
+            vm.AttachSettingsStore(store);
+
+            // 启动时把持久化的时序基线装进 UdsClient（它会同时写真正生效的 _timer
+            // 与展示用的 Session）与 ISO-TP 层。只写 Session 会让界面显示用户配置、
+            // 实际仍按内置默认超时——正是本方案要消灭的「显示与行为不符」。
+            var saved = store.Current;
+            isoTp.FlowControlTimeout = TimeSpan.FromMilliseconds(saved.NBsMs);
+            isoTp.ReceiveTimeout = TimeSpan.FromMilliseconds(saved.NCrMs);
+            client.ApplyTimingBaseline(
+                saved.P2Ms, saved.P2StarMs,
+                hasUserOverride: saved != PeakCan.Host.App.Services.Uds.UdsTransportSettings.Default);
+
+            return vm;
+        });
         // 离线日志分析（spec 2026-11-25）：ASC/BLF 加载器、纯分析器、导出交互、
         // 聊天 Handoff，以及挂在 UdsViewModel 上的子 VM。全部 singleton——
         // 切换页签不取消分析，返回时仍是同一份报告。
@@ -371,7 +416,9 @@ public partial class AppHostBuilder
                 sp.GetRequiredService<PeakCan.Host.App.Services.Uds.IUdsExportPrompt>(),
                 sp.GetRequiredService<PeakCan.Host.Core.Uds.Database.DidDatabase>(),
                 sp.GetRequiredService<PeakCan.Host.Core.Uds.Database.RoutineDatabase>(),
-                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Uds.OdxImportViewModel>()));
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Uds.OdxImportViewModel>(),
+                // 离线分析也用在线页配过的地址，省得每次手敲。
+                sp.GetRequiredService<PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore>()));
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
 

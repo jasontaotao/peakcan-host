@@ -29,12 +29,60 @@ public sealed class UdsLogAnalysisViewModelTests
 
     private static UdsLogAnalysisViewModel Vm(
         IUdsOfflineTraceLoader loader, ITraceViewerChatHandoffService? handoff = null,
-        IUdsExportPrompt? exportPrompt = null, OdxImportViewModel? odxImport = null)
+        IUdsExportPrompt? exportPrompt = null, OdxImportViewModel? odxImport = null,
+        PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore? settings = null)
         => new(loader, new UdsOfflineAnalyzer(), handoff ?? new FakeHandoff(), new FakeDialogs(),
             exportPrompt ?? new FakeExportPrompt(UdsExportChoice.Cancel),
             new DidDatabase(userJsonPath: null), new RoutineDatabase(userJsonPath: null),
             odxImport ?? new OdxImportViewModel(
-                new FakeOdxService(OdxImportResult.Ok(0, 0, 0, Array.Empty<string>()))));
+                new FakeOdxService(OdxImportResult.Ok(0, 0, 0, Array.Empty<string>()))),
+            settings);
+
+    // ========================================================================
+    // 离线页地址记忆：在线页配过的地址这里直接继承，省得每次手敲。
+    // ========================================================================
+
+    [Fact]
+    public void Address_Fields_Are_Seeded_From_Persisted_Settings()
+    {
+        var store = new PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore>.Instance,
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"offline-{Guid.NewGuid():N}.json"));
+        store.Save(PeakCan.Host.App.Services.Uds.UdsTransportSettings.Default with
+        {
+            RequestId = 0x714,
+            ResponseId = 0x760,
+        });
+
+        var vm = Vm(new FakeLoader(ThreeFrameLog()), settings: store);
+
+        vm.RequestIdText.Should().Be("714",
+            "离线页要继承在线配置，而不是硬编码的 7E0");
+        vm.ResponseIdText.Should().Be("760");
+    }
+
+    [Fact]
+    public void Address_Fields_Stay_At_Defaults_When_No_Store_Is_Injected()
+    {
+        var vm = Vm(new FakeLoader(ThreeFrameLog()));
+
+        vm.RequestIdText.Should().Be("7E0");
+        vm.ResponseIdText.Should().Be("7E8");
+    }
+
+    [Fact]
+    public void Offline_Edits_Do_Not_Write_Back_To_The_Store()
+    {
+        var store = new PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore>.Instance,
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"offline-{Guid.NewGuid():N}.json"));
+        var vm = Vm(new FakeLoader(ThreeFrameLog()), settings: store);
+
+        vm.RequestIdText = "999"; // 用户临时分析另一台 ECU
+
+        store.Current.RequestId.Should().Be(0x7E0,
+            "离线页的临时改动不能污染在线诊断的地址配置");
+    }
 
     [Fact]
     public async Task Analyze_produces_report_and_visible_rows()

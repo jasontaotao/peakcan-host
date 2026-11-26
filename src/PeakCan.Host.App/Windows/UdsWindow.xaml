@@ -73,41 +73,97 @@
                        Text="⚠ 刷写进行中 — 诊断面板（会话 / DID / 例程 / DTC）已锁定，刷写结束后自动恢复。" />
         </Border>
 
-        <!-- 通信参数 (只读): 诊断栈 + Flash 副栈当前生效的时序参数及其来源.
+        <!-- 通信参数: 上半只读展示（诊断栈 + Flash 副栈当前生效值及其来源），
+             下半可编辑表单（CAN ID / 帧格式 / P2 / P2* / N_Bs / N_Cr）。
              Params 面板 500ms 轮询; 向后兼容 ctor 下为 Disabled 实例 (全部显示 —). -->
         <Expander DockPanel.Dock="Top" Header="通信参数"
                   IsExpanded="False" Padding="8,4" Background="{StaticResource SurfaceSubtle}"
                   Visibility="{Binding IsOnlineTab, Converter={StaticResource BoolToVis}}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                    <TextBlock Text="诊断栈" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBlock Text="{Binding Params.DiagTransport, StringFormat='传输：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagSession, StringFormat='会话：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagP2, StringFormat='P2：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagP2Star, StringFormat='P2*：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagStMin, StringFormat='STmin：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagBlockSize, StringFormat='BS：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagNBs, StringFormat='N_Bs（等 FC 超时）：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagNCr, StringFormat='N_Cr（等 CF 超时）：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.DiagS3Failures, StringFormat='S3 保活失败：{0}'}" Margin="0,1"/>
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                        <TextBlock Text="诊断栈" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding Params.DiagTransport, StringFormat='传输：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.DiagSession, StringFormat='会话：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.DiagP2, StringFormat='P2：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.DiagP2Star, StringFormat='P2*：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.DiagStMin, StringFormat='STmin：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.DiagBlockSize, StringFormat='BS：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.DiagNBs, StringFormat='N_Bs（等 FC 超时）：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.DiagNCr, StringFormat='N_Cr（等 CF 超时）：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.DiagS3Failures, StringFormat='S3 保活失败：{0}'}" Margin="0,1"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                        <TextBlock Text="刷写副栈" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding Params.FlashRunState, StringFormat='状态：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.FlashTransport, StringFormat='传输：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.FlashSession, StringFormat='会话：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.FlashP2, StringFormat='P2：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.FlashP2Star, StringFormat='P2*：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.FlashStMin, StringFormat='STmin：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.FlashBlockSize, StringFormat='BS：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.FlashNBs, StringFormat='N_Bs（等 FC 超时）：{0}'}" Margin="0,1"/>
+                        <TextBlock Text="{Binding Params.FlashNCr, StringFormat='N_Cr（等 CF 超时）：{0}'}" Margin="0,1"/>
+                    </StackPanel>
+                </Grid>
+
+                <Separator Margin="0,8"/>
+
+                <!-- 可编辑：诊断 CAN ID + 时序。改完点「应用」立即生效（不重启）。 -->
+                <TextBlock Text="诊断通讯参数（可编辑）" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="请求 ID（hex）：" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBox   Grid.Row="0" Grid.Column="1" Text="{Binding Params.EditRequestId, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,16,2"/>
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="响应 ID（hex）：" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBox   Grid.Row="0" Grid.Column="3" Text="{Binding Params.EditResponseId, UpdateSourceTrigger=PropertyChanged}" Margin="0,2"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="功能寻址 ID（hex）：" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBox   Grid.Row="1" Grid.Column="1" Text="{Binding Params.EditFunctionalId, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,16,2"
+                               ToolTip="留空 = 不使用功能寻址（0x28 广播将不可用）"/>
+                    <CheckBox  Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="扩展帧（29 位）"
+                               IsChecked="{Binding Params.EditIsExtended}" VerticalAlignment="Center" Margin="0,2"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="P2（ms）：" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBox   Grid.Row="2" Grid.Column="1" Text="{Binding Params.EditP2Ms, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,16,2"/>
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="P2*（ms）：" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBox   Grid.Row="2" Grid.Column="3" Text="{Binding Params.EditP2StarMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,2"/>
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="N_Bs（ms）：" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBox   Grid.Row="3" Grid.Column="1" Text="{Binding Params.EditNBsMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,16,2"/>
+                    <TextBlock Grid.Row="3" Grid.Column="2" Text="N_Cr（ms）：" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBox   Grid.Row="3" Grid.Column="3" Text="{Binding Params.EditNCrMs, UpdateSourceTrigger=PropertyChanged}" Margin="0,2"/>
+                </Grid>
+
+                <!-- 刷写中禁用：此时改诊断 ResponseId 可能撞上编程寻址，
+                     两个 IsoTpLayer 会在共享路由器上抢同一批帧。 -->
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0"
+                            IsEnabled="{Binding IsDiagnosticsEnabled}">
+                    <Button Content="应用" Command="{Binding Params.ApplyCommand}" Padding="16,4" Margin="0,0,8,0"/>
+                    <Button Content="重新载入" Command="{Binding Params.ReloadCommand}" Padding="12,4" Margin="0,0,8,0"
+                            ToolTip="丢弃未保存的编辑，回到已保存的配置"/>
+                    <Button Content="恢复默认" Command="{Binding Params.RestoreDefaultsCommand}" Padding="12,4"
+                            ToolTip="填入内置默认值（需再点「应用」才生效）"/>
+                    <TextBlock Text="{Binding Params.EditStatus}" VerticalAlignment="Center" Margin="16,0,0,0"
+                               TextWrapping="Wrap" Foreground="{StaticResource WarnText}"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Margin="16,0,0,0">
-                    <TextBlock Text="刷写副栈" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBlock Text="{Binding Params.FlashRunState, StringFormat='状态：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashTransport, StringFormat='传输：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashSession, StringFormat='会话：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashP2, StringFormat='P2：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashP2Star, StringFormat='P2*：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashStMin, StringFormat='STmin：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashBlockSize, StringFormat='BS：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashNBs, StringFormat='N_Bs（等 FC 超时）：{0}'}" Margin="0,1"/>
-                    <TextBlock Text="{Binding Params.FlashNCr, StringFormat='N_Cr（等 CF 超时）：{0}'}" Margin="0,1"/>
-                </StackPanel>
-            </Grid>
+            </StackPanel>
         </Expander>
 
         <!-- Bottom: Output Log -->
