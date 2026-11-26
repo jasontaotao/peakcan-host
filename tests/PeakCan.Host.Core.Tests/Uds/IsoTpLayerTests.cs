@@ -265,6 +265,53 @@ public sealed class IsoTpLayerTests
     }
 
     [Fact]
+    public async Task NCrExpiry_DropsStaleConsecutiveFrame_WithoutNewFirstFrame()
+    {
+        // TRUE regression for the N_Cr watchdog. The sibling test above is a
+        // false green: it injects a fresh First Frame in round 2, and
+        // HandleFirstFrame unconditionally resets every _rx* field, so it
+        // passes whether or not the watchdog ever fires.
+        //
+        // Here we never inject a new FF. If the watchdog is armed (CancelAfter),
+        // the stale reassembly is abandoned at N_Cr and the late CF must be
+        // discarded — MessageReceived must NOT fire. Without the arming, the
+        // CF completes the 20-byte message and the event fires.
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+        iso.ReceiveTimeout = TimeSpan.FromMilliseconds(120);
+
+        byte[]? receivedPayload = null;
+        iso.MessageReceived += bytes => receivedPayload = bytes;
+
+        // FF declaring 20 bytes, carrying 6 → 14 more bytes expected.
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 1, 2, 3, 4, 5, 6 });
+
+        // Wait until the layer has actually abandoned the reassembly (poll
+        // rather than sleeping a fixed duration, so the test is not sensitive
+        // to CI scheduling jitter).
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+        while (iso.RxInProgressForTesting && DateTime.UtcNow < deadline)
+            await Task.Delay(5);
+
+        iso.RxInProgressForTesting.Should().BeFalse(
+            "N_Cr must expire and abandon the in-progress reassembly");
+
+        // A late CF for the abandoned message must be dropped, not appended.
+        // Two CFs, not one: a classic CAN frame carries at most 8 bytes, of
+        // which the FF spends 2 on PCI (6 data) and a CF spends 1 (7 data).
+        // 6 + 7 = 13 < 20, so a single CF can never complete this message —
+        // asserting BeNull() after one CF would pass even if the stale
+        // reassembly were still alive. Two CFs (6 + 7 + 7 = 20) do complete
+        // it, so the assertion actually distinguishes "dropped" from "kept".
+        InjectConsecutiveFrame(iso, sequence: 1, chunk: new byte[] { 7, 8, 9, 10, 11, 12, 13 });
+        InjectConsecutiveFrame(iso, sequence: 2, chunk: new byte[] { 14, 15, 16, 17, 18, 19, 20 });
+
+        await Task.Delay(100);
+        receivedPayload.Should().BeNull(
+            "CFs arriving after N_Cr expired must not complete the stale reassembly");
+    }
+
+    [Fact]
     public async Task SendMultiFrameAsync_NoFlowControl_Throws_Timeout_Before_Default_5s()
     {
         var sink = new ObservableCollection<byte[]>();
@@ -397,16 +444,17 @@ public sealed class IsoTpLayerTests
     /// via the null-conditional operator.
     /// </para>
     /// <para>
-    /// However the production code now uses explicit
-    /// <c>_rxWatchdog is null</c> + <c>Generation != expectedGeneration</c>
-    /// guards (more readable than the implicit <c>?.</c> short-circuit and
-    /// makes the FF→FF vs CF→CF distinction explicit per the field doc).
+    /// However the production code now uses an explicit
+    /// <c>ReferenceEquals(_rxWatchdog, handle)</c> guard (replacing the older
+    /// null + Generation pair; the generation counter derived from
+    /// <c>_rxExpectedSequence</c>, which wraps with &amp; 0x0F, so it could
+    /// collide with a stale callback).
     /// This test pins the contract that FF2 reassembles in full after the
     /// FF1 Timer has fired — i.e. the layer survives the FF→FF Timer churn
     /// and accepts a fresh FF without state corruption. If a future change
-    /// removes the null/Generation guards entirely (e.g. someone replaces the
-    /// combined check with a single boolean that does NOT honour the null
-    /// short-circuit), the test will catch the regression.
+    /// removes the identity guard entirely (e.g. someone replaces it with a
+    /// check that does NOT short-circuit for a superseded handle), the test
+    /// will catch the regression.
     /// </para>
     /// <para>
     /// Test timeline: T=0 inject FF1 (Timer fires at T=50ms); T=5ms inject FF2
@@ -431,10 +479,17 @@ public sealed class IsoTpLayerTests
         // T=5ms: Timer has NOT yet fired (50ms timeout). Inject FF2.
         // HandleFirstFrame → CancelReceiveWatchdog sets _rxWatchdog=null,
         // then Cancel(H1.Cts) synchronously fires H1's Register callback on
-        // the test thread (callback takes _rxLock, sees _rxWatchdog=null,
-        // short-circuits per the explicit null-state guard). HandleFirstFrame
-        // then installs H2 (Gen=1) under _rxLock.
+        // the test thread (callback takes _rxLock, sees a different handle,
+        // short-circuits). HandleFirstFrame then installs H2 (Gen=1).
         await Task.Delay(5);
+
+        // Lengthen N_Cr BEFORE installing FF2's watchdog. H1 was already
+        // armed at 50 ms and stays armed (that's what this test is about),
+        // but H2 must outlive the 80 ms window below — otherwise FF2 would
+        // legitimately time out and the assertions would be testing N_Cr
+        // expiry instead of stale-callback isolation. (Pre-fix, N_Cr was
+        // never armed at all, so this test passed for the wrong reason.)
+        iso.ReceiveTimeout = TimeSpan.FromSeconds(2);
         InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5 });
 
         byte[]? received = null;
@@ -1225,6 +1280,249 @@ public sealed class IsoTpLayerTests
         var iso = NewLayer(sink, config);
 
         iso.Config.Should().Be(config, "CanIdConfig is an immutable record — the exposed reference must equal it");
+    }
+
+    // ========================================================================
+    // Reset(): 断连复位必须清掉整份传输状态，不能只清接收态。
+    //
+    // 原实现只清 _rxInProgress/_rxBuffer/watchdog/_txWaitingForFc，留下
+    // _hasReceivedFc / _txBlockSize / _txStMin 等「上一台 ECU 的协商结果」。
+    // 表现是：换 ECU 后通信参数面板继续显示上一台的 STmin/BS，且标注为
+    // 「已收到 Flow Control」——用户会相信这个标注。
+    // ========================================================================
+
+    [Fact]
+    public async Task Reset_Clears_FlowControl_Derived_Tx_State()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+
+        // 让一次多帧传输真正收到 FC(BS=2, STmin=10ms)，把 ECU 协商值写进层内。
+        var sendTask = iso.SendMessageAsync(new byte[20], CancellationToken.None);
+        await WaitForSentFramesAsync(sink, 1);
+        InjectFlowControl(iso, blockSize: 0, stMin: 0x0A);
+        await sendTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        iso.SnapshotTxState().HasReceivedFlowControl.Should().BeTrue("前置条件：FC 已到达");
+        iso.SnapshotTxState().StMinRaw.Should().Be(0x0A);
+
+        iso.Reset();
+
+        var snap = iso.SnapshotTxState();
+        snap.HasReceivedFlowControl.Should().BeFalse(
+            "断连后「是否收到过 FC」必须复位，否则面板把初始零值标成 ECU 协商值");
+        snap.StMinRaw.Should().Be(0, "STmin 是上一台 ECU 的协商结果，必须清掉");
+        snap.BlockSize.Should().Be(0);
+        snap.StMinDelay.Should().Be(TimeSpan.Zero);
+        snap.WaitingForFlowControl.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Reset_Abandons_In_Progress_Reassembly()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+        var reassembled = new List<byte[]>();
+        iso.MessageReceived += msg => reassembled.Add(msg);
+
+        // FF 声明 20 字节 → 需要两条 CF；只发 FF 就停在中途。
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 1, 2, 3, 4, 5, 6 });
+        iso.RxInProgressForTesting.Should().BeTrue("前置条件：重组进行中");
+
+        iso.Reset();
+
+        iso.RxInProgressForTesting.Should().BeFalse("复位必须放弃进行中的重组");
+
+        // 迟到的 CF 不得拼出消息——否则断连前的残包会在新连接里被当成有效响应。
+        // 注意：这条断言在当前实现下已经成立（_rxInProgress 是 CF 的前置守卫），
+        // 它固定的是「阶段 3 的 Reconfigure 依赖 Reset 的这一契约」，不是新 bug 的回归。
+        InjectConsecutiveFrame(iso, sequence: 1, chunk: new byte[] { 7, 8, 9, 10, 11, 12, 13 });
+        reassembled.Should().BeEmpty("复位后旧重组的 CF 必须被丢弃，而不是接着拼");
+    }
+
+    // ========================================================================
+    // 阶段 3：运行时重配（Reconfigure）。
+    //
+    // 关键约束：_config 与 _txCanId 必须**原子地一起换**。分别改两个字段会出现
+    // 「接收用新 ResponseId 过滤、发送仍用旧 RequestId」的撕裂窗口——发出去的帧
+    // ECU 不认，收回来的帧又被丢掉，现象是「改完 ID 就彻底失联」。
+    // ========================================================================
+
+    [Fact]
+    public async Task Reconfigure_Changes_Send_Id_And_Frame_Format()
+    {
+        var sent = new ObservableCollection<CanFrame>();
+        var iso = new IsoTpLayer(DefaultConfig, frame => sent.Add(frame));
+
+        await iso.ReconfigureAsync(new CanIdConfig { RequestId = 0x714, ResponseId = 0x7E8 });
+
+        await iso.SendMessageAsync(new byte[] { 0x3E, 0x00 }, CancellationToken.None);
+
+        sent.Should().ContainSingle();
+        sent[0].Id.Raw.Should().Be(0x714, "发送必须用新 RequestId");
+        sent[0].Id.Format.Should().Be(FrameFormat.Standard);
+    }
+
+    [Fact]
+    public async Task Reconfigure_Changes_Receive_Filter_To_The_New_ResponseId()
+    {
+        var sent = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sent);
+        var reassembled = new List<byte[]>();
+        iso.MessageReceived += msg => reassembled.Add(msg);
+
+        await iso.ReconfigureAsync(new CanIdConfig { RequestId = 0x714, ResponseId = 0x760 });
+
+        // 旧 ResponseId 的帧必须被丢弃。
+        iso.ProcessFrame(new CanFrame(
+            new CanId(RespId, FrameFormat.Standard),
+            new IsoTpFrame(IsoTpFrameType.Single, data: new byte[] { 0x50, 0x02 }).Encode(),
+            FrameFlags.None, default, default));
+        reassembled.Should().BeEmpty("旧 ResponseId 的帧必须被新的接收过滤挡掉");
+
+        // 新 ResponseId 的帧必须收下。
+        iso.ProcessFrame(new CanFrame(
+            new CanId(0x760, FrameFormat.Standard),
+            new IsoTpFrame(IsoTpFrameType.Single, data: new byte[] { 0x50, 0x02 }).Encode(),
+            FrameFlags.None, default, default));
+        reassembled.Should().ContainSingle("新 ResponseId 的帧必须被接收");
+    }
+
+    [Fact]
+    public async Task Reconfigure_Switches_To_Extended_Frame_Format()
+    {
+        var sent = new ObservableCollection<CanFrame>();
+        var iso = new IsoTpLayer(DefaultConfig, frame => sent.Add(frame));
+
+        await iso.ReconfigureAsync(new CanIdConfig
+        {
+            RequestId = 0x18DA10F1,
+            ResponseId = 0x18DAF110,
+            IsExtendedFrame = true
+        });
+
+        await iso.SendMessageAsync(new byte[] { 0x3E, 0x00 }, CancellationToken.None);
+
+        sent.Should().ContainSingle();
+        sent[0].Id.Raw.Should().Be(0x18DA10F1);
+        sent[0].Id.Format.Should().Be(FrameFormat.Extended, "扩展帧标志必须跟着新配置一起生效");
+    }
+
+    [Fact]
+    public async Task Reconfigure_Clears_Negotiated_Transport_State()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+
+        // 先让一次传输把 ECU 协商值写进层内。
+        var sendTask = iso.SendMessageAsync(new byte[20], CancellationToken.None);
+        await WaitForSentFramesAsync(sink, 1);
+        InjectFlowControl(iso, blockSize: 0, stMin: 0x0A);
+        await sendTask.WaitAsync(TimeSpan.FromSeconds(2));
+        iso.SnapshotTxState().HasReceivedFlowControl.Should().BeTrue("前置条件");
+
+        await iso.ReconfigureAsync(new CanIdConfig { RequestId = 0x714, ResponseId = 0x760 });
+
+        iso.SnapshotTxState().HasReceivedFlowControl.Should().BeFalse(
+            "换 ECU 后上一台的 STmin/BS 必须失效，否则面板标注是假的");
+        iso.SnapshotTxState().StMinRaw.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Reconfigure_Throws_When_A_MultiFrame_Transfer_Is_In_Flight()
+    {
+        var sink = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sink);
+
+        // 启动一次多帧发送并停在等 FC 的位置——_sendGate 被它持有。
+        var sendTask = iso.SendMessageAsync(new byte[30], CancellationToken.None);
+        await WaitForSentFramesAsync(sink, 1);
+        iso.SnapshotTxState().WaitingForFlowControl.Should().BeTrue("前置条件：传输在途");
+
+        Func<Task> act = async () => await iso.ReconfigureAsync(
+            new CanIdConfig { RequestId = 0x714, ResponseId = 0x760 });
+        await act.Should().ThrowAsync<InvalidOperationException>(
+            "多帧传输中换 ID 会让 FF 用旧 ID、CF 用新 ID，ECU 丢整包");
+
+        iso.Config.RequestId.Should().Be(ReqId, "被拒绝的重配不得改动配置");
+
+        // 收尾：放行传输。
+        InjectFlowControl(iso);
+        await sendTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task Reconfigure_Rejects_Standard_Id_Above_11_Bits()
+    {
+        var sent = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sent);
+
+        Func<Task> act = async () => await iso.ReconfigureAsync(
+            new CanIdConfig { RequestId = 0x800, ResponseId = 0x7E8 });
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>(
+            "0x800 超出标准帧 11 位范围——必须在应用前拦下，而不是等到发帧时抛");
+
+        iso.Config.RequestId.Should().Be(ReqId, "校验失败不得留下半应用的新配置");
+    }
+
+    [Fact]
+    public async Task Reconfigure_Leaves_Config_Unchanged_When_Validation_Fails()
+    {
+        var sent = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sent);
+
+        Func<Task> act = async () => await iso.ReconfigureAsync(
+            new CanIdConfig { RequestId = 0x714, ResponseId = 0x2000 }); // ResponseId 越界
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+
+        iso.Config.RequestId.Should().Be(ReqId);
+        iso.Config.ResponseId.Should().Be(RespId);
+    }
+
+    [Fact]
+    public async Task Reconfigure_Preserves_Ecu_Simulator_TxCanId_Override()
+    {
+        // ECU 模拟器构造时显式传 txCanId=ResponseId（发送走响应 ID）。重配后
+        // 这个意图必须保留——否则模拟器会突然改用 RequestId 发送，HIL 收不到。
+        var observedIds = new List<uint>();
+        var iso = new IsoTpLayer(DefaultConfig,
+            new Func<CanFrame, Task>(frame =>
+            {
+                lock (observedIds) observedIds.Add(frame.Id.Raw);
+                return Task.CompletedTask;
+            }),
+            logger: null,
+            txCanId: RespId);
+
+        await iso.ReconfigureAsync(new CanIdConfig { RequestId = 0x714, ResponseId = 0x760 });
+        await iso.SendMessageAsync(new byte[] { 0x3E, 0x00 }, CancellationToken.None);
+
+        lock (observedIds)
+        {
+            observedIds.Should().ContainSingle();
+            observedIds[0].Should().Be(0x760,
+                "被显式覆盖过的发送 ID 必须跟随新配置的 ResponseId，而不是退回 RequestId");
+        }
+    }
+
+    [Fact]
+    public async Task Config_Reflects_Reconfigured_Values()
+    {
+        var sent = new ObservableCollection<byte[]>();
+        var iso = NewLayer(sent);
+
+        await iso.ReconfigureAsync(new CanIdConfig
+        {
+            RequestId = 0x714,
+            ResponseId = 0x760,
+            FunctionalId = 0x7DF
+        });
+
+        iso.Config.RequestId.Should().Be(0x714);
+        iso.Config.ResponseId.Should().Be(0x760);
+        iso.Config.FunctionalId.Should().Be(0x7DF);
     }
 }
 

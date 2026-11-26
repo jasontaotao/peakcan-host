@@ -7,7 +7,7 @@ public sealed partial class IsoTpLayer
     //
     // Cross-flow callers (stay as plain calls via partial-class visibility):
     //   - HandleFlowControl -> _txLock + _txWaitingForFc + _txBlockSize + _txStMin (state, main)
-    //   - SendFlowControl -> _config (DI, main) + SendCanFrame (Flow B, partial file)
+    //   - SendFlowControl -> SendCanFrameAsync (Flow B, partial file)
 
     private void HandleFlowControl(IsoTpFrame frame)
     {

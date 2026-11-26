@@ -27,7 +27,11 @@ public sealed partial class IsoTpLayer
     public void ProcessFrame(CanFrame frame)
     {
         // Only process frames with our response CAN ID.
-        if (frame.Id.Raw != _config.ResponseId)
+        // Snapshot once: a concurrent Reconfigure between the ID check and the
+        // decode must not let a frame be accepted under one config and handled
+        // under another.
+        var rt = Runtime;
+        if (frame.Id.Raw != rt.Config.ResponseId)
             return;
 
         var isoFrame = IsoTpFrame.Decode(frame.Data.Span);
@@ -101,7 +105,7 @@ public sealed partial class IsoTpLayer
 
             // Start the N_Cr watchdog: if the next CF doesn't arrive in time,
             // abort reassembly so a fresh FF can be processed.
-            StartReceiveWatchdog(expectedGeneration: 1);
+            StartReceiveWatchdog();
         }
     }
 
@@ -174,7 +178,7 @@ public sealed partial class IsoTpLayer
             }
 
             // Re-arm the N_Cr watchdog for the next CF slot.
-            StartReceiveWatchdog(expectedGeneration: _rxExpectedSequence);
+            StartReceiveWatchdog();
             return null;
         }
     }

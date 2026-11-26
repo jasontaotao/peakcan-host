@@ -23,31 +23,29 @@ public sealed partial class IsoTpLayer
     /// v1.2.13 PATCH Item 1: opaque handle so cancel + Dispose can be
     /// decoupled from CTS lifecycle (the Register callback may still be
     /// holding _rxLock when we cancel; the synchronous Dispose was
-    /// racing it). Generation + RefCount let a new handle replace the
-    /// old one without prematurely disposing the in-flight CTS.
+    /// racing it). RefCount lets a new handle replace the old one without
+    /// prematurely disposing the in-flight CTS.
     ///
-    /// Two distinct re-arm scenarios are protected by different
-    /// mechanisms:
+    /// Supersession is decided by INSTANCE IDENTITY: the Register callback
+    /// short-circuits unless <c>ReferenceEquals(_rxWatchdog, handle)</c>.
+    /// This covers both re-arm paths:
     /// <list type="bullet">
-    ///   <item>CF→CF re-arm (HandleConsecutiveFrame fires
-    ///         StartReceiveWatchdog again with a NEW generation): the
-    ///         Generation check inside the Register callback prevents
-    ///         the OLD CF watchdog from clearing the NEW CF's buffer —
-    ///         each CF re-arm bumps Generation (the per-arm value comes
-    ///         from <c>_rxExpectedSequence</c>, which changes on every
-    ///         CF boundary).</item>
+    ///   <item>CF→CF re-arm (HandleConsecutiveFrame calls
+    ///         StartReceiveWatchdog again): the previous CF's handle is no
+    ///         longer the published one, so its callback cannot clear the
+    ///         NEW CF's buffer.</item>
     ///   <item>FF→FF interruption (HandleFirstFrame cancels the old FF
-    ///         watchdog and installs a NEW one BEFORE the old one fires):
-    ///         BOTH FFs share Generation=1 (FF always re-arms at gen 1)
-    ///         so the Generation check is a no-op here. Instead,
-    ///         CancelReceiveWatchdog sets <c>_rxWatchdog = null</c> under
-    ///         <c>_rxLock</c> BEFORE calling <c>old.Cts.Cancel()</c>; the
-    ///         old Register callback (still queued by the cancellation
-    ///         propagation) then takes <c>_rxLock</c>, finds
-    ///         <c>_rxWatchdog == null</c>, and short-circuits without
-    ///         touching <c>_rxInProgress</c> / <c>_rxBuffer</c> of the
-    ///         new FF.</item>
+    ///         watchdog and installs a NEW one): CancelReceiveWatchdog sets
+    ///         <c>_rxWatchdog = null</c> under <c>_rxLock</c> BEFORE calling
+    ///         <c>old.Cts.Cancel()</c>, so the old callback (which runs
+    ///         synchronously inside Cancel) finds a null / different handle
+    ///         and short-circuits without touching <c>_rxInProgress</c> /
+    ///         <c>_rxBuffer</c> of the new FF.</item>
     /// </list>
+    /// An earlier design compared a per-arm generation counter derived from
+    /// <c>_rxExpectedSequence</c>; that sequence wraps with <c>&amp; 0x0F</c>,
+    /// so a counter could in principle collide with a stale callback. Identity
+    /// comparison has no such aliasing and needs no counter.
     /// </summary>
     private WatchdogHandle? _rxWatchdog;
 
@@ -62,25 +60,11 @@ public sealed partial class IsoTpLayer
 #pragma warning restore CA1001
     {
         public readonly CancellationTokenSource Cts;
-        /// <summary>
-        /// CF→CF re-arm marker. Each CF re-arm
-        /// (<see cref="HandleConsecutiveFrame"/> calling
-        /// <c>StartReceiveWatchdog</c>) bumps this to a fresh value
-        /// (sourced from <c>_rxExpectedSequence</c>) so an in-flight
-        /// Register callback for the previous CF's watchdog can tell it
-        /// has been superseded. NOTE: this Generation check is the
-        /// only protection for the CF→CF re-arm path. The FF→FF
-        /// interruption path does NOT rely on Generation (both FFs
-        /// share gen 1) — see the <c>_rxWatchdog</c> field doc for the
-        /// null-state guard that protects FF→FF.
-        /// </summary>
-        public readonly int Generation;
         public int RefCount;
 
-        public WatchdogHandle(int generation)
+        public WatchdogHandle()
         {
             Cts = new CancellationTokenSource();
-            Generation = generation;
             // RefCount starts at 0; CancelReceiveWatchdog does +1 (0→1) and
             // the ThreadPool worker does -1 (1→0) then Disposes the CTS.
             // The handle is "armed" by being published to _rxWatchdog, not
@@ -94,40 +78,34 @@ public sealed partial class IsoTpLayer
     /// On expiry it clears _rxInProgress / _rxBuffer so the next FF starts a
     /// fresh reassembly (rather than silently wedging the receive state).
     /// </summary>
-    private void StartReceiveWatchdog(int expectedGeneration)
+    private void StartReceiveWatchdog()
     {
         CancelReceiveWatchdog();
 
         var timeout = _receiveTimeout;
-        var handle = new WatchdogHandle(expectedGeneration);
+        var handle = new WatchdogHandle();
         var token = handle.Cts.Token;
         token.Register(() =>
         {
-            // Two distinct re-arm scenarios — both checked separately so the
-            // guard is explicit (not a single AND that conflates them):
+            // Supersession guard: only the handle currently published to
+            // _rxWatchdog may clear the reassembly state.
             //
-            //   1. FF→FF interruption: CancelReceiveWatchdog (called by
-            //      HandleFirstFrame before installing the new FF's watchdog)
-            //      sets _rxWatchdog = null under _rxLock BEFORE calling
-            //      old.Cts.Cancel(). The OLD FF's Register callback (queued
-            //      by the cancellation propagation) then takes _rxLock and
-            //      finds _rxWatchdog == null: short-circuit without touching
-            //      _rxInProgress / _rxBuffer — the NEW FF owns them.
-            //      BOTH FFs share Generation=1 (FF always re-arms at gen 1)
-            //      so the Generation check below is a no-op here; the null
-            //      guard is the only protection.
+            // Covers both re-arm paths:
+            //   1. FF→FF: CancelReceiveWatchdog nulls _rxWatchdog before
+            //      cancelling the old CTS, so the old callback sees a
+            //      different (or null) _rxWatchdog and short-circuits — the
+            //      new FF owns _rxInProgress / _rxBuffer.
+            //   2. CF→CF: HandleConsecutiveFrame publishes a brand-new handle,
+            //      so the previous CF's callback no longer matches.
             //
-            //   2. CF→CF re-arm: HandleConsecutiveFrame re-arms the watchdog
-            //      with a NEW generation (sourced from _rxExpectedSequence,
-            //      which advances on every CF boundary). The OLD CF's
-            //      callback then sees _rxWatchdog.Generation != expectedGen
-            //      and short-circuits without disturbing the NEW CF.
+            // Identity (not a generation counter) is authoritative: the old
+            // generation scheme derived from _rxExpectedSequence, which wraps
+            // with & 0x0F, so a stale callback could carry the same number as
+            // the live watchdog and wrongly clear the new buffer.
             lock (_rxLock)
             {
-                if (_rxWatchdog is null)
-                    return; // FF→FF: we were superseded; new FF owns _rxLock state
-                if (_rxWatchdog.Generation != expectedGeneration)
-                    return; // CF→CF: generation advanced past us
+                if (!ReferenceEquals(_rxWatchdog, handle))
+                    return; // superseded by a newer FF or CF — it owns the state
                 if (!_rxInProgress)
                     return;
                 _rxInProgress = false;
@@ -141,6 +119,14 @@ public sealed partial class IsoTpLayer
             // _rxInProgress is true, so the generation ALWAYS advances.
             _rxWatchdog = handle;
         }
+
+        // Arm AFTER publishing: the callback above short-circuits when
+        // _rxWatchdog is not this handle, so arming before the publish would
+        // let an extremely short N_Cr fire into a "not yet mine" state and be
+        // silently dropped. Guard the dispose race like CancelReceiveWatchdog
+        // does — a concurrent Cancel may have released the CTS already.
+        try { handle.Cts.CancelAfter(timeout); }
+        catch (ObjectDisposedException) { /* superseded concurrently */ }
     }
 
     private void CancelReceiveWatchdog()
