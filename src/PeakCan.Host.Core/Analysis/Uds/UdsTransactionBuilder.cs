@@ -105,6 +105,13 @@ public sealed class UdsTransactionBuilder
                 continue;
             }
 
+            // 日志在传输中途结束：payload 被截断，不能当作“完整正响应”闭合事务。
+            if (!pdu.IsComplete)
+            {
+                failed.Add(pdu);
+                continue;
+            }
+
             if (!UdsResponseValidator.TryValidate(target.Request, pdu, out _))
             {
                 failed.Add(pdu);

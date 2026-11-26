@@ -12,7 +12,10 @@ public sealed class UdsOfflineAnalyzerTests
     private static readonly UdsOfflineAddress Addr = new(Channel: 1, RequestId: 0x7E0, ResponseId: 0x7E8, IsExtended: false);
 
     private static ReplayFrame Frame(uint id, params byte[] data)
-        => new(Timestamp: 0, Id: id, Dlc: (byte)data.Length, Data: data,
+        => FrameAt(0, id, data);
+
+    private static ReplayFrame FrameAt(double ts, uint id, params byte[] data)
+        => new(Timestamp: ts, Id: id, Dlc: (byte)data.Length, Data: data,
                Flags: PeakCan.HIL.Core.FrameFlags.None, IsExtended: false, Channel: 1, IsTransmit: null);
 
     private static UdsOfflineDiagnostics DefaultDiag(IReadOnlyList<DidDefinition>? dids = null)
@@ -87,6 +90,36 @@ public sealed class UdsOfflineAnalyzerTests
         report.Counts.Noise.Should().BeGreaterThanOrEqualTo(1);
         report.Transactions.Should().ContainSingle()
             .Which.FinalKind.Should().Be(UdsFinalKind.None);
+    }
+
+    [Fact]
+    public void Orphan_consecutive_frame_is_reported_with_its_own_reason()
+    {
+        var report = new UdsOfflineAnalyzer().Analyze(Request(
+            Frame(0x7E0, 0x21, 0x01, 0x02)));
+
+        report.Noise.Reasons.Should().Contain(r =>
+            r.Reason == UdsNoiseReason.OrphanConsecutiveFrame && r.Count == 1);
+        report.Noise.Reasons.Should().NotContain(r => r.Reason == UdsNoiseReason.ResponseValidationFailed,
+            "日志从中段开始不是响应校验失败");
+    }
+
+    [Fact]
+    public void Report_exposes_session_timing_and_flags_late_response()
+    {
+        var report = new UdsOfflineAnalyzer().Analyze(Request(
+            FrameAt(0.0, 0x7E0, 0x02, 0x10, 0x01),
+            FrameAt(0.010, 0x7E8, 0x06, 0x50, 0x01, 0x00, 0x32, 0x01, 0xF4),
+            FrameAt(10.0, 0x7E0, 0x03, 0x22, 0xF1, 0x90),
+            FrameAt(115.0, 0x7E8, 0x04, 0x62, 0xF1, 0x90, 0x31)));
+
+        report.Timing.Should().NotBeNull("ECU 声明的 P2/P2* 必须进入报告");
+        report.Timing!.P2Ms.Should().Be(50);
+        report.Timing.P2StarMs.Should().Be(5000);
+
+        var late = report.Transactions.Single(t => t.Request.Payload[0] == 0x22);
+        late.ExceedsP2.Should().BeTrue("105 秒远超 P2，只做标记不剔除");
+        late.FinalKind.Should().Be(UdsFinalKind.Positive);
     }
 
     [Fact]

@@ -28,4 +28,8 @@ public sealed record UdsOfflineReport(
     IReadOnlyList<UdsTransportWarning> Warnings,
     bool IsPartial,
     string? PartialReason,
-    IReadOnlyList<string> CompletedStages);
+    IReadOnlyList<string> CompletedStages)
+{
+    /// <summary>ECU 在会话控制响应里声明的 P2 / P2*；未观测到时为 null。</summary>
+    public UdsSessionTiming? Timing { get; init; }
+}

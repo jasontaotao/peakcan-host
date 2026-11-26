@@ -26,6 +26,16 @@ internal static class UdsOfflineFixtures
             isPartial: false,
             partialReason: null);
 
+    /// <summary>归属歧义 + 重复最终响应的事务（导出/界面必须标注）。</summary>
+    public static UdsOfflineReport ReportWithAmbiguity()
+        => Build(
+            transactions: new[]
+            {
+                ReadDidTransaction() with { IsAmbiguous = true, HasDuplicateFinalResponse = true },
+            },
+            isPartial: false,
+            partialReason: null);
+
     public static UdsOfflineReport PartialReport()
         => Build(
             transactions: Array.Empty<UdsOfflineTransaction>(),
@@ -77,7 +87,10 @@ internal static class UdsOfflineFixtures
             Warnings,
             isPartial,
             partialReason,
-            Stages);
+            Stages)
+        {
+            Timing = new UdsSessionTiming(50, 5000, "ECU:0x50"),
+        };
     }
 
     private static readonly UdsTransportWarning[] Warnings = { new(3, "SequenceError") };

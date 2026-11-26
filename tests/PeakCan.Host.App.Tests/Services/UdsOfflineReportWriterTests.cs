@@ -48,6 +48,25 @@ public sealed class UdsOfflineReportWriterTests
     }
 
     [Fact]
+    public void Markdown_lists_noise_reasons_and_session_timing()
+    {
+        var text = UdsOfflineReportWriter.WriteMarkdown(UdsOfflineFixtures.Report(), redact: false);
+
+        text.Should().Contain("InvalidPci", "原因分布是 spec 13.1 的必填项");
+        text.Should().Contain("P2=50");
+        text.Should().Contain("P2*=5000");
+    }
+
+    [Fact]
+    public void Markdown_marks_ambiguous_and_duplicate_final_responses()
+    {
+        var text = UdsOfflineReportWriter.WriteMarkdown(UdsOfflineFixtures.ReportWithAmbiguity(), redact: false);
+
+        text.Should().Contain("歧义=是");
+        text.Should().Contain("重复最终响应=是");
+    }
+
+    [Fact]
     public void Csv_marks_whether_the_export_was_redacted()
     {
         var text = UdsOfflineReportWriter.WriteCsv(UdsOfflineFixtures.Report(), redact: true);

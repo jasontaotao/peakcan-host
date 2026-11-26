@@ -23,6 +23,7 @@ internal static class UdsResponseValidator
         switch (req[0])
         {
             case 0x10: // Diagnostic Session Control
+                if (req.Length < 2) return Fail(out failed, "RequestTooShort");
                 if (res.Length < 6) return Fail(out failed, "PayloadTooShort");
                 return res[1] == req[1] || Fail(out failed, "SessionTypeEcho");
 

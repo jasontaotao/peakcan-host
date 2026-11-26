@@ -48,6 +48,19 @@ public sealed class TraceViewerUdsHandoffTests
     }
 
     [Fact]
+    public void AcceptChatHandoff_does_not_clobber_an_existing_draft()
+    {
+        var vm = ChatVm();
+        vm.ChatInput = "我还没发出去的草稿";
+
+        vm.AcceptChatHandoff(new UdsChatHandoffPayload("问题", "提示", Guid.NewGuid(), "summary", "tx"));
+
+        vm.ChatInput.Should().Be("我还没发出去的草稿", "用户输入不得被静默丢弃");
+        vm.ChatPrefillHint.Should().Contain("草稿");
+        vm.RightPanelSelectedIndex.Should().Be(TraceViewerViewModel.ChatPanelTabIndex);
+    }
+
+    [Fact]
     public void System_message_without_handoff_has_no_uds_rules()
     {
         var vm = ChatVm();

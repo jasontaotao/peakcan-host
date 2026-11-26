@@ -32,6 +32,8 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     private readonly RoutineDatabase _routines;
     private readonly OdxImportViewModel _odxImport;
     private CancellationTokenSource? _cts;
+    // 运行代号：被新分析/关窗取代的旧任务不得再写 Report/Status/IsBusy。
+    private int _analysisGeneration;
 
     public UdsLogAnalysisViewModel(
         IUdsOfflineTraceLoader loader,
@@ -51,6 +53,16 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         _dids = dids ?? throw new ArgumentNullException(nameof(dids));
         _routines = routines ?? throw new ArgumentNullException(nameof(routines));
         _odxImport = odxImport ?? throw new ArgumentNullException(nameof(odxImport));
+
+        // 离线页看不到在线输出日志，ODX 导入结果必须在这里单独可见。
+        _odxImport.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(OdxImportViewModel.LastStatus) or nameof(OdxImportViewModel.HasSuccessfulImport))
+            {
+                OnPropertyChanged(nameof(OdxStatusSummary));
+                OnPropertyChanged(nameof(OdxReloadHint));
+            }
+        };
     }
 
     [ObservableProperty] private string? _filePath;
@@ -71,6 +83,23 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     public UdsNoiseSummary? Noise => Report?.Noise;
     public bool HasReport => Report is not null;
     public bool IsOdxLoaded => Report?.Diagnostics.OdxLoaded ?? false;
+
+    /// <summary>当前定义来源（最近一次 ODX 导入状态）；离线页必须显式可见。</summary>
+    public string OdxStatusSummary =>
+        _odxImport.LastStatus
+        ?? (_odxImport.HasSuccessfulImport ? "ODX 已加载" : "未加载 ODX");
+
+    /// <summary>导入新 ODX 后提示重新分析；旧报告不会热更新。</summary>
+    public string? OdxReloadHint =>
+        _odxImport.HasSuccessfulImport ? "已加载 ODX，重新分析以应用新定义（当前报告不变）" : null;
+
+    /// <summary>有报告、但当前筛选无可见行时与“无匹配事务”区分开。</summary>
+    public string? FilterEmptyHint =>
+        HasReport && Report!.Transactions.Count > 0 && VisibleTransactions.Count == 0
+            ? "当前筛选没有可见事务（清空筛选可恢复）"
+            : null;
+
+    public bool IsFilterEmpty => FilterEmptyHint is not null;
 
     [RelayCommand]
     private async Task OpenLogAsync()
@@ -106,6 +135,7 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         }
 
         _cts?.Cancel();
+        var generation = ++_analysisGeneration;
         Report = null;
         VisibleTransactions.Clear();
         SelectedEvidence.Clear();
@@ -134,32 +164,38 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
             var report = await Task.Run(() => _analyzer.Analyze(request, cts.Token))
                 .ConfigureAwait(true);
 
+            // 已被更新的分析取代：这次结果作废，不得覆盖新报告/状态。
+            if (generation != _analysisGeneration) return;
+
             Report = report;
             IsPartial = report.IsPartial;
             RefreshVisible();
             Status = report.IsPartial
                 ? $"部分报告：{report.PartialReason}"
                 : report.Transactions.Count == 0
-                    ? "当前设置下未识别到诊断事务"
+                    ? (report.Counts.Input == 0
+                        ? "日志为空：没有任何 CAN 帧"
+                        : "当前设置下未识别到诊断事务")
                     : $"分析完成：{report.Transactions.Count} 个事务";
         }
         catch (OperationCanceledException)
         {
-            Status = "已取消";
+            if (generation == _analysisGeneration) Status = "已取消";
         }
         catch (UdsOfflineLoadException ex)
         {
-            Status = "读取失败：" + ex.Message;
+            if (generation == _analysisGeneration) Status = "读取失败：" + ex.Message;
         }
         catch (FormatException)
         {
-            Status = "地址格式错误：请用十六进制填写通道/请求 ID/响应 ID";
+            if (generation == _analysisGeneration)
+                Status = "地址格式错误：请用十六进制填写通道/请求 ID/响应 ID";
         }
         finally
         {
             if (ReferenceEquals(_cts, cts)) _cts = null;
             cts.Dispose();
-            IsBusy = false;
+            if (generation == _analysisGeneration) IsBusy = false;
         }
     }
 
@@ -193,11 +229,34 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// 关窗路径（UdsWindow.Unloaded 调用）：取消在途分析并丢弃报告。
+    /// 报告只在窗口存续期间有效（spec §11.3）；重开窗口必须是新的空状态。
+    /// 不弹任何对话框。
+    /// </summary>
+    public void StopForWindowClose()
+    {
+        _analysisGeneration++;   // 让在途任务的完成回调全部作废
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
+        Report = null;
+        VisibleTransactions.Clear();
+        SelectedEvidence.Clear();
+        SelectedTransaction = null;
+        IsPartial = false;
+        IsBusy = false;
+        FilterText = "";
+        Status = "未选择文件";
+    }
+
     partial void OnReportChanged(UdsOfflineReport? value)
     {
         OnPropertyChanged(nameof(Noise));
         OnPropertyChanged(nameof(HasReport));
         OnPropertyChanged(nameof(IsOdxLoaded));
+        OnPropertyChanged(nameof(FilterEmptyHint));
+        OnPropertyChanged(nameof(IsFilterEmpty));
     }
 
     partial void OnFilterTextChanged(string value) => RefreshVisible();
@@ -232,6 +291,9 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
                 VisibleTransactions.Add(transaction);
             }
         }
+
+        OnPropertyChanged(nameof(FilterEmptyHint));
+        OnPropertyChanged(nameof(IsFilterEmpty));
     }
 
     private UdsOfflineDiagnostics SnapshotDiagnostics() => new(

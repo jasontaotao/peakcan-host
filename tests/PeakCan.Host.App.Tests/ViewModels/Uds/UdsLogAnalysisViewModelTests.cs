@@ -29,11 +29,12 @@ public sealed class UdsLogAnalysisViewModelTests
 
     private static UdsLogAnalysisViewModel Vm(
         IUdsOfflineTraceLoader loader, ITraceViewerChatHandoffService? handoff = null,
-        IUdsExportPrompt? exportPrompt = null)
+        IUdsExportPrompt? exportPrompt = null, OdxImportViewModel? odxImport = null)
         => new(loader, new UdsOfflineAnalyzer(), handoff ?? new FakeHandoff(), new FakeDialogs(),
             exportPrompt ?? new FakeExportPrompt(UdsExportChoice.Cancel),
             new DidDatabase(userJsonPath: null), new RoutineDatabase(userJsonPath: null),
-            new OdxImportViewModel(new FakeOdxService(OdxImportResult.Ok(0, 0, 0, Array.Empty<string>()))));
+            odxImport ?? new OdxImportViewModel(
+                new FakeOdxService(OdxImportResult.Ok(0, 0, 0, Array.Empty<string>()))));
 
     [Fact]
     public async Task Analyze_produces_report_and_visible_rows()
@@ -135,6 +136,84 @@ public sealed class UdsLogAnalysisViewModelTests
 
         vm.Report.Should().BeNull("旧报告不能在新分析失败后继续冒充当前报告");
         vm.Status.Should().Contain("读取失败");
+    }
+
+    [Fact]
+    public async Task Stale_run_cannot_overwrite_the_newer_report()
+    {
+        var loader = new StagedLoader();
+        var vm = Vm(loader);
+        vm.FilePath = "slow.asc";
+
+        var slowRun = vm.AnalyzeAsync();
+        vm.FilePath = "fast.asc";
+        await vm.AnalyzeAsync();
+        vm.Status.Should().Contain("分析完成");
+
+        loader.ReleaseSlow();
+        await slowRun;
+
+        vm.Status.Should().Contain("分析完成", "旧任务被取消后不得把自己的状态写回去");
+        vm.Report!.SourcePath.Should().Be("fast.asc");
+    }
+
+    [Fact]
+    public async Task Filter_with_no_match_shows_a_distinct_hint()
+    {
+        var vm = Vm(new FakeLoader(ThreeFrameLog()));
+        vm.FilePath = "fake.asc";
+        await vm.AnalyzeAsync();
+
+        vm.FilterText = "no-such-service";
+
+        vm.VisibleTransactions.Should().BeEmpty();
+        vm.FilterEmptyHint.Should().NotBeNullOrWhiteSpace();
+        vm.Status.Should().Contain("分析完成", "筛选无结果不改写分析状态");
+    }
+
+    [Fact]
+    public async Task Odx_import_updates_status_and_asks_for_reanalysis()
+    {
+        var odx = new OdxImportViewModel(
+            new FakeOdxService(OdxImportResult.Ok(1, 0, 0, Array.Empty<string>())));
+        var vm = Vm(new FakeLoader(ThreeFrameLog()), odxImport: odx);
+
+        await odx.ImportAsync("x.odx");
+
+        vm.OdxStatusSummary.Should().Contain("ODX");
+        vm.OdxReloadHint.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task Closing_the_window_cancels_and_discards_the_report()
+    {
+        var vm = Vm(new FakeLoader(ThreeFrameLog()));
+        vm.FilePath = "fake.asc";
+        await vm.AnalyzeAsync();
+        vm.Report.Should().NotBeNull();
+
+        vm.StopForWindowClose();
+
+        vm.Report.Should().BeNull("重开窗口必须是新的空状态");
+        vm.VisibleTransactions.Should().BeEmpty();
+        vm.Status.Should().Be("未选择文件");
+        vm.IsBusy.Should().BeFalse();
+    }
+
+    private sealed class StagedLoader : IUdsOfflineTraceLoader
+    {
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private bool _first = true;
+
+        public void ReleaseSlow() => _gate.TrySetResult();
+
+        public async Task<UdsOfflineTraceLoadResult> LoadAsync(string path, CancellationToken ct = default)
+        {
+            if (!_first) return new UdsOfflineTraceLoadResult(ThreeFrameLog(), "ASC");
+            _first = false;
+            await _gate.Task;
+            return new UdsOfflineTraceLoadResult(ThreeFrameLog(), "ASC");
+        }
     }
 
     private sealed class FakeLoader(ReplayFrame[] frames) : IUdsOfflineTraceLoader

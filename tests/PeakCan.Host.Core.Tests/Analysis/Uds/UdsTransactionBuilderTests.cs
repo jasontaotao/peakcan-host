@@ -83,6 +83,36 @@ public sealed class UdsTransactionBuilderTests
         r.Transactions.Should().ContainSingle().Which.FinalKind.Should().Be(UdsFinalKind.Positive);
     }
 
+    private static readonly int[] IncompleteEvidence = { 1, 2 };
+    private static readonly string[] IncompleteWarnings = { "IncompletePdu" };
+
+    [Fact]
+    public void Incomplete_multiframe_response_does_not_close_transaction()
+    {
+        // 响应声明 20 字节但日志在第一个 CF 后结束：不能当作完整正响应。
+        var incomplete = new UdsOfflinePdu(
+            UdsDirectionRole.Response,
+            new byte[] { 0x62, 0xF1, 0x90, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41 },
+            FirstTimestamp: 1, LastTimestamp: 1.2, FirstEvidenceIndex: 1, LastEvidenceIndex: 2,
+            Evidence: IncompleteEvidence, IsMultiFrame: true, IsComplete: false,
+            Warnings: IncompleteWarnings);
+
+        var r = Build(Req(0x22, 0xF1, 0x90), incomplete);
+
+        r.Transactions.Should().ContainSingle().Which.FinalKind.Should().Be(UdsFinalKind.None);
+        r.ValidationFailures.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void One_byte_session_request_does_not_throw_and_stays_open()
+    {
+        // 请求 payload 只有 [0x10]：校验不得访问 req[1]。
+        var r = Build(Req(0x10), Resp(0x50, 0x01, 0x00, 0x32, 0x01, 0xF4));
+
+        r.Transactions.Should().ContainSingle().Which.FinalKind.Should().Be(UdsFinalKind.None);
+        r.ValidationFailures.Should().ContainSingle();
+    }
+
     [Fact]
     public void Negative_response_other_than_pending_closes_as_negative_with_nrc()
     {

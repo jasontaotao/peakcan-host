@@ -65,4 +65,21 @@ public sealed class UdsLogAnalysisViewLayoutTests
         commands.Should().Contain("{Binding AnalyzeCommand}");
         commands.Should().Contain(c => c != null && c.Contains("Export"));
     }
+
+    [Fact]
+    public void Analysis_view_shows_interpretation_degradation_counts_and_odx_state()
+    {
+        var doc = LoadXaml("src", "PeakCan.Host.App", "Views", "UdsLogAnalysisView.xaml");
+        var bindings = doc.Descendants()
+            .Select(e => (string?)e.Attribute("Text") ?? (string?)e.Attribute("Binding") ?? (string?)e.Attribute("ItemsSource"))
+            .Where(v => v != null)
+            .ToList();
+
+        bindings.Should().Contain(b => b!.Contains("Interpretation.DidName"));
+        bindings.Should().Contain(b => b!.Contains("Interpretation.DecodedValue"));
+        bindings.Should().Contain(b => b!.Contains("Interpretation.DegradeReason"));
+        bindings.Should().Contain(b => b!.Contains("Noise.TopIds") || b!.Contains("Noise.Reasons"));
+        bindings.Should().Contain(b => b!.Contains("IsOdxLoaded"));
+        bindings.Should().Contain(b => b!.Contains("FilterEmptyHint"));
+    }
 }

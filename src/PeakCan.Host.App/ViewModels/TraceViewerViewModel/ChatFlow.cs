@@ -142,8 +142,19 @@ public sealed partial class TraceViewerViewModel
     {
         ArgumentNullException.ThrowIfNull(payload);
         _udsHandoff = payload;
-        PrefillChatInput(payload.Prompt);
-        ChatPrefillHint = payload.Hint;
+
+        // 用户可能正在写草稿：静默覆盖 = 丢输入。已有不同草稿时不覆盖，
+        // 用提示条说明如何继续（spec §14.3）。
+        if (!string.IsNullOrWhiteSpace(ChatInput) && ChatInput != payload.Prompt)
+        {
+            ChatPrefillHint = "输入框已有未发送的草稿，未自动覆盖；清空后可重新点击「在 AI 中解读」";
+        }
+        else
+        {
+            PrefillChatInput(payload.Prompt);
+            ChatPrefillHint = payload.Hint;
+        }
+
         RightPanelSelectedIndex = ChatPanelTabIndex;
         ChatInputFocusTicket++;
     }

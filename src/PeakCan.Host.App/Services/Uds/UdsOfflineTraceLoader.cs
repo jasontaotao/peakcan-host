@@ -29,11 +29,24 @@ public sealed class UdsOfflineTraceLoader(ReplayOptions? options = null) : IUdsO
         if (extension is not (".asc" or ".blf"))
             throw new UdsOfflineLoadException($"不支持的日志格式：{extension}（仅支持 .asc / .blf）");
 
-        await using var stream = File.OpenRead(path);
-        return extension switch
+        // 解析器异常（坏 magic、空文件、超限）必须变成用户可读的显式错误，
+        // 不能穿透成 WPF 未处理异常，也不能被当成“分析完成”。
+        try
         {
-            ".asc" => new(await AscParser.ParseAsync(stream, _options, logger: null, ct).ConfigureAwait(false), "ASC"),
-            _ => new(await BlfParser.ParseAsync(stream, _options, logger: null, ct).ConfigureAwait(false), "BLF"),
-        };
+            await using var stream = File.OpenRead(path);
+            return extension switch
+            {
+                ".asc" => new(await AscParser.ParseAsync(stream, _options, logger: null, ct).ConfigureAwait(false), "ASC"),
+                _ => new(await BlfParser.ParseAsync(stream, _options, logger: null, ct).ConfigureAwait(false), "BLF"),
+            };
+        }
+        catch (ReplayFormatException ex)
+        {
+            throw new UdsOfflineLoadException($"日志格式无法解析：{ex.Message}");
+        }
+        catch (ReplayLoadException ex)
+        {
+            throw new UdsOfflineLoadException($"读取日志失败：{ex.Message}");
+        }
     }
 }

@@ -38,25 +38,54 @@ public sealed class UdsOfflineAnalyzer
         if (ct.IsCancellationRequested)
             return Partial(request, ordered, classes, stages, "cancelled at pair", logStart, logEnd);
 
-        var timed = new UdsSessionTimingTracker().Apply(build.Transactions);
+        var timingTracker = new UdsSessionTimingTracker();
+        var timed = timingTracker.Apply(build.Transactions);
+        var timing = timingTracker.Timing;
         stages.Add("timing");
 
+        // P2 超阈值只做标记，不剔除事务（D7）：没有 ECU 时序时无法判定，保持 false。
+        var withP2 = timed
+            .Select(t => t with
+            {
+                ExceedsP2 = timing is not null
+                    && t.FirstResponseMs is { } first
+                    && first > timing.P2Ms,
+            })
+            .ToArray();
+
         var interpreter = new UdsServiceInterpreter();
-        var interpreted = timed
+        var interpreted = withP2
             .Select(t => t with { Interpretation = interpreter.Interpret(t, request.Diagnostics) })
             .ToArray();
         stages.Add("interpret");
 
-        // 校验失败 / 无在途 PDU 的连续帧：分类阶段算“匹配”，但运输层用不了，
-        // 必须在计数闭合前回填为噪声，否则等式两边对不上。
-        var noiseIndices = new HashSet<int>(
-            classes.Where(c => c.Class == UdsFrameClass.Noise).Select(c => c.EvidenceIndex)
-                .Concat(reassembly.ExtraNoiseIndices)
-                .Concat(build.ValidationFailures.SelectMany(p => p.Evidence)));
+        // 运输层用不了的帧必须在计数闭合前回填为噪声，但原因要区分：
+        // 校验失败 → ResponseValidationFailed；孤儿/序号错误 → 运输原因本身。
+        var validationFrames = new HashSet<int>(build.ValidationFailures.SelectMany(p => p.Evidence));
+        var extraNoiseFrames = new HashSet<int>(reassembly.ExtraNoiseIndices);
+        var transportReasons = reassembly.Warnings
+            .Where(w => extraNoiseFrames.Contains(w.EvidenceIndex))
+            .GroupBy(w => w.EvidenceIndex)
+            .ToDictionary(
+                g => g.Key,
+                g => g.First().Reason == nameof(UdsNoiseReason.OrphanConsecutiveFrame)
+                    ? UdsNoiseReason.OrphanConsecutiveFrame
+                    : UdsNoiseReason.SequenceError);
+
         var finalClasses = classes
-            .Select(c => c.Class == UdsFrameClass.MatchedDiagnostic && noiseIndices.Contains(c.EvidenceIndex)
-                ? c with { Class = UdsFrameClass.Noise, NoiseReason = UdsNoiseReason.ResponseValidationFailed }
-                : c)
+            .Select(c =>
+            {
+                if (c.Class != UdsFrameClass.MatchedDiagnostic) return c;
+                if (validationFrames.Contains(c.EvidenceIndex))
+                    return c with { Class = UdsFrameClass.Noise, NoiseReason = UdsNoiseReason.ResponseValidationFailed };
+                if (extraNoiseFrames.Contains(c.EvidenceIndex))
+                    return c with
+                    {
+                        Class = UdsFrameClass.Noise,
+                        NoiseReason = transportReasons.GetValueOrDefault(c.EvidenceIndex, UdsNoiseReason.SequenceError),
+                    };
+                return c;
+            })
             .ToArray();
 
         var counts = UdsFrameCounts.From(finalClasses, ordered.Length);
@@ -71,14 +100,17 @@ public sealed class UdsOfflineAnalyzer
             logStart,
             logEnd,
             counts,
-            BuildNoiseSummary(finalClasses, build, ordered),
+            BuildNoiseSummary(finalClasses, build, ordered), // 校验计数按“帧”统计，与原因分布同口径
             BuildEvidence(finalClasses, ordered),
             interpreted,
             build.OrphanResponses,
             reassembly.Warnings,
             IsPartial: false,
             PartialReason: null,
-            stages);
+            stages)
+        {
+            Timing = timing,
+        };
     }
 
     private static UdsOfflineReport Partial(
@@ -134,7 +166,7 @@ public sealed class UdsOfflineAnalyzer
         return new UdsNoiseSummary(
             groups.Take(MaxTopIds).ToArray(),
             reasons,
-            build?.ValidationFailures.Count ?? 0,
+            build?.ValidationFailures.Sum(p => p.Evidence.Count) ?? 0,
             build?.DuplicateFinalResponses.Count ?? 0,
             groups.Length > MaxTopIds,
             groups.Length);

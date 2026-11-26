@@ -133,6 +133,8 @@ public partial class UdsWindow : Window
         // real Dispose on these singletons — native OEM-DLL handles release there, not here.
         udsVm.Session.StopForWindowClose();
         udsVm.Flash.StopForWindowClose();
+        // spec §11.3：关窗即取消离线分析并丢弃报告；重开为新空态。
+        udsVm.LogAnalysis?.StopForWindowClose();
         // review 2026-08-29 P2: 停掉通信参数轮询（窗口重开时 DataContextChanged 再启动）。
         udsVm.Params.StopPolling();
     }

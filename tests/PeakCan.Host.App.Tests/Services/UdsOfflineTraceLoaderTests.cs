@@ -50,6 +50,18 @@ public sealed class UdsOfflineTraceLoaderTests
     }
 
     [Fact]
+    public async Task Corrupt_blf_is_reported_as_a_format_error()
+    {
+        var path = TempPath(".blf");
+        await File.WriteAllBytesAsync(path, new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 });
+
+        var act = () => new UdsOfflineTraceLoader().LoadAsync(path);
+
+        await act.Should().ThrowAsync<UdsOfflineLoadException>()
+            .WithMessage("*格式*");
+    }
+
+    [Fact]
     public async Task Unsupported_extension_is_rejected()
     {
         var path = TempPath(".txt");

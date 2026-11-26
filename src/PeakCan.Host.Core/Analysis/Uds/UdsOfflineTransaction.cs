@@ -39,6 +39,11 @@ public sealed record UdsOfflineTransaction(
 
     /// <summary>服务解释结果；由 <see cref="UdsOfflineAnalyzer"/> 在报告组装阶段填充。</summary>
     public UdsInterpretation? Interpretation { get; init; }
+
+    /// <summary>
+    /// 首个响应耗时超过 ECU 声明的 P2（只做标记，不剔除事务）。没有会话控制响应时恒为 false。
+    /// </summary>
+    public bool ExceedsP2 { get; init; }
 }
 
 /// <summary>

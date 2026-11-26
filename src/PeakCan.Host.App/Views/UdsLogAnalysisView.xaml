@@ -3,9 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
              xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels.Uds"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=vm:UdsLogAnalysisViewModel}">
+    <UserControl.Resources>
+        <conv:BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
+
     <DockPanel Margin="8">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
             <Button Content="打开 ASC/BLF" Command="{Binding OpenLogCommand}" Padding="6,2"/>
@@ -31,10 +36,26 @@
                        Foreground="{StaticResource TextSecondary}"/>
         </StackPanel>
 
+        <!-- ODX / 定义来源状态：离线页看不到在线输出日志，这里必须显式显示。 -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,4,0,0">
+            <TextBlock Text="{Binding OdxStatusSummary}" VerticalAlignment="Center"/>
+            <TextBlock Text="｜" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}"/>
+            <TextBlock Text="{Binding IsOdxLoaded, StringFormat='当前报告 ODX 已加载：{0}'}"
+                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+            <TextBlock Text="{Binding OdxReloadHint}" Margin="12,0,0,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource WarnText}"/>
+        </StackPanel>
+
+        <!-- 筛选无命中：与“无匹配事务”区分（spec §11.4）。 -->
+        <TextBlock DockPanel.Dock="Top" Margin="0,4,0,0"
+                   Text="{Binding FilterEmptyHint}"
+                   Foreground="{StaticResource TextSecondary}"
+                   Visibility="{Binding IsFilterEmpty, Converter={StaticResource BoolToVis}}"/>
+
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="340"/>
             </Grid.ColumnDefinitions>
 
             <DataGrid ItemsSource="{Binding VisibleTransactions}"
@@ -47,18 +68,62 @@
                     <DataGridTextColumn Header="NRC" Binding="{Binding FinalNrc, StringFormat=0x{0:X2}}"/>
                     <DataGridTextColumn Header="首次(ms)" Binding="{Binding FirstResponseMs, StringFormat=F3}"/>
                     <DataGridTextColumn Header="总(ms)" Binding="{Binding TotalMs, StringFormat=F3}"/>
+                    <DataGridTextColumn Header="P2超限" Binding="{Binding ExceedsP2}"/>
+                    <DataGridTextColumn Header="歧义" Binding="{Binding IsAmbiguous}"/>
+                    <DataGridTextColumn Header="重复最终响应" Binding="{Binding HasDuplicateFinalResponse}"/>
+                    <DataGridTextColumn Header="DID" Binding="{Binding Interpretation.DidName}"/>
+                    <DataGridTextColumn Header="降级" Binding="{Binding Interpretation.DegradeReason}"/>
                 </DataGrid.Columns>
             </DataGrid>
 
             <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                <TextBlock Text="噪声汇总" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding Noise.AggregationTruncated, StringFormat='聚合已截断：{0}'}"/>
-                <TextBlock Text="响应校验失败 / 重复最终响应" Margin="0,4,0,0"/>
+                <TextBlock Text="计数（闭合等式）" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock Text="{Binding Report.Counts.Input, StringFormat='输入帧 {0}'}"/>
+                <TextBlock Text="{Binding Report.Counts.MatchedDiagnostic, StringFormat='匹配诊断 {0}'}"/>
+                <TextBlock Text="{Binding Report.Counts.NonDiagnostic, StringFormat='非诊断 {0}'}"/>
+                <TextBlock Text="{Binding Report.Counts.Noise, StringFormat='噪声 {0}'}"/>
+                <TextBlock Text="{Binding Report.Counts.UnsupportedInput, StringFormat='未支持 {0}'}"/>
+
+                <TextBlock Text="噪声（按 CAN ID）" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                <ItemsControl ItemsSource="{Binding Noise.TopIds}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock>
+                                <Run Text="0x"/><Run Text="{Binding Id, StringFormat=X3, Mode=OneWay}"/>
+                                <Run Text=" × "/><Run Text="{Binding Count, Mode=OneWay}"/>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="无法成帧原因" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                <ItemsControl ItemsSource="{Binding Noise.Reasons}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock>
+                                <Run Text="{Binding Reason, Mode=OneWay}"/>
+                                <Run Text=" × "/><Run Text="{Binding Count, Mode=OneWay}"/>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="响应校验失败 / 重复最终响应" Margin="0,8,0,0"/>
                 <TextBlock Text="{Binding Noise.ResponseValidationFailed}"/>
                 <TextBlock Text="{Binding Noise.DuplicateFinalResponses}"/>
-                <TextBlock Text="{Binding SelectedTransaction.Unknowns, StringFormat='不可知：{0}'}" TextWrapping="Wrap"/>
+
+                <TextBlock Text="选中事务解释" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                <TextBlock Text="{Binding SelectedTransaction.Interpretation.DidName, StringFormat='DID：{0}'}"
+                           TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding SelectedTransaction.Interpretation.DecodedValue, StringFormat='解码值：{0}'}"
+                           TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding SelectedTransaction.Interpretation.DegradeReason, StringFormat='降级原因：{0}'}"
+                           TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding SelectedTransaction.Interpretation.DegradeDetail, StringFormat='降级详情：{0}'}"
+                           TextWrapping="Wrap"/>
+
                 <TextBlock Text="原始证据" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                <ListBox ItemsSource="{Binding SelectedEvidence}" Height="180">
+                <ListBox ItemsSource="{Binding SelectedEvidence}" Height="160">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Display}" FontFamily="Consolas" FontSize="11"/>
