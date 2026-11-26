@@ -183,7 +183,8 @@ public class UdsStepExecutorTests
     [Fact]
     public async Task SessionControl_ChangesSession()
     {
-        // 正响应 [0x50, session, P2hi, P2lo, P2*hi, P2*lo] → P2=50ms, P2*=250ms
+        // 正响应 [0x50, session, P2hi, P2lo, P2*hi, P2*lo] → P2=0x0032=50ms, P2*=0x00FA×10=2500ms
+        // （P2* 的线上单位是 10ms，StepResult 文案里已是换算后的毫秒）
         var (channel, uds) = await BuildUdsAsync(null,
             Rule(0x10, new byte[] { 0x50, 0x02, 0x00, 0x32, 0x00, 0xFA }));
         try

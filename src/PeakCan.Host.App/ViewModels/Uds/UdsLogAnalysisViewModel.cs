@@ -35,6 +35,17 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     // 运行代号：被新分析/关窗取代的旧任务不得再写 Report/Status/IsBusy。
     private int _analysisGeneration;
 
+    // 从在线配置继承来的地址快照。只有当前输入框仍等于它（= 用户没改过）时，
+    // 在线配置的变更才会同步过来——否则会冲掉用户为另一台 ECU 手输的地址。
+    private (string RequestId, string ResponseId, bool IsExtended)? _inheritedAddress;
+
+    // 分析进行中被推迟的地址同步；分析结束补上，避免这次更新永久丢失。
+    private PeakCan.Host.App.Services.Uds.UdsTransportSettings? _pendingAddressSync;
+
+    /// <param name="settings">
+    /// 可选的通讯参数存储：用它初始化地址输入框，并订阅变更。用户的痛点是
+    /// 「每次分析要手敲地址」——在线页配过的地址这里应该直接继承。
+    /// </param>
     public UdsLogAnalysisViewModel(
         IUdsOfflineTraceLoader loader,
         UdsOfflineAnalyzer analyzer,
@@ -43,7 +54,8 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         IUdsExportPrompt exportPrompt,
         DidDatabase dids,
         RoutineDatabase routines,
-        OdxImportViewModel odxImport)
+        OdxImportViewModel odxImport,
+        PeakCan.Host.App.Services.Uds.UdsTransportSettingsStore? settings = null)
     {
         _loader = loader ?? throw new ArgumentNullException(nameof(loader));
         _analyzer = analyzer ?? throw new ArgumentNullException(nameof(analyzer));
@@ -53,6 +65,51 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         _dids = dids ?? throw new ArgumentNullException(nameof(dids));
         _routines = routines ?? throw new ArgumentNullException(nameof(routines));
         _odxImport = odxImport ?? throw new ArgumentNullException(nameof(odxImport));
+
+        if (settings is not null)
+        {
+            // 用持久化配置初始化地址（覆盖字段初始化器里的 "7E0"/"7E8"）。
+            ApplyAddressFromSettings(settings.Current);
+            // 记住「继承来的值」：只有用户没改过时才跟着在线配置走。
+            _inheritedAddress = (RequestIdText, ResponseIdText, IsExtended);
+
+            settings.Changed += saved =>
+            {
+                // 用户在离线页改过地址 → 他在分析另一台 ECU，不能被在线配置覆盖。
+                var current = (RequestIdText, ResponseIdText, IsExtended);
+                if (current != _inheritedAddress)
+                {
+                    // 但继承基线要更新：用户之后点「重新载入」类操作时用的是新值。
+                    _inheritedAddress = FormatAddress(saved);
+                    return;
+                }
+
+                // 分析进行中不同步：换地址会让当前报告与输入框对不上。
+                // 记下待同步，分析结束时补上（否则这次更新永久丢失）。
+                if (IsBusy)
+                {
+                    _pendingAddressSync = saved;
+                    return;
+                }
+
+                ApplyAddressFromSettings(saved);
+                _inheritedAddress = FormatAddress(saved);
+            };
+
+            // 分析结束后补上被推迟的同步。
+            PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName != nameof(IsBusy) || IsBusy) return;
+                if (_pendingAddressSync is not { } pending) return;
+                _pendingAddressSync = null;
+
+                var current = (RequestIdText, ResponseIdText, IsExtended);
+                if (current != _inheritedAddress) return; // 用户期间改过，尊重用户
+
+                ApplyAddressFromSettings(pending);
+                _inheritedAddress = FormatAddress(pending);
+            };
+        }
 
         // 离线页看不到在线输出日志，ODX 导入结果必须在这里单独可见。
         _odxImport.PropertyChanged += (_, e) =>
@@ -324,6 +381,27 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
 
     private static string EngineVersion()
         => typeof(UdsLogAnalysisViewModel).Assembly.GetName().Version?.ToString() ?? "unknown";
+
+    /// <summary>
+    /// 用持久化的通讯参数填充地址输入框。
+    /// <para>
+    /// <b>刻意只读不写：</b>离线页的地址只是「这台 ECU 的地址是什么」，用户在这里
+    /// 临时改成别的 ECU 时不应污染在线诊断的地址配置。
+    /// </para>
+    /// </summary>
+    private void ApplyAddressFromSettings(PeakCan.Host.App.Services.Uds.UdsTransportSettings settings)
+    {
+        var (req, resp, ext) = FormatAddress(settings);
+        RequestIdText = req;
+        ResponseIdText = resp;
+        IsExtended = ext;
+    }
+
+    private static (string RequestId, string ResponseId, bool IsExtended) FormatAddress(
+        PeakCan.Host.App.Services.Uds.UdsTransportSettings settings)
+        => (settings.RequestId.ToString("X", CultureInfo.InvariantCulture),
+            settings.ResponseId.ToString("X", CultureInfo.InvariantCulture),
+            settings.IsExtendedFrame);
 
     private UdsOfflineAddress ParseAddress()
     {

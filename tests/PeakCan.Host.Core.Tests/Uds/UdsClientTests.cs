@@ -67,6 +67,15 @@ public sealed class UdsClientTests
             fc.Encode(), FrameFlags.None, default, default));
     }
 
+    /// <summary>Inject a First Frame so the layer enters mid-reassembly.</summary>
+    private static void InjectFirstFrame(IsoTpLayer iso, int totalLength, byte[] firstChunk)
+    {
+        var ff = new IsoTpFrame(IsoTpFrameType.First, length: totalLength, data: firstChunk);
+        iso.ProcessFrame(new CanFrame(
+            new CanId(RespId, FrameFormat.Standard),
+            ff.Encode(), FrameFlags.None, default, default));
+    }
+
     /// <summary>
     /// Drain any First Frame from the outbound sink and reply with a Flow
     /// Control. Tests use this to advance multi-frame requests past the FF.
@@ -101,16 +110,378 @@ public sealed class UdsClientTests
         var timer = new UdsTimer();
         using var client = new UdsClient(iso, timer);
 
-        // Trigger request, then simulate ECU reply with P2=0x0190 (400 ms),
-        // P2*=0x01F4 (500 ms). The fix must write these to UdsTimer.
+        // ISO 14229-1: P2 is in milliseconds, P2* is in 10 ms units.
+        // ECU reports P2 = 0x0190 (400 ms) and P2* = 0x02EE (750 units = 7500 ms).
+        //
+        // 7500 (not the previous 0x01F4 → 5000) is deliberate: 5000 happens to
+        // equal UdsTimer's construction default, so asserting 5000 would stay
+        // green even if the timer write were deleted entirely. 7500 pins BOTH
+        // the *10 conversion and the propagation to UdsTimer.
         var task = client.DiagnosticSessionControlAsync(0x02);
-        EcuRespond(iso, new byte[] { 0x50, 0x02, 0x01, 0x90, 0x01, 0xF4 });
+        EcuRespond(iso, new byte[] { 0x50, 0x02, 0x01, 0x90, 0x02, 0xEE });
 
         var resp = await task.WaitAsync(TimeSpan.FromSeconds(1));
 
         resp.SessionType.Should().Be(0x02);
+        resp.P2.Should().Be(0x0190);
+        resp.P2Star.Should().Be(7500, "P2* is encoded in 10 ms units");
         timer.P2Timeout.Should().Be(TimeSpan.FromMilliseconds(0x0190));
-        timer.P2StarTimeout.Should().Be(TimeSpan.FromMilliseconds(0x01F4));
+        timer.P2StarTimeout.Should().Be(TimeSpan.FromMilliseconds(7500));
+
+        // The session mirrors the same values (UI reads Session, wire reads Timer).
+        client.Session.P2Timeout.Should().Be(0x0190);
+        client.Session.P2StarTimeout.Should().Be(7500);
+        client.Session.HasNegotiatedTiming.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Nrc0x78_ArmsP2Star_WithEcuNegotiatedValue()
+    {
+        // P2* is ONLY consumed on the NRC 0x78 path (TransportFlow: cts.CancelAfter).
+        // The ECU negotiates P2* = 0x02EE → 750 units × 10 ms = 7500 ms; the armed
+        // timeout must be 7500 ms. Without the *10 conversion this would be 750 ms.
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+
+        var sessionTask = client.DiagnosticSessionControlAsync(0x02);
+        EcuRespond(iso, new byte[] { 0x50, 0x02, 0x01, 0x90, 0x02, 0xEE });
+        await sessionTask.WaitAsync(TimeSpan.FromSeconds(1));
+
+        client.LastP2StarArmedForTesting.Should().BeNull(
+            "P2* is armed only after a response-pending, not on the session switch");
+
+        // A second request answers with NRC 0x78 (ECU still working).
+        var readTask = client.ReadDataByIdentifierAsync(0xF190);
+        EcuRespond(iso, new byte[] { 0x7F, 0x22, 0x78 });
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (client.LastP2StarArmedForTesting is null && DateTime.UtcNow < deadline)
+            await Task.Delay(5);
+
+        client.LastP2StarArmedForTesting.Should().Be(
+            TimeSpan.FromMilliseconds(7500),
+            "the NRC 0x78 wait must use the ECU-negotiated P2* (10 ms units × 10)");
+
+        // Settle the pending request so the test doesn't leak a hanging task.
+        EcuRespond(iso, new byte[] { 0x62, 0xF1, 0x90, 0x01, 0x02 });
+        try { await readTask.WaitAsync(TimeSpan.FromSeconds(2)); }
+        catch (Exception) { /* outcome irrelevant — this test asserts the armed value */ }
+    }
+
+    // ========================================================================
+    // 断连复位：UdsClient.ResetDiagnosticState() 是唯一入口。
+    //
+    // 必须同时复位「真正生效的」三处——UdsTimer（TransportFlow 读它）、
+    // UdsSession（面板显示读它）、ISO-TP（接收重组/FC 协商态）。
+    // 只复位其中一处会造出比现状更糟的状态：面板显示默认、实际还在用上一台
+    // ECU 的协商值。
+    // ========================================================================
+
+    [Fact]
+    public async Task ResetDiagnosticState_Restores_Timer_Session_And_Provenance()
+    {
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+
+        // 先协商出一组非默认值（7500 ≠ UdsTimer 默认 5000，能区分"真复位"和"恰好相等"）。
+        var task = client.DiagnosticSessionControlAsync(0x02);
+        EcuRespond(iso, new byte[] { 0x50, 0x02, 0x01, 0x90, 0x02, 0xEE });
+        await task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        timer.P2StarTimeout.Should().Be(TimeSpan.FromMilliseconds(7500), "前置条件：已协商");
+
+        client.ResetDiagnosticState();
+
+        timer.P2Timeout.Should().Be(UdsTimer.DefaultP2Timeout, "真正生效的 timer 必须复位");
+        timer.P2StarTimeout.Should().Be(UdsTimer.DefaultP2StarTimeout);
+        client.Session.SessionType.Should().Be(0x01);
+        client.Session.P2StarTimeout.Should().Be((int)UdsTimer.DefaultP2StarTimeout.TotalMilliseconds);
+        client.Session.HasNegotiatedTiming.Should().BeFalse(
+            "来源标注必须一起复位，否则面板继续宣称「ECU 0x10 协商」");
+    }
+
+    [Fact]
+    public async Task ResetDiagnosticState_Resets_IsoTp_When_No_Request_In_Flight()
+    {
+        var (iso, _) = NewIso();
+        using var client = new UdsClient(iso, new UdsTimer());
+
+        // 制造一份「上一台 ECU 的」ISO-TP 状态：FC 协商值 + 进行中的重组。
+        var sendTask = iso.SendMessageAsync(new byte[20], CancellationToken.None);
+        await Task.Delay(30);
+        InjectFlowControl(iso);
+        await sendTask.WaitAsync(TimeSpan.FromSeconds(2));
+        iso.SnapshotTxState().HasReceivedFlowControl.Should().BeTrue("前置条件：FC 已到达");
+
+        client.ResetDiagnosticState();
+
+        iso.SnapshotTxState().HasReceivedFlowControl.Should().BeFalse(
+            "无在途请求时，ISO-TP 协商态必须一并复位");
+    }
+
+    [Fact]
+    public async Task ResetDiagnosticState_Cancels_InFlight_Request()
+    {
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer { P2Timeout = TimeSpan.FromSeconds(30) };
+        using var client = new UdsClient(iso, timer);
+
+        // 发出请求但永不回应。P2 故意设成 30s——若复位没有主动取消，
+        // 下面的 2s 等待会超时失败（这正是不加取消时的真实症状：换 ECU 后
+        // 旧请求还挂在总线上，等 30 秒才报错）。
+        var inflight = client.ReadDataByIdentifierAsync(0xF190);
+        await Task.Delay(30);
+
+        client.ResetDiagnosticState();
+
+        Func<Task> act = async () => await inflight.WaitAsync(TimeSpan.FromSeconds(2));
+        await act.Should().ThrowAsync<UdsException>("在途请求必须立刻收到超时，而不是继续等满 P2");
+    }
+
+    [Fact]
+    public async Task ResetDiagnosticState_Skips_IsoTp_Reset_While_A_Request_Is_In_Flight()
+    {
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer { P2Timeout = TimeSpan.FromSeconds(30) };
+        using var client = new UdsClient(iso, timer);
+
+        // 重组进行中（模拟正在收一条多帧响应）。
+        InjectFirstFrame(iso, totalLength: 20, firstChunk: new byte[] { 1, 2, 3, 4, 5, 6 });
+        iso.RxInProgressForTesting.Should().BeTrue("前置条件：重组进行中");
+
+        var inflight = client.ReadDataByIdentifierAsync(0xF190);
+        await Task.Delay(30);
+
+        client.ResetDiagnosticState();
+
+        // 有在途请求时不能清 ISO-TP 状态：清掉 _txWaitingForFc 会让正在等
+        // Flow Control 的多帧发送误判「FC 到了」，继续往 ECU 灌 CF。
+        iso.RxInProgressForTesting.Should().BeTrue(
+            "有在途请求时跳过 ISO-TP 复位，避免破坏进行中的传输");
+
+        // 收尾，别把挂起的请求留给后续测试。
+        try { await inflight.WaitAsync(TimeSpan.FromSeconds(2)); }
+        catch (Exception) { /* 该测试只断言 ISO-TP 未被复位 */ }
+    }
+
+    [Fact]
+    public async Task DiagnosticSessionControlAsync_Does_Not_Write_Negotiated_Timing_When_A_Reset_Landed_First()
+    {
+        // MEDIUM 回归：0x10 的续写发生在 SendRequestAsync 返回之后（锁已释放），
+        // 所以断连复位与它之间没有锁保护。若复位先跑完、续写后跑，就会把上一台
+        // ECU 的协商值写回一个已经复位的状态——面板于是宣称一个不存在的协商值。
+        //
+        // 注入点：OnResponseDeliveredForTesting 在 TCS 完成之后、调用方续写之前
+        // 同步触发——正是「响应已到、Session/timer 尚未被写」的那个无锁窗口。
+        // （不能在 sendFrame 里复位：那时请求还在途，复位会直接取消它。）
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+
+        var resetRan = false;
+        client.OnResponseDeliveredForTesting = () =>
+        {
+            if (resetRan) return;
+            resetRan = true;
+            client.ResetDiagnosticState();
+        };
+
+        var task = client.DiagnosticSessionControlAsync(0x02);
+        EcuRespond(iso, new byte[] { 0x50, 0x02, 0x01, 0x90, 0x02, 0xEE });
+        var resp = await task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        resetRan.Should().BeTrue("前置条件：复位确实落在「响应已到、续写未跑」的窗口里");
+        resp.P2Star.Should().Be(7500, "响应解析本身仍然有效，调用方拿到的数据是真的");
+        client.Session.HasNegotiatedTiming.Should().BeFalse(
+            "复位之后到达的协商结果不得写回——否则面板宣称一个已经不存在的协商值");
+        client.Session.P2StarTimeout.Should().Be(
+            (int)UdsTimer.DefaultP2StarTimeout.TotalMilliseconds);
+        timer.P2StarTimeout.Should().Be(UdsTimer.DefaultP2StarTimeout,
+            "真正生效的 timer 也不能被复位前的协商结果覆盖");
+    }
+
+    [Fact]
+    public async Task DiagnosticSessionControlAsync_Rolls_Back_When_A_Reset_Lands_Mid_Write()
+    {
+        // 二次比对回归：第一次代际检查通过之后、写 timer 之前若发生复位，
+        // 不能留下「Session 是新协商值、timer 是默认值」的半截状态。
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+
+        var resetRan = false;
+        client.BetweenSessionAndTimerWriteForTesting = () =>
+        {
+            if (resetRan) return;
+            resetRan = true;
+            client.ResetDiagnosticState();
+        };
+
+        var task = client.DiagnosticSessionControlAsync(0x02);
+        EcuRespond(iso, new byte[] { 0x50, 0x02, 0x01, 0x90, 0x02, 0xEE });
+        await task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        resetRan.Should().BeTrue("前置条件：复位落在 Session 与 timer 写入之间");
+        client.Session.HasNegotiatedTiming.Should().BeFalse(
+            "半截状态必须撤销：Session 不能留着新协商值");
+        client.Session.P2StarTimeout.Should().Be(
+            (int)UdsTimer.DefaultP2StarTimeout.TotalMilliseconds,
+            "Session 的时序也要回到基线，与 timer 保持一致");
+        timer.P2StarTimeout.Should().Be(UdsTimer.DefaultP2StarTimeout);
+    }
+
+    // ========================================================================
+    // 阶段 4：用户配置的时序基线必须作用到「真正生效的」timer。
+    //
+    // 只写 Session 会让界面显示 2000 ms、实际仍在 50 ms 超时——正是本方案要消灭的
+    // 「显示与行为不符」。这条 bug 在阶段 4 初版真实存在过。
+    // ========================================================================
+
+    [Fact]
+    public void ApplyTimingBaseline_Writes_The_Effective_Timer_Not_Just_The_Session()
+    {
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+
+        client.ApplyTimingBaseline(p2Ms: 2000, p2StarMs: 9000, hasUserOverride: true);
+
+        timer.P2Timeout.Should().Be(TimeSpan.FromMilliseconds(2000),
+            "真正生效的是 UdsClient._timer；只改 Session 等于什么都没做");
+        timer.P2StarTimeout.Should().Be(TimeSpan.FromMilliseconds(9000));
+        client.Session.P2Timeout.Should().Be(2000, "展示层也要一致");
+        client.Session.P2StarTimeout.Should().Be(9000);
+        client.Session.TimingSource.Should().Be(UdsTimingSource.UserConfig);
+    }
+
+    [Fact]
+    public void ApplyTimingBaseline_Survives_A_Reconfigure()
+    {
+        // TryApplyTransportConfig 会调 ResetNegotiatedState()，它必须回到「用户配置的
+        // 基线」而不是硬编码的 50/5000——否则用户改个 CAN ID 就把时序打回默认。
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+        client.ApplyTimingBaseline(p2Ms: 2000, p2StarMs: 9000, hasUserOverride: true);
+
+        var applied = client.TryApplyTransportConfig(
+            new CanIdConfig { RequestId = 0x714, ResponseId = 0x760 }, out var error);
+
+        applied.Should().BeTrue($"前置条件：重配成功（error={error}）");
+        timer.P2Timeout.Should().Be(TimeSpan.FromMilliseconds(2000),
+            "重配只该换寻址，不该把用户配的时序打回内置默认");
+        timer.P2StarTimeout.Should().Be(TimeSpan.FromMilliseconds(9000));
+        client.Session.TimingSource.Should().Be(UdsTimingSource.UserConfig);
+    }
+
+    [Fact]
+    public void ResetDiagnosticState_Falls_Back_To_The_User_Baseline_Not_Hardcoded_Defaults()
+    {
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+        client.ApplyTimingBaseline(p2Ms: 2000, p2StarMs: 9000, hasUserOverride: true);
+
+        client.ResetDiagnosticState();
+
+        timer.P2Timeout.Should().Be(TimeSpan.FromMilliseconds(2000),
+            "断连复位应回到用户配置的基线，而不是内置默认");
+        client.Session.TimingSource.Should().Be(UdsTimingSource.UserConfig,
+            "来源标注要如实反映「这是用户配的基线」");
+    }
+
+    [Fact]
+    public void ResetDiagnosticState_Falls_Back_To_Builtin_Defaults_When_No_User_Baseline()
+    {
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+
+        client.ResetDiagnosticState();
+
+        timer.P2Timeout.Should().Be(UdsTimer.DefaultP2Timeout);
+        client.Session.TimingSource.Should().Be(UdsTimingSource.Default);
+    }
+
+    [Fact]
+    public void ApplyTimingBaseline_Rejects_NonPositive_Values()
+    {
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+
+        var act = () => client.ApplyTimingBaseline(p2Ms: 0, p2StarMs: 9000, hasUserOverride: true);
+
+        act.Should().Throw<ArgumentOutOfRangeException>(
+            "0 ms 超时会让每个请求立即失败，必须在入口拦下");
+        timer.P2Timeout.Should().Be(UdsTimer.DefaultP2Timeout);
+    }
+
+    // ========================================================================
+    // 阶段 3：CAN ID 运行时重配 + 仲裁。
+    // ========================================================================
+
+    [Fact]
+    public async Task TryApplyTransportConfig_Applies_When_Idle_And_Clears_Negotiated_State()
+    {
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer();
+        using var client = new UdsClient(iso, timer);
+
+        var task = client.DiagnosticSessionControlAsync(0x02);
+        EcuRespond(iso, new byte[] { 0x50, 0x02, 0x01, 0x90, 0x02, 0xEE });
+        await task.WaitAsync(TimeSpan.FromSeconds(1));
+        client.Session.HasNegotiatedTiming.Should().BeTrue("前置条件：已协商");
+
+        var applied = client.TryApplyTransportConfig(
+            new CanIdConfig { RequestId = 0x714, ResponseId = 0x760 }, out var error);
+
+        applied.Should().BeTrue($"配置应当生效（error={error}）");
+        error.Should().BeNull();
+        iso.Config.RequestId.Should().Be(0x714);
+        iso.Config.ResponseId.Should().Be(0x760);
+        client.Session.HasNegotiatedTiming.Should().BeFalse(
+            "换寻址后上一台 ECU 的协商值不再适用");
+        timer.P2StarTimeout.Should().Be(UdsTimer.DefaultP2StarTimeout);
+    }
+
+    [Fact]
+    public async Task TryApplyTransportConfig_Refuses_While_A_Request_Is_In_Flight()
+    {
+        var (iso, _) = NewIso();
+        var timer = new UdsTimer { P2Timeout = TimeSpan.FromSeconds(30) };
+        using var client = new UdsClient(iso, timer);
+
+        // 发出请求但永不回应 → _requestLock 被占用。
+        var inflight = client.ReadDataByIdentifierAsync(0xF190);
+        await Task.Delay(30);
+
+        var applied = client.TryApplyTransportConfig(
+            new CanIdConfig { RequestId = 0x714, ResponseId = 0x760 }, out var error);
+
+        applied.Should().BeFalse("有在途请求时必须拒绝，而不是把 ID 换到一半");
+        error.Should().NotBeNullOrWhiteSpace("UI 要能显示具体原因");
+        iso.Config.RequestId.Should().Be(ReqId, "被拒绝的重配不得改动配置");
+
+        // 收尾。
+        client.ResetDiagnosticState();
+        try { await inflight.WaitAsync(TimeSpan.FromSeconds(2)); } catch (Exception) { }
+    }
+
+    [Fact]
+    public void TryApplyTransportConfig_Reports_Range_Violation_Without_Applying()
+    {
+        var (iso, _) = NewIso();
+        using var client = new UdsClient(iso, new UdsTimer());
+
+        var applied = client.TryApplyTransportConfig(
+            new CanIdConfig { RequestId = 0x800, ResponseId = 0x7E8 }, out var error);
+
+        applied.Should().BeFalse();
+        error.Should().Contain("范围", "错误文案要说明是范围问题，而不是笼统的失败");
+        iso.Config.RequestId.Should().Be(ReqId, "校验失败不得留下半应用的新配置");
     }
 
     [Fact]

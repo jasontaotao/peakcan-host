@@ -125,7 +125,7 @@ public sealed class UdsViewModelOrchestratorTests
         var factory = new SecondaryFlashStackFactory(
             new CoreSendService(NullLogger<SendService>.Instance),
             new ChannelRouter(),
-            new UdsTimer(),
+            () => new UdsTimer(),
             NullLogger<IsoTpLayer>.Instance,
             NullLogger<UdsSession>.Instance,
             NullLogger<SecondaryFlashStack>.Instance);

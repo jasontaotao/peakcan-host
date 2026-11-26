@@ -174,11 +174,13 @@ public sealed class FlashPanelViewModelTests
         public string? ShowSaveDialog(string filter, string? defaultExt, string? initialDirectory) => NextSaveResult;
     }
 
-    private static FlashViewModelTestContext Create(IFileDialogService? fileDialog = null)
+    private static FlashViewModelTestContext Create(
+        IFileDialogService? fileDialog = null,
+        Func<uint>? diagnosticResponseIdProvider = null)
     {
         var factory = new RecordingFactory();
         var vm = new FlashPanelViewModel(factory, NullLogger<FlashPanelViewModel>.Instance,
-            fileDialog, null)
+            fileDialog, null, flashConfig: null, diagnosticResponseIdProvider: diagnosticResponseIdProvider)
         {
             CurrentProfile = FlashProfile.CreateDefault(),
         };
@@ -369,6 +371,41 @@ public sealed class FlashPanelViewModelTests
         ctx.Vm.StatusMessage.Should().Contain("0x7E8",
             "the refusal message must reference the colliding diagnostic response ID so the " +
             "operator can locate the misconfiguration without reading a log");
+    }
+
+    [Fact]
+    public async Task Same_Addressing_Guard_Uses_The_Live_Diagnostic_ResponseId()
+    {
+        // 诊断 CAN ID 已可运行时重配。守卫若继续按写死的 0x7E8 判断，用户把诊断地址
+        // 改成 0x760 后：编程 0x760 撞车却不拦（两个层抢同一 ResponseId），
+        // 而编程 0x7E8 其实不撞却被拦。两个方向都错。
+        var ctx = Create(diagnosticResponseIdProvider: () => 0x760);
+        ctx.Vm.CurrentProfile.ProgrammingCanId = new CanIdConfig { RequestId = 0x714, ResponseId = 0x760 };
+        var sec = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess);
+        sec.SecurityMode = SecurityAccessMode.Dll;
+
+        await ctx.Vm.StartCommand.ExecuteAsync(null);
+
+        ctx.Vm.Status.Should().Be(FlashStatus.Failed,
+            "编程 0x760 与诊断 0x760 撞车，必须拦下");
+        ctx.Vm.StatusMessage.Should().Contain("0x760",
+            "拒绝文案要引用实际的诊断响应 ID，而不是写死的 0x7E8");
+        ctx.Factory.Calls.Should().BeEmpty("守卫在 Build 之前拦下，不留栈");
+    }
+
+    [Fact]
+    public async Task Same_Addressing_Guard_Allows_Programming_Id_That_No_Longer_Collides()
+    {
+        // 反向：诊断地址改成 0x760 后，编程 0x7E8 不再撞车，必须放行。
+        var ctx = Create(diagnosticResponseIdProvider: () => 0x760);
+        ctx.Vm.CurrentProfile.ProgrammingCanId = new CanIdConfig { RequestId = 0x7E0, ResponseId = 0x7E8 };
+        var sec = ctx.Vm.CurrentProfile.Steps.Single(s => s.Kind == FlashStepKind.SecurityAccess);
+        sec.SecurityMode = SecurityAccessMode.Dll;
+
+        await ctx.Vm.StartCommand.ExecuteAsync(null);
+
+        ctx.Factory.Calls.Should().ContainSingle(
+            "0x7E8 与诊断 0x760 不撞车，守卫不该再按写死的 0x7E8 拦下它");
     }
 
     [Fact]

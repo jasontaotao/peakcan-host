@@ -81,15 +81,21 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
         _testerPresentCts = new CancellationTokenSource();
         var ct = _testerPresentCts.Token;
         TesterPresentActive = true;
-        AppendLog("Info", "TesterPresent 已启动（2 秒周期）");
+        // 文案从常量派生，不写死秒数——写死的话改了间隔就会变成一句假话。
+        AppendLog("Info", $"TesterPresent 已启动（{UdsSession.KeepAliveInterval.TotalSeconds:0.#} 秒周期）");
         _ = Task.Run(async () =>
         {
             try
             {
                 while (!ct.IsCancellationRequested)
                 {
-                    await _udsClient.TesterPresentAsync().ConfigureAwait(false);
-                    await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+                    // 传 ct：断连复位时 StopTesterPresentLoop 只 Cancel/Dispose 不等待，
+                    // 若这条请求不响应取消，它会继续持有 UdsClient._requestLock，
+                    // 导致 ResetDiagnosticState 拿不到锁、跳过 ISO-TP 复位。
+                    await _udsClient.TesterPresentAsync(ct: ct).ConfigureAwait(false);
+                    // 与 UdsSession.StartS3KeepAlive 共用同一个间隔常量。此前这里写死
+                    // 2 秒，比 S3（5 秒）保守得多，白白浪费总线带宽。
+                    await Task.Delay(UdsSession.KeepAliveInterval, ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) { /* expected on stop */ }
@@ -198,7 +204,8 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     /// <summary>
     /// P1 防事故：刷写开始，立刻停保活循环。
     /// <para>
-    /// TesterPresent 每 2 秒往诊断 CAN-ID 发 <c>3E 00</c>，刷写用的是编程会话——
+    /// TesterPresent 按 <c>UdsSession.KeepAliveInterval</c> 周期往诊断 CAN-ID 发
+    /// <c>3E 00</c>，刷写用的是编程会话——
     /// 两者抢同一个 ECU，轻则刷写失败重则 ECU 停在半截。禁用按钮管不住已经在跑的循环，
     /// 所以这里必须真停。
     /// </para>
@@ -232,10 +239,31 @@ public sealed partial class SessionPanelViewModel : ObservableObject, IUdsPanel,
     /// instance that binds it.
     /// </summary>
     /// <summary>
-    /// 通道断开后 ECU 侧状态不可知。<see cref="GrantedSecurityLevel"/> 按"未解锁"
-    /// 处理：错报已解锁会误导后续写操作，错报未解锁只是让用户多点一次解锁。
+    /// 通道断开/重连时的整体复位。
+    /// <para>
+    /// 顺序有意为之：先停保活循环——否则复位后它还会继续向旧 ECU 发 <c>3E 00</c>；
+    /// 再让 <see cref="UdsClient.ResetDiagnosticState"/> 原子复位会话/时序/ISO-TP/
+    /// 在途请求；最后把本 VM 自己的展示状态（当前会话文案、已授予安全等级）拉回基线。
+    /// </para>
+    /// <para>
+    /// <b>不要在这里自己拼 <c>Session.Reset()</c> + <c>Transport.Reset()</c>：</b>
+    /// 真正生效的超时在 <c>UdsClient._timer</c>，而 <c>UdsSession</c> 不持有它。
+    /// 分开调用会造出「面板显示默认、实际仍用上一台 ECU 的协商值」——比不复位更糟，
+    /// 因为界面在说谎。
+    /// </para>
     /// </summary>
-    public void ResetForConnectionChange() => GrantedSecurityLevel = null;
+    public void ResetForConnectionChange()
+    {
+        if (TesterPresentActive)
+            StopTesterPresentLoop();
+
+        _udsClient.ResetDiagnosticState();
+
+        CurrentSession = UdsDisplayText.Session(0x01);
+        // 通道断开后 ECU 侧状态不可知，安全等级按「未解锁」处理：
+        // 错报已解锁会误导后续写操作，错报未解锁只是让用户多点一次解锁。
+        GrantedSecurityLevel = null;
+    }
 
     public void StopForWindowClose()
     {

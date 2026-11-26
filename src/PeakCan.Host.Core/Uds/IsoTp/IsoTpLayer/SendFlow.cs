@@ -56,7 +56,11 @@ public sealed partial class IsoTpLayer
     public Task SendFunctionalAsync(byte[] data, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(data);
-        if (_config.FunctionalId is null)
+        // 只取一次快照，并把 FunctionalId / 帧格式**传下去**：若下游重新取快照，
+        // 两次之间被 Reconfigure 换成不含 FunctionalId 的配置，下面的 `!` 就会
+        // 抛 Nullable.Value 异常——与这里「已检查过非空」的承诺相反。
+        var rt = Runtime;
+        if (rt.Config.FunctionalId is not { } functionalId)
             throw new InvalidOperationException(
                 "FunctionalId is not configured in CanIdConfig — cannot send functional (broadcast) frame.");
         if (data.Length > MaxSingleFramePayload)
@@ -65,7 +69,7 @@ public sealed partial class IsoTpLayer
 
         var frame = new IsoTpFrame(IsoTpFrameType.Single, data: data);
         var canData = frame.Encode();
-        return SendFunctionalCanFrameAsync(canData);
+        return SendFunctionalCanFrameAsync(canData, functionalId, rt.Config.IsExtendedFrame);
     }
 
     private Task SendSingleFrameAsync(byte[] data)
@@ -101,8 +105,11 @@ public sealed partial class IsoTpLayer
     /// </param>
     private async Task SendCanFrameAsync(byte[] data, int frameIndex, bool throwOnFailure = true)
     {
+        // Single snapshot for ID + format: reading them separately would allow a
+        // concurrent Reconfigure to produce a frame with the new ID in the old format.
+        var rt = Runtime;
         var frame = new CanFrame(
-            new CanId(_txCanId, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
+            new CanId(rt.TxCanId, rt.Config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
             data,
             FrameFlags.None,
             default,
@@ -136,8 +143,9 @@ public sealed partial class IsoTpLayer
 
     private void SendCanFrame(byte[] data)
     {
+        var rt = Runtime;
         var frame = new CanFrame(
-            new CanId(_txCanId, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
+            new CanId(rt.TxCanId, rt.Config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
             data,
             FrameFlags.None,
             default,
@@ -149,13 +157,19 @@ public sealed partial class IsoTpLayer
     }
 
     /// <summary>
-    /// Phase 2: Emit a functional (broadcast) CAN frame using <see cref="CanIdConfig.FunctionalId"/>.
+    /// Phase 2: Emit a functional (broadcast) CAN frame on <paramref name="functionalId"/>.
     /// Fire-and-forget semantics — no response expected for functional addressing.
+    /// <para>
+    /// The ID and frame format are passed in rather than re-read from the runtime
+    /// snapshot: <see cref="SendFunctionalAsync"/> already validated them, and a
+    /// re-read could observe a concurrently reconfigured snapshot without a
+    /// FunctionalId.
+    /// </para>
     /// </summary>
-    private async Task SendFunctionalCanFrameAsync(byte[] data)
+    private async Task SendFunctionalCanFrameAsync(byte[] data, uint functionalId, bool isExtendedFrame)
     {
         var frame = new CanFrame(
-            new CanId(_config.FunctionalId!.Value, _config.IsExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
+            new CanId(functionalId, isExtendedFrame ? FrameFormat.Extended : FrameFormat.Standard),
             data,
             FrameFlags.None,
             default,

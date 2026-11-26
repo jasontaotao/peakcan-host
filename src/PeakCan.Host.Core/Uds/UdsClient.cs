@@ -39,10 +39,72 @@ public partial class UdsClient : IDisposable
     /// </summary>
     internal Action? OnP2TimeoutFiredForTesting { get; set; }
 
+    /// <summary>
+    /// The P2* duration the NRC 0x78 path attempted to arm on the response
+    /// CTS. Null until the first response-pending is observed.
+    /// <para>
+    /// Production code never reads this; tests use it to assert the value
+    /// equals the ECU-negotiated P2* (and not a mis-scaled one) without
+    /// waiting out the real timeout. Recorded before the CancelAfter call so
+    /// it survives the shutdown race where the CTS is already disposed.
+    /// </para>
+    /// </summary>
+    internal TimeSpan? LastP2StarArmedForTesting { get; private set; }
+
+    /// <summary>
+    /// The timer this client actually reads for P2 / P2* arming.
+    /// <para>
+    /// Production code never reads this; tests use it to prove that two stacks built
+    /// back-to-back do not share a timer (flash runs would otherwise inherit the
+    /// previous run's ECU-negotiated timing).
+    /// </para>
+    /// </summary>
+    internal UdsTimer TimerForTesting => _timer;
+
     // C-8 fix: the SID of the in-flight request, used to validate that an
     // incoming positive response (SID+0x40) actually echoes our SID. Without
     // this guard, stale or out-of-sequence frames are accepted as the result.
     private byte _pendingRequestSid;
+
+    /// <summary>
+    /// 断连复位的代际号，每次 <see cref="ResetDiagnosticState"/> 自增。
+    /// <para>
+    /// 解决的是一条**无法靠加锁消除**的竞态：<c>DiagnosticSessionControlAsync</c>
+    /// 在 <c>SendRequestAsync</c> 返回（此时 <c>_requestLock</c> 已释放）之后才把
+    /// 协商结果写进 <see cref="Session"/> 与 <see cref="_timer"/>。若断连复位恰好
+    /// 落在「响应已到、续写未跑」之间，复位先清干净，随后那条续写又把上一台 ECU
+    /// 的 P2/P2* 和 <c>HasNegotiatedTiming=true</c> 写回去——正是本阶段要消灭的
+    /// 「面板说默认、实际用旧值」。
+    /// </para>
+    /// <para>
+    /// 加锁解决不了：续写本身不持锁。所以由续写自己比对代际号，发现期间发生过
+    /// 复位就放弃写入。
+    /// </para>
+    /// </summary>
+    private int _resetEpoch;
+
+    /// <summary>
+    /// 用户配置的时序基线（毫秒）。断连复位与重配都回到这里，而不是硬编码的
+    /// 50/5000——否则用户改个 CAN ID 就把自己配的 P2 打回默认。
+    /// <para>
+    /// 未配置时为 <c>null</c>，表示用 <see cref="UdsTimer"/> 的内置默认。
+    /// </para>
+    /// </summary>
+    private (int P2Ms, int P2StarMs)? _userTimingBaseline;
+
+    /// <summary>
+    /// 当前复位代际号。调用方可在一次请求前后各读一次，比对是否期间发生过
+    /// 断连复位（<see cref="ResetDiagnosticState"/>）。
+    /// </summary>
+    internal int ResetEpoch => Volatile.Read(ref _resetEpoch);
+
+    /// <summary>
+    /// Test-only hook fired between <see cref="UdsSession.SetSession"/> and the
+    /// <c>_timer</c> writes in <c>DiagnosticSessionControlAsync</c> — i.e. inside the
+    /// non-atomic window the second <see cref="ResetEpoch"/> check guards.
+    /// <para>Production code never sets this.</para>
+    /// </summary>
+    internal Action? BetweenSessionAndTimerWriteForTesting { get; set; }
 
     // v1.1.0: OEM-specific SecurityAccess key derivation. Nullable so the
     // legacy 2-arg ctor keeps working for tests that don't care about
@@ -164,11 +226,22 @@ public partial class UdsClient : IDisposable
 
 }
 
-/// <summary>DiagnosticSessionControl response.</summary>
+/// <summary>
+/// DiagnosticSessionControl (0x10) positive response.
+/// <para>
+/// Both timing values are already converted to MILLISECONDS here — the wire
+/// encoding differs (P2 is ms, P2* is 10 ms units) but every consumer of this
+/// record expects milliseconds. Do not re-scale at the call sites.
+/// </para>
+/// </summary>
 public sealed record DiagnosticSessionResponse
 {
     public byte SessionType { get; init; }
+
+    /// <summary>P2 timeout in milliseconds (wire value is already ms).</summary>
     public int P2 { get; init; }
+
+    /// <summary>P2* timeout in milliseconds (wire value is in 10 ms units, ×10 applied).</summary>
     public int P2Star { get; init; }
     // === Flow A methods moved to UdsClient/TransportFlow.cs (W12 Task 1) ===
     // === Flow B methods moved to UdsClient/SessionFlow.cs (W12 Task 2) ===

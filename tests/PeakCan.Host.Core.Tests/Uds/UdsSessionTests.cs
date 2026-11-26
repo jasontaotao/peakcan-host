@@ -245,4 +245,39 @@ public sealed class UdsSessionTests
         session.P2StarTimeout.Should().Be(5000);
         session.SessionType.Should().Be(0x03);
     }
+
+    // ========================================================================
+    // 断连复位：Reset 必须让会话与来源标注一起回到基线。
+    // ========================================================================
+
+    [Fact]
+    public void Reset_Clears_Session_And_Provenance_Flag()
+    {
+        var session = new UdsSession();
+        session.SetSession(0x03, p2: 25, p2Star: 7500);
+        session.HasNegotiatedTiming.Should().BeTrue("前置条件：已协商");
+
+        session.Reset(p2TimeoutMs: 50, p2StarTimeoutMs: 5000);
+
+        session.SessionType.Should().Be(0x01, "断连后回到默认会话");
+        session.P2Timeout.Should().Be(50);
+        session.P2StarTimeout.Should().Be(5000);
+        session.HasNegotiatedTiming.Should().BeFalse(
+            "来源标注必须跟着复位，否则界面继续宣称「ECU 0x10 协商」而实际是本地基线");
+        session.IsDefault.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Reset_Takes_The_Baseline_From_The_Caller()
+    {
+        // 基线不由 UdsSession 自己写死：阶段 4 引入用户配置后，断连复位应回到
+        // 「用户配置值」而不是内置 50/5000。由调用方（UdsClient）决定基线来源。
+        var session = new UdsSession();
+
+        session.Reset(p2TimeoutMs: 2000, p2StarTimeoutMs: 9000);
+
+        session.P2Timeout.Should().Be(2000);
+        session.P2StarTimeout.Should().Be(9000);
+        session.HasNegotiatedTiming.Should().BeFalse();
+    }
 }

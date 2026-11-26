@@ -44,12 +44,19 @@ public sealed record SegmentDisplayItem(string FileName, Segment Segment)
 public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, IDisposable
 {
     /// <summary>
-    /// The diagnostic ISO-TP response CAN-ID (0x7E8) — the singleton diagnostic IsoTpLayer's
-    /// ResponseId (AppHostBuilder line 186). The same-addressing degradation check (Task 3.2)
-    /// compares the profile's programming ResponseId against this: a programming layer sharing
-    /// it would collide with the diagnostic layer's receive path on the shared router.
+    /// 诊断栈当前的 ResponseId，用于同寻址退化检查（Task 3.2）。
+    /// <para>
+    /// 不能写死 0x7E8：诊断 CAN ID 现在可以在界面上改，写死的常量会让守卫在用户改过
+    /// 地址后失效——两个 IsoTpLayer 用同一个 ResponseId 会在共享路由器上互抢帧，
+    /// 双方都收到错误的响应。
+    /// </para>
+    /// <para>
+    /// 未注入 provider 时回落到 0x7E8（历史默认值），保证既有测试与无 DI 场景行为不变。
+    /// </para>
     /// </summary>
-    private const uint DiagnosticResponseId = 0x7E8;
+    private readonly Func<uint> _diagnosticResponseIdProvider;
+
+    private const uint DefaultDiagnosticResponseId = 0x7E8;
 
     private readonly ISecondaryFlashStackFactory _stackFactory;
     private readonly ILogger<FlashPanelViewModel> _logger;
@@ -133,17 +140,29 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     /// are App-internal seam contracts (visible to tests via InternalsVisibleTo), and a public
     /// ctor taking internal params would violate CS0051 (accessibility-consistency).
     /// </summary>
+    /// <param name="stackFactory">构建每次刷写的副栈。</param>
+    /// <param name="logger">Logger。</param>
+    /// <param name="fileDialog">文件对话框（可选）。</param>
+    /// <param name="lifetime">宿主生命周期（可选）。</param>
+    /// <param name="flashConfig">ODX 派生的刷写配置（可选）。</param>
+    /// <param name="diagnosticResponseIdProvider">
+    /// 读诊断栈当前 ResponseId 的回调（可选）。同寻址守卫用它判断「编程寻址是否与诊断
+    /// 寻址撞车」。不传时回落到历史默认 0x7E8。
+    /// </param>
     internal FlashPanelViewModel(
         ISecondaryFlashStackFactory stackFactory,
         ILogger<FlashPanelViewModel> logger,
         IFileDialogService? fileDialog = null,
         IHostApplicationLifetime? lifetime = null,
-        FlashConfigurationService? flashConfig = null)
+        FlashConfigurationService? flashConfig = null,
+        Func<uint>? diagnosticResponseIdProvider = null)
     {
         ArgumentNullException.ThrowIfNull(stackFactory);
         ArgumentNullException.ThrowIfNull(logger);
         _stackFactory = stackFactory;
         _logger = logger;
+        _diagnosticResponseIdProvider = diagnosticResponseIdProvider
+            ?? (static () => DefaultDiagnosticResponseId);
         // Phase 1.1: fileDialog is defaulted for back-compat with pre-existing tests that
         // don't exercise file browsing. Production DI always supplies a real IFileDialogService;
         // NullFileDialogService returns null (user cancelled) so commands silently no-op.
@@ -369,13 +388,17 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
         // wire, but the operator intent was almost certainly a misconfigured profile (the
         // de-facto programming pair 0x714/0x760 is distinct by default); refuse Start with a
         // self-explaining message rather than silently corrupting the diagnostic session.
+        var diagnosticResponseId = _diagnosticResponseIdProvider();
         if (secStep is { SecurityMode: SecurityAccessMode.Dll }
-            && CurrentProfile.ProgrammingCanId.ResponseId == DiagnosticResponseId)
+            && CurrentProfile.ProgrammingCanId.ResponseId == diagnosticResponseId)
         {
             Status = FlashStatus.Failed;
             StatusMessage =
-                "编程寻址与诊断寻址相同（0x7E8）— 同寻址刷写仅支持手动模式。请将 ProgrammingCanId 改为不同于 0x7E0/0x7E8 的编程寻址。";
-            _logger.LogWarning("Refused Dll-mode flash: programming ResponseId collides with diagnostic 0x7E8.");
+                $"编程寻址与诊断寻址相同（0x{diagnosticResponseId:X3}）— 同寻址刷写仅支持手动模式。" +
+                "请将 ProgrammingCanId 改为不同于诊断寻址的编程寻址。";
+            _logger.LogWarning(
+                "Refused Dll-mode flash: programming ResponseId 0x{ProgrammingId:X3} collides with diagnostic 0x{DiagnosticId:X3}.",
+                CurrentProfile.ProgrammingCanId.ResponseId, diagnosticResponseId);
             return Task.CompletedTask;
         }
 
@@ -765,9 +788,16 @@ public sealed partial class FlashPanelViewModel : ObservableObject, IUdsPanel, I
     // ---- profile save/load (Phase 1.1) ----
 
     /// <summary>
-    /// Persist the current <see cref="FlashProfile"/> (steps + ProgrammingCanId + timing) to a
-    /// JSON file. <see cref="FlashProfile"/> is a full-state snapshot — LoadProfile restores it
-    /// wholesale. Errors (path not found, permission denied) surface via StatusMessage.
+    /// 把当前 <see cref="FlashProfile"/> 存成 JSON 文件。
+    /// <para>
+    /// <b>注意：profile 里**没有**时序参数。</b>它只含步骤列表、编程 CAN ID、固件文件
+    /// 与驱动设置；P2/P2* 由 ECU 在会话切换时协商，N_Bs/N_Cr 由通讯参数面板配置，
+    /// 都不随 profile 走。（旧注释声称存了 "timing"，是错的。）
+    /// </para>
+    /// <para>
+    /// <see cref="FlashProfile"/> 是整份状态快照——LoadProfile 整体还原。
+    /// 路径不存在/权限不足等错误经 StatusMessage 呈现。
+    /// </para>
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanEditSteps))]
     private async Task SaveProfileAsync()

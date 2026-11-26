@@ -30,6 +30,14 @@ public sealed class SessionPanelViewModelTests
             new UdsTimer())
         { }
 
+        public int ResetDiagnosticStateCallCount { get; private set; }
+
+        public override void ResetDiagnosticState()
+        {
+            ResetDiagnosticStateCallCount++;
+            base.ResetDiagnosticState();
+        }
+
         public override Task<byte[]> SecurityAccessAsync(byte requestLevel, CancellationToken ct = default)
         {
             SecurityCalls.Add((requestLevel, null));
@@ -341,6 +349,62 @@ public sealed class SessionPanelViewModelTests
 
         var act = () => vm.StopForWindowClose();
         act.Should().NotThrow("the two stop entry points share a body, both idempotent");
+    }
+
+    // ========================================================================
+    // 断连复位：面板必须把自己的展示状态也拉回基线。
+    // ========================================================================
+
+    [Fact]
+    public async Task ResetForConnectionChange_Restores_CurrentSession_And_Clears_Granted_Level()
+    {
+        var fake = new RecordingUdsClient();
+        var vm = NewVm(fake);
+
+        await vm.SetProgrammingSessionCommand.ExecuteAsync(null);
+        vm.CurrentSession.Should().Be("编程", "前置条件：已切到编程会话");
+
+        vm.ResetForConnectionChange();
+
+        vm.CurrentSession.Should().Be("默认",
+            "断连后窗口顶部不能继续显示旧会话，否则用户以为 ECU 还在编程会话里");
+        vm.GrantedSecurityLevel.Should().BeNull();
+    }
+
+    [Fact]
+    public void ResetForConnectionChange_Stops_TesterPresent_Loop()
+    {
+        var fake = new RecordingUdsClient();
+        var vm = NewVm(fake);
+
+        vm.ToggleTesterPresentCommand.Execute(null);
+        vm.TesterPresentActive.Should().BeTrue("前置条件：保活循环在跑");
+
+        vm.ResetForConnectionChange();
+
+        vm.TesterPresentActive.Should().BeFalse(
+            "复位后若循环还在跑，它会继续向旧 ECU 发 3E 00");
+    }
+
+    [Fact]
+    public async Task ResetForConnectionChange_Delegates_To_UdsClient_ResetDiagnosticState()
+    {
+        // VM 不许自己拼 Session.Reset + Transport.Reset —— 真正生效的超时在
+        // UdsClient._timer，VM 拿不到也管不了。断言它确实走了统一入口。
+        var fake = new RecordingUdsClient();
+        var vm = NewVm(fake);
+
+        // 让真实状态偏离基线：协商一组非默认时序。
+        await fake.DiagnosticSessionControlAsync(0x02);
+        fake.Session.SetSession(0x02, p2: 25, p2Star: 7500);
+        fake.Session.HasNegotiatedTiming.Should().BeTrue("前置条件：已协商");
+
+        vm.ResetForConnectionChange();
+
+        fake.ResetDiagnosticStateCallCount.Should().Be(1,
+            "断连复位必须走 UdsClient.ResetDiagnosticState 这个唯一入口");
+        fake.Session.HasNegotiatedTiming.Should().BeFalse(
+            "统一入口复位后，来源标注必须清掉");
     }
 }
 

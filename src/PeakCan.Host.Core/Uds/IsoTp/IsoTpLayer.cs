@@ -31,17 +31,33 @@ public sealed partial class IsoTpLayer : IDisposable
     /// <summary>Default N_Cr: max time to wait between Consecutive Frames before aborting reassembly (ISO 15765-2 §6.7).</summary>
     public static readonly TimeSpan DefaultReceiveTimeout = TimeSpan.FromMilliseconds(1000);
 
-    private readonly CanIdConfig _config;
     private readonly Action<CanFrame>? _sendFrame;
     private readonly Func<CanFrame, Task>? _sendFrameAsync;
     private readonly ILogger<IsoTpLayer>? _logger;
 
     /// <summary>
-    /// CAN ID used for transmitted frames. Defaults to <see cref="CanIdConfig.RequestId"/>.
-    /// For ECU simulators, set to <see cref="CanIdConfig.ResponseId"/> so responses
-    /// go out on the ID the HIL listens on.
+    /// 一次重配要同时换掉的两样东西：CAN ID 配置 + 实际发送用的 ID。
+    /// <para>
+    /// 必须打包成一个不可变对象原子替换，不能分别改两个字段——否则中途被观察
+    /// 到「接收按新 ResponseId 过滤、发送仍用旧 RequestId」的撕裂状态，发出去的
+    /// 帧 ECU 不认、收回来的帧被丢掉，表现为「改完 ID 就彻底失联」。
+    /// </para>
+    /// <para>
+    /// <see cref="TxCanId"/> 之所以独立于 <see cref="Config"/>.RequestId，是为了
+    /// 支持 ECU 模拟器（发送走 ResponseId）。构造时由 <c>txCanId</c> 参数一次性
+    /// 求出；重配时保留「是否被显式覆盖」的信息。
+    /// </para>
     /// </summary>
-    private readonly uint _txCanId;
+    private sealed record RuntimeConfig(CanIdConfig Config, uint TxCanId, bool TxCanIdOverridden);
+
+    /// <summary>当前的运行时配置快照。只经 <see cref="Volatile"/> 读/写整体替换。</summary>
+    private RuntimeConfig _runtime = null!;
+
+    /// <summary>
+    /// 取当前快照。每个读取点必须**一次性取到局部变量**再从中读多个字段，
+    /// 否则同一个方法里两次读之间被重配就会发出「新 ID + 旧帧格式」的帧。
+    /// </summary>
+    private RuntimeConfig Runtime => Volatile.Read(ref _runtime);
 
     /// <summary>
     /// v1.2.13 PATCH Item 5: number of multi-frame send failures since
@@ -135,11 +151,29 @@ public sealed partial class IsoTpLayer : IDisposable
     }
 
     /// <summary>
-    /// The CAN ID configuration this layer was constructed with (request/response IDs,
+    /// The CAN ID configuration currently in effect (request/response IDs,
     /// functional ID, frame format). <see cref="CanIdConfig"/> is an immutable record,
-    /// so the reference is safe to expose read-only.
+    /// so the reference is safe to expose read-only. Changes when
+    /// <see cref="ReconfigureAsync"/> is applied.
     /// </summary>
-    public CanIdConfig Config => _config;
+    public CanIdConfig Config => Runtime.Config;
+
+    /// <summary>
+    /// CAN ID currently used for transmitted frames. Equals
+    /// <see cref="CanIdConfig.RequestId"/> unless the layer was built as an ECU
+    /// simulator (explicit <c>txCanId</c>).
+    /// </summary>
+    public uint TxCanId => Runtime.TxCanId;
+
+    /// <summary>
+    /// True while a multi-frame receive is mid-reassembly.
+    /// Production code never reads this; tests use it to observe N_Cr expiry
+    /// without depending on a subsequent First Frame resetting the state.
+    /// </summary>
+    internal bool RxInProgressForTesting
+    {
+        get { lock (_rxLock) return _rxInProgress; }
+    }
 
     /// <summary>
     /// Atomic snapshot of the transmit-side flow-control state (single lock acquisition)
