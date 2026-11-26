@@ -350,6 +350,28 @@ public partial class AppHostBuilder
         // singletons + the FlashPanelViewModel's in-flight secondary stack. Public ctor, so
         // plain registration suffices — UdsViewModel's optional ctor param auto-resolves to it.
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.TransportParamsViewModel>();
+        // 离线日志分析（spec 2026-11-25）：ASC/BLF 加载器、纯分析器、导出交互、
+        // 聊天 Handoff，以及挂在 UdsViewModel 上的子 VM。全部 singleton——
+        // 切换页签不取消分析，返回时仍是同一份报告。
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Uds.IUdsOfflineTraceLoader,
+            PeakCan.Host.App.Services.Uds.UdsOfflineTraceLoader>();
+        builder.Services.AddSingleton<PeakCan.Host.Core.Analysis.Uds.UdsOfflineAnalyzer>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Uds.IUdsExportPrompt,
+            PeakCan.Host.App.Services.Uds.WpfUdsExportPrompt>();
+        builder.Services.AddSingleton<PeakCan.Host.App.Services.Uds.ITraceViewerChatHandoffService>(sp =>
+            new PeakCan.Host.App.Services.Uds.TraceViewerChatHandoffService(
+                sp.GetRequiredService<PeakCan.Host.App.Services.Ui.WindowHostService>(),
+                () => sp.GetRequiredService<PeakCan.Host.App.ViewModels.TraceViewerViewModel>()));
+        builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsLogAnalysisViewModel>(sp =>
+            new PeakCan.Host.App.ViewModels.Uds.UdsLogAnalysisViewModel(
+                sp.GetRequiredService<PeakCan.Host.App.Services.Uds.IUdsOfflineTraceLoader>(),
+                sp.GetRequiredService<PeakCan.Host.Core.Analysis.Uds.UdsOfflineAnalyzer>(),
+                sp.GetRequiredService<PeakCan.Host.App.Services.Uds.ITraceViewerChatHandoffService>(),
+                sp.GetRequiredService<PeakCan.HIL.Core.IFileDialogService>(),
+                sp.GetRequiredService<PeakCan.Host.App.Services.Uds.IUdsExportPrompt>(),
+                sp.GetRequiredService<PeakCan.Host.Core.Uds.Database.DidDatabase>(),
+                sp.GetRequiredService<PeakCan.Host.Core.Uds.Database.RoutineDatabase>(),
+                sp.GetRequiredService<PeakCan.Host.App.ViewModels.Uds.OdxImportViewModel>()));
         builder.Services.AddSingleton<PeakCan.Host.App.ViewModels.Uds.UdsViewModel>();
 
 

@@ -11,6 +11,8 @@ using NSubstitute;
 using PeakCan.Host.App.Composition;
 using PeakCan.Host.App.Services;
 using PeakCan.Host.App.Services.Trace;
+using PeakCan.Host.App.Services.Uds;
+using PeakCan.Host.Core.Analysis.Uds;
 using PeakCan.Host.App.Services.Ui;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.Host.App.ViewModels.Uds;
@@ -721,5 +723,23 @@ public class AppHostBuilderTests
         var slot = host.Services.GetRequiredService<LiveFrameSlot>();
         host.Services.GetRequiredService<DbcViewModel>().LiveSlot.Should().BeSameAs(
             slot, "二期实时刷新必须读到后台 worker 写入的同一个单槽");
+    }
+
+    /// <summary>
+    /// 离线分析整条链必须能从 DI 解析：加载器、分析器、Handoff 服务，
+    /// 以及挂到 UdsViewModel 上的子 ViewModel（页签绑定 LogAnalysis）。
+    /// </summary>
+    [Fact]
+    public void Offline_analysis_services_and_child_view_model_resolve()
+    {
+        using var host = new AppHostBuilder().Build();
+
+        host.Services.GetRequiredService<IUdsOfflineTraceLoader>().Should().NotBeNull();
+        host.Services.GetRequiredService<UdsOfflineAnalyzer>().Should().NotBeNull();
+        host.Services.GetRequiredService<ITraceViewerChatHandoffService>().Should().NotBeNull();
+        host.Services.GetRequiredService<IUdsExportPrompt>().Should().NotBeNull();
+
+        var uds = host.Services.GetRequiredService<UdsViewModel>();
+        uds.LogAnalysis.Should().NotBeNull("日志分析页签直接绑定 UdsViewModel.LogAnalysis");
     }
 }
