@@ -158,11 +158,14 @@ public partial class AppHostBuilder
         // (worker fills entry.Decoded after looking up PendingDecode).
         // v1.2.12 PATCH Item 11: factory now also takes ILogger so OnError
         // is observable in Release builds.
+        // 二期：单槽缓存当前选中消息的最新载荷（解码 worker 写、DBC 页 33ms 节流读）。
+        builder.Services.AddSingleton<LiveFrameSlot>();
         builder.Services.AddSingleton<DbcDecodeBackgroundService>(sp =>
             new DbcDecodeBackgroundService(
                 sp.GetRequiredService<DbcService>(),
                 sp.GetRequiredService<SignalViewModel>(),
                 sp.GetRequiredService<TraceViewModel>(),
+                sp.GetRequiredService<LiveFrameSlot>(),
                 sp.GetRequiredService<ILogger<DbcDecodeBackgroundService>>()));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DbcDecodeBackgroundService>());
 

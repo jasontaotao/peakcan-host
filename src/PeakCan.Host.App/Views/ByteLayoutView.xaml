@@ -51,6 +51,17 @@
                                                     MouseLeave="OnCellMouseLeave"
                                                     GotFocus="OnCellGotFocus"
                                                     LostFocus="OnCellLostFocus">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Opacity" Value="1" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsSet}"
+                                                                         Value="False">
+                                                                <Setter Property="Opacity" Value="0.28" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
                                                 <TextBlock Text="{Binding BitNumber}" FontSize="8"
                                                            HorizontalAlignment="Left"
                                                            VerticalAlignment="Top"

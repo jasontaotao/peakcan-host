@@ -104,6 +104,7 @@ public sealed partial class DbcViewModel
         if (SelectedMessage?.RawMessage is not { } message)
         {
             LayoutSnapshot = null;
+            SyncLive();
             return;
         }
 
@@ -169,6 +170,8 @@ public sealed partial class DbcViewModel
 
             LayoutRows.Add(new ByteLayoutRow(group.Key, cells));
         }
+
+        SyncLive();
     }
 
     /// <summary>hover / 键盘聚焦卡片的内容：位置、信号摘要、factor/offset、重叠信息。</summary>
@@ -194,9 +197,22 @@ public sealed partial class DbcViewModel
     }
 }
 
-/// <summary>信号表一行：原始 Signal、调色板索引与布局诊断文本。</summary>
-public sealed record DbcSignalRow(Signal Signal, int PaletteIndex, string DiagnosticText)
+/// <summary>信号表一行：原始 Signal、调色板索引、布局诊断文本与实时值。</summary>
+public sealed partial class DbcSignalRow : ObservableObject
 {
+    public DbcSignalRow(Signal signal, int paletteIndex, string diagnosticText)
+    {
+        Signal = signal;
+        PaletteIndex = paletteIndex;
+        DiagnosticText = diagnosticText;
+    }
+
+    public Signal Signal { get; }
+
+    public int PaletteIndex { get; }
+
+    public string DiagnosticText { get; }
+
     public string Name => Signal.Name;
 
     public string BitLayout => string.Create(
@@ -209,6 +225,10 @@ public sealed record DbcSignalRow(Signal Signal, int PaletteIndex, string Diagno
     public string Unit => Signal.Unit;
 
     public string Comment => Signal.Comment ?? "";
+
+    /// <summary>当前帧解码后的物理值；无数据 / mux 分支不匹配时显示“—”。</summary>
+    [ObservableProperty]
+    private string _liveValue = "—";
 }
 
 /// <summary>位图的一行（一个字节），Cells 固定按 bit 7 → bit 0 排列。</summary>
@@ -218,5 +238,28 @@ public sealed record ByteLayoutRow(int ByteIndex, IReadOnlyList<ByteLayoutCell> 
 }
 
 /// <summary>位图的一格：位号、归属信号、调色板索引与 hover 文本。</summary>
-public sealed record ByteLayoutCell(
-    int BitNumber, string? OwnerSignal, int PaletteIndex, string Tooltip);
+public sealed partial class ByteLayoutCell : ObservableObject
+{
+    public ByteLayoutCell(int bitNumber, string? ownerSignal, int paletteIndex, string tooltip)
+    {
+        BitNumber = bitNumber;
+        OwnerSignal = ownerSignal;
+        PaletteIndex = paletteIndex;
+        Tooltip = tooltip;
+    }
+
+    public int BitNumber { get; }
+
+    public string? OwnerSignal { get; }
+
+    public int PaletteIndex { get; }
+
+    public string Tooltip { get; }
+
+    /// <summary>
+    /// 当前帧里该位的值：true/false = 有数据；null = 无实时数据（未选中、
+    /// 该字节超出帧载荷，或该格不属于任何信号）。只有归属信号的格子在实时刷新时赋值。
+    /// </summary>
+    [ObservableProperty]
+    private bool? _isSet;
+}

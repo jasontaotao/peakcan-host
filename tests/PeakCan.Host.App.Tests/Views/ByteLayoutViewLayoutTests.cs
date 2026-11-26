@@ -45,4 +45,22 @@ public class ByteLayoutViewLayoutTests
         border.Attribute("MouseEnter").Should().NotBeNull();
         border.Attribute("GotFocus").Should().NotBeNull();
     }
+
+    [Fact]
+    public void Zero_Bits_Are_Dimmed_Through_An_IsSet_Trigger()
+    {
+        var doc = Load();
+
+        var border = doc.Descendants(P + "Border").Single(
+            b => ((string?)b.Attribute("Focusable")) == "True");
+
+        var trigger = border.Descendants(P + "DataTrigger")
+            .SingleOrDefault(t => ((string?)t.Attribute("Binding"))?.Contains(
+                "IsSet", StringComparison.Ordinal) == true);
+
+        trigger.Should().NotBeNull("0 位必须通过 IsSet 触发变淡");
+        ((string?)trigger!.Attribute("Value")).Should().Be("False");
+        trigger.Descendants(P + "Setter").Should()
+            .Contain(s => ((string?)s.Attribute("Property")) == "Opacity");
+    }
 }

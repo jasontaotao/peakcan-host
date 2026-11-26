@@ -24,7 +24,7 @@ DBC 页（Ctrl+2）当前消息行详情里信号只是一串格式化文本（`
 
 **一期（本 spec 交付）**：静态位图。选中消息 → 计算布局快照 → 一次性渲染；mux 下拉切换分支；hover 显示信号详情；下方信号表与色块颜色对应。
 
-**二期（另行确认后实施）**：实时点亮。仅当前选中消息走 33ms 节流更新背景/数值，其余消息不动；无选中消息时节流器空转返回。
+**二期（2026-11-26 已确认，实施计划见 `docs/superpowers/plans/2026-11-26-dbc-byte-layout-phase2.md`）**：实时点亮。仅当前选中消息走 33ms 节流更新背景/数值，其余消息不动；无选中消息时停止节流。位图中当前帧为 0 的信号位变淡，信号表新增“当前值”列；帧内 mux 值与选中分支不符时 muxed 信号显示“—”。
 
 **不做**：全消息逐帧染色；ScottPlot/OxyPlot heatmap 方案（即时模式重绘，为静态图付动态成本）；FD 消息的额外展示优化（经典 CAN 与 FD 统一按实际 DLC 多行渲染，上限 512 格 / 64 字节，不另做压缩/滚动增强）。
 
@@ -151,7 +151,7 @@ public sealed record SignalBitLayoutSnapshot(
 - 一期无 Timer、无 Dispatcher 封送、无帧订阅。
 - 快照**不缓存**：选中 / mux 变化即重算；DBC 重载时 `SelectedMessage` 置 null，快照随之为空。
 - 搜索过滤（`ApplyFilter` 会 Clear 后重填 `FilteredMessages`）不得让已选中的消息丢失：按 `Id + Name` 尝试恢复；找不到则清空选中。该行为一期实现并测试。
-- 二期预算上限：30Hz × 当前选中消息 ≤512 格的属性赋值，复用 `RunOnUiPost` 模式；原始帧由 `DbcDecodeBackgroundService` 按消息 ID 存最新一帧的完整载荷（经典 8 字节 / FD 最多 64 字节，不是固定 8 字节）。
+- 二期预算上限：30Hz × 当前选中消息 ≤512 格的属性赋值，复用 `RunOnUiPost` 模式。原始帧由 `DbcDecodeBackgroundService` 写入**单槽缓存** `LiveFrameSlot`：VM 在选中变化时设置目标消息 ID，worker 只拷贝这条消息的最新一帧完整载荷（经典 8 字节 / FD 最多 64 字节，不是固定 8 字节）；无选中时不拷贝。单槽避免高帧率总线上对无关消息的逐帧分配。
 
 ## 7. 错误处理（按快照结果分状态）
 

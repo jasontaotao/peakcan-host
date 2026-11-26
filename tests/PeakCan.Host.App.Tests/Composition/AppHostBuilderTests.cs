@@ -712,4 +712,14 @@ public class AppHostBuilderTests
 
         store.Should().BeOfType<Infrastructure.HIL.Analysis.ChainedCredentialStore>();
     }
+
+    [Fact]
+    public void Build_Wires_DbcViewModel_To_The_Decode_Live_Slot()
+    {
+        using var host = new AppHostBuilder().Build();
+
+        var slot = host.Services.GetRequiredService<LiveFrameSlot>();
+        host.Services.GetRequiredService<DbcViewModel>().LiveSlot.Should().BeSameAs(
+            slot, "二期实时刷新必须读到后台 worker 写入的同一个单槽");
+    }
 }

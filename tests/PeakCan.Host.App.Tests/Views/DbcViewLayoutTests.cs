@@ -140,4 +140,16 @@ public sealed class DbcViewLayoutTests
             .Contain(e => (((string?)e.Attribute("ItemsSource")) ?? "").Contains(
                 "VisibleSignals", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Signal_Table_Shows_Live_Value_Column()
+    {
+        var rowDetails = DbcView()
+            .Descendants(P + "DataGrid.RowDetailsTemplate").Single();
+
+        rowDetails.Descendants(P + "TextBlock").Should()
+            .Contain(t => (((string?)t.Attribute("Text")) ?? "").Contains(
+                "LiveValue", StringComparison.Ordinal),
+                "信号表必须显示实时值");
+    }
 }

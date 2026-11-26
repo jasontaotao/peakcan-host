@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.Host.App.Services;
+using PeakCan.Host.App.Tests.Collections;
 using PeakCan.Host.App.ViewModels;
 using PeakCan.HIL.Core.Dbc;
 using Xunit;
@@ -11,6 +12,10 @@ namespace PeakCan.Host.App.Tests.ViewModels;
 
 public class DbcLayoutViewModelTests
 {
+    // Timer 用例依赖 RunOnUiPost 的“无 Application → 就地执行”路径；清掉兄弟测试类
+    // 可能泄漏的 Application，避免封送到无人泵的 dispatcher（与 DbcDecodeBackgroundServiceTests 同口径）。
+    public DbcLayoutViewModelTests() => LeakedApplicationReset.CleanupLeakedApplication();
+
     private static Signal Sig(
         string name, ushort start, byte len,
         ByteOrder order = ByteOrder.LittleEndian,
@@ -26,6 +31,12 @@ public class DbcLayoutViewModelTests
             Sig("B", 16, 8, muxed: true, mux: 1),
         }, true, 0);
 
+    private static Message SimpleMessage()
+        => new(0x100, "Simple", 8, "ECU", new List<Signal>
+        {
+            Sig("Bits", 0, 8),
+        }, false, null);
+
     private static void RaiseLoaded(DbcService svc, params Message[] messages)
     {
         var doc = new DbcDocument(
@@ -35,11 +46,12 @@ public class DbcLayoutViewModelTests
         svc.GetType().GetEvent(nameof(DbcService.DbcLoaded))!.RaiseMethod(svc, doc);
     }
 
-    private static DbcViewModel NewVm(out DbcService svc)
+    private static DbcViewModel NewVm(out DbcService svc, LiveFrameSlot? liveSlot = null)
     {
         svc = new DbcService(NullLogger<DbcService>.Instance);
         return new DbcViewModel(
-            svc, new SignalViewModel(), NullLogger<DbcViewModel>.Instance);
+            svc, new SignalViewModel(), NullLogger<DbcViewModel>.Instance,
+            liveSlot: liveSlot);
     }
 
     [Fact]
@@ -267,5 +279,204 @@ public class DbcLayoutViewModelTests
 
         vm.SelectedMessage.Should().BeNull();
         vm.LayoutSnapshot.Should().BeNull();
+    }
+
+    [Fact]
+    public void New_Layout_Cells_Start_Without_Live_State()
+    {
+        var vm = NewVm(out var svc);
+        RaiseLoaded(svc, SimpleMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+
+        vm.LayoutRows.SelectMany(r => r.Cells).Should().OnlyContain(c => c.IsSet == null);
+        vm.VisibleSignals.Should().OnlyContain(s => s.LiveValue == "—");
+    }
+
+    [Fact]
+    public void Live_Payload_Lights_Cells_And_Decodes_Signal_Value()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, SimpleMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.StopLiveTimerForTest();
+
+        slot.Publish(0x100, new byte[] { 0x05 });
+        vm.RefreshLiveLayoutForTest();
+
+        var cells = vm.LayoutRows[0].Cells;
+        cells.Single(c => c.BitNumber == 0).IsSet.Should().BeTrue();
+        cells.Single(c => c.BitNumber == 2).IsSet.Should().BeTrue();
+        cells.Single(c => c.BitNumber == 1).IsSet.Should().BeFalse();
+        vm.VisibleSignals.Single().LiveValue.Should().Be("5");
+    }
+
+    [Fact]
+    public void Live_Without_New_Frame_Keeps_Dashes()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, SimpleMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.StopLiveTimerForTest();
+
+        vm.RefreshLiveLayoutForTest();
+
+        vm.VisibleSignals.Single().LiveValue.Should().Be("—");
+        vm.LayoutRows[0].Cells.Should().OnlyContain(c => c.IsSet == null);
+    }
+
+    [Fact]
+    public void Short_Frame_Leaves_Bytes_Beyond_Payload_Without_Live_State()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        var msg = new Message(0x100, "Two", 8, "ECU", new List<Signal>
+        {
+            Sig("Low", 0, 8),
+            Sig("High", 8, 8),
+        }, false, null);
+        RaiseLoaded(svc, msg);
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.StopLiveTimerForTest();
+
+        slot.Publish(0x100, new byte[] { 0xFF });
+        vm.RefreshLiveLayoutForTest();
+
+        vm.VisibleSignals.Single(s => s.Name == "Low").LiveValue.Should().Be("255");
+        vm.VisibleSignals.Single(s => s.Name == "High").LiveValue.Should()
+            .Be("—", "载荷只有 1 字节，不能把缺失字节当 0 解码");
+        vm.LayoutRows[1].Cells.Should().OnlyContain(c => c.IsSet == null);
+    }
+
+    [Fact]
+    public void Mux_Mismatch_Shows_Dash_For_Muxed_Signals()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, MuxMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.StopLiveTimerForTest();
+
+        // 帧里 mux=1（Mode 低 4 位 = 1），mux=0 的 A 在本帧不生效
+        slot.Publish(0x100, new byte[] { 0x01, 0x2A, 0x63 });
+        vm.RefreshLiveLayoutForTest();
+
+        vm.VisibleSignals.Single(s => s.Name == "Mode").LiveValue.Should().Be("1");
+        vm.VisibleSignals.Single(s => s.Name == "A").LiveValue.Should().Be("—");
+        vm.LayoutRows[1].Cells.Single(c => c.BitNumber == 1).IsSet.Should()
+            .BeTrue("位图仍按载荷位点亮，与 mux 分支无关");
+    }
+
+    [Fact]
+    public void Switching_Mux_Reapplies_Live_Values_For_New_Branch()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, MuxMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.StopLiveTimerForTest();
+        slot.Publish(0x100, new byte[] { 0x01, 0x2A, 0x63 });
+        vm.RefreshLiveLayoutForTest();
+
+        vm.SelectedMuxValue = 1;
+        vm.StopLiveTimerForTest();
+
+        vm.VisibleSignals.Select(s => s.Name).Should().BeEquivalentTo("Mode", "B");
+        vm.VisibleSignals.Single(s => s.Name == "B").LiveValue.Should()
+            .Be("99", "切换 mux 后必须立即按新分支重解，不能等下一次 tick");
+    }
+
+    [Fact]
+    public void Fd_Sixty_Four_Byte_Payload_Lights_Last_Byte()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        var msg = new Message(0x100, "Fd", 64, "ECU", new List<Signal>
+        {
+            Sig("Top", 504, 8),
+        }, false, null);
+        RaiseLoaded(svc, msg);
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.StopLiveTimerForTest();
+
+        var payload = new byte[64];
+        payload[63] = 0x80;
+        slot.Publish(0x100, payload);
+        vm.RefreshLiveLayoutForTest();
+
+        vm.LayoutRows.Should().HaveCount(64);
+        vm.LayoutRows[63].Cells.Single(c => c.BitNumber == 7).IsSet.Should().BeTrue();
+        vm.VisibleSignals.Single().LiveValue.Should().Be("128");
+    }
+
+    [Fact]
+    public void Deselecting_Message_Clears_Live_Target()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, SimpleMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.StopLiveTimerForTest();
+        slot.Publish(0x100, new byte[] { 0xFF });
+
+        vm.SelectedMessage = null;
+
+        slot.TryRead(0x100, out _).Should().BeFalse("取消选中后后台不再为该消息保留载荷");
+    }
+
+    [Fact]
+    public void Dbc_Reload_Clears_Live_Target()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, SimpleMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.StopLiveTimerForTest();
+        slot.Publish(0x100, new byte[] { 0xFF });
+
+        RaiseLoaded(svc, SimpleMessage());
+
+        vm.SelectedMessage.Should().BeNull();
+        slot.TryRead(0x100, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Timer_Tick_Applies_Live_Values_Without_Manual_Refresh()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, SimpleMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+
+        slot.Publish(0x100, new byte[] { 0x05 });
+
+        // 不调用 RefreshLiveLayoutForTest：这里钉的是 33ms Timer 投递机制本身。
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (vm.VisibleSignals.Single().LiveValue == "—" && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
+
+        vm.VisibleSignals.Single().LiveValue.Should()
+            .Be("5", "33ms tick 必须自行把单槽载荷投递到 UI");
+    }
+
+    [Fact]
+    public void Payload_Bytes_Beyond_Declared_Dlc_Do_Not_Produce_Values()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        var msg = new Message(0x100, "Short", 2, "ECU", new List<Signal>
+        {
+            Sig("Outside", 40, 8),
+        }, false, null);
+        RaiseLoaded(svc, msg);
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.StopLiveTimerForTest();
+
+        slot.Publish(0x100, new byte[] { 0, 0, 0, 0, 0, 0x2A, 0, 0 });
+        vm.RefreshLiveLayoutForTest();
+
+        vm.VisibleSignals.Single().LiveValue.Should()
+            .Be("—", "信号在声明 DLC 之外，不能因为总线帧更长就显示数值");
     }
 }

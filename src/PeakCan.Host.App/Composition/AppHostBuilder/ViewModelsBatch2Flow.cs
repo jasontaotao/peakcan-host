@@ -202,6 +202,8 @@ public partial class AppHostBuilder
         // host disposes it on shutdown (same rationale as RecordViewModel).
         services.AddHostedService(sp => sp.GetRequiredService<SendViewModel>());
         services.AddSingleton<DbcViewModel>();
+        // 二期：33ms 实时刷新 Timer 持有在 VM 内，注册为 hosted service 让宿主退出时 Dispose。
+        services.AddHostedService(sp => sp.GetRequiredService<DbcViewModel>());
         // v0.8.0: signal chart VM must be registered before SignalViewModel
         // (SignalViewModel depends on it via constructor injection).
         services.AddSingleton<SignalChartViewModel>();

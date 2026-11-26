@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services;
 using PeakCan.HIL.Core;
@@ -42,7 +43,7 @@ namespace PeakCan.Host.App.ViewModels;
 /// state transitions.
 /// </para>
 /// </summary>
-public sealed partial class DbcViewModel : ObservableObject
+public sealed partial class DbcViewModel : ObservableObject, IHostedService, IDisposable
 {
     private readonly DbcService _svc;
     private readonly SignalViewModel _signals;
@@ -118,7 +119,8 @@ public sealed partial class DbcViewModel : ObservableObject
     public DbcViewModel(DbcService svc, SignalViewModel signals, ILogger<DbcViewModel> logger,
                         IFileDialogService? fileDialog = null,
                         IShellLauncher? shellLauncher = null,
-                        Func<string>? logDirectoryProvider = null)
+                        Func<string>? logDirectoryProvider = null,
+                        LiveFrameSlot? liveSlot = null)
     {
         _svc = svc ?? throw new ArgumentNullException(nameof(svc));
         _signals = signals ?? throw new ArgumentNullException(nameof(signals));
@@ -132,6 +134,14 @@ public sealed partial class DbcViewModel : ObservableObject
         _logDirectory = logDirectoryProvider ?? (() => AppLogPaths.LogDirectory);
         _svc.DbcLoaded += OnLoaded;
         _svc.LoadFailed += OnLoadFailed;
+
+        // 二期：33ms 实时刷新 Timer，初始不启动；选中消息时由 SyncLive 启动。
+        _liveSlot = liveSlot;
+        if (_liveSlot is not null)
+        {
+            _liveTimer = new System.Threading.Timer(
+                _ => OnLiveTick(), state: null, Timeout.Infinite, Timeout.Infinite);
+        }
     }
 
 

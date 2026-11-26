@@ -70,7 +70,7 @@ public class DbcDecodeBackgroundServiceTests
         dbc.SetCurrentForTests(DocWithOneSignal());
         var sigVm = new SignalViewModel();
         var traceVm = new TraceViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, new LiveFrameSlot(), NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -110,7 +110,7 @@ public class DbcDecodeBackgroundServiceTests
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         var sigVm = new SignalViewModel();
         var traceVm = new TraceViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, new LiveFrameSlot(), NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -177,7 +177,7 @@ public class DbcDecodeBackgroundServiceTests
         dbc.SetCurrentForTests(DocWithOneExtendedSignal());
         var sigVm = new SignalViewModel();
         var traceVm = new TraceViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, new LiveFrameSlot(), NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -233,7 +233,7 @@ public class DbcDecodeBackgroundServiceTests
         traceVm.RegisterForTesting(
             new TraceEntryKey(0x100, 0UL, 0x51), entry);
 
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, new LiveFrameSlot(), NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -282,7 +282,7 @@ public class DbcDecodeBackgroundServiceTests
         traceVm.RegisterForTesting(
             new TraceEntryKey(0x555, 0UL, 0x51), entry);
 
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, new LiveFrameSlot(), NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -316,7 +316,7 @@ public class DbcDecodeBackgroundServiceTests
         var sigVm = new SignalViewModel();
         var traceVm = new TraceViewModel();   // empty — no pending entries
 
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, NullLogger<DbcDecodeBackgroundService>.Instance);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, new LiveFrameSlot(), NullLogger<DbcDecodeBackgroundService>.Instance);
 
         using var startCts = new System.Threading.CancellationTokenSource();
         await svc.StartAsync(startCts.Token);
@@ -355,7 +355,7 @@ public class DbcDecodeBackgroundServiceTests
         var dbc = new DbcService(NullLogger<DbcService>.Instance);
         var sigVm = new SignalViewModel();
         var traceVm = new TraceViewModel();
-        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, logger);
+        var svc = new DbcDecodeBackgroundService(dbc, sigVm, traceVm, new LiveFrameSlot(), logger);
         var ex = new InvalidOperationException("test");
 
         svc.OnError(ex);
@@ -366,5 +366,42 @@ public class DbcDecodeBackgroundServiceTests
             Arg.Any<object>(),
             ex,
             Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    [Fact]
+    public async Task Matching_Frame_Is_Cached_In_LiveSlot()
+    {
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        dbc.SetCurrentForTests(DocWithOneSignal());
+        var slot = new LiveFrameSlot();
+        slot.SetTarget(0x100);
+        var svc = new DbcDecodeBackgroundService(
+            dbc, new SignalViewModel(), new TraceViewModel(), slot,
+            NullLogger<DbcDecodeBackgroundService>.Instance);
+
+        using var startCts = new System.Threading.CancellationTokenSource();
+        await svc.StartAsync(startCts.Token);
+        try
+        {
+            var frame = new CanFrame(
+                new CanId(0x100, FrameFormat.Standard),
+                new byte[] { 0x42 },
+                FrameFlags.None,
+                new ChannelId(0x51),
+                Timestamp.FromMicroseconds(0));
+            svc.OnFrame(frame);
+
+            LiveFramePayload payload = default;
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!slot.TryRead(0x100, out payload) && DateTime.UtcNow < deadline)
+                await Task.Delay(20);
+
+            slot.TryRead(0x100, out payload).Should().BeTrue("匹配帧必须进入单槽缓存");
+            payload.Data.Span.ToArray().Should().Equal(new byte[] { 0x42 });
+        }
+        finally
+        {
+            await svc.StopAsync(CancellationToken.None);
+        }
     }
 }

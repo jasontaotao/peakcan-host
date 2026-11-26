@@ -37,6 +37,7 @@ public sealed partial class DbcDecodeBackgroundService : BackgroundService, IFra
     private readonly DbcService _dbc;
     private readonly SignalViewModel _signalVm;
     private readonly TraceViewModel _traceVm;
+    private readonly LiveFrameSlot _liveSlot;
     private readonly ILogger<DbcDecodeBackgroundService> _logger;
     private readonly Channel<CanFrame> _queue = Channel.CreateBounded<CanFrame>(
         new BoundedChannelOptions(DecodeQueueCapacity) { FullMode = BoundedChannelFullMode.DropOldest });
@@ -45,11 +46,13 @@ public sealed partial class DbcDecodeBackgroundService : BackgroundService, IFra
         DbcService dbc,
         SignalViewModel signalVm,
         TraceViewModel traceVm,
+        LiveFrameSlot liveSlot,
         ILogger<DbcDecodeBackgroundService> logger)
     {
         _dbc = dbc ?? throw new ArgumentNullException(nameof(dbc));
         _signalVm = signalVm ?? throw new ArgumentNullException(nameof(signalVm));
         _traceVm = traceVm ?? throw new ArgumentNullException(nameof(traceVm));
+        _liveSlot = liveSlot ?? throw new ArgumentNullException(nameof(liveSlot));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -104,6 +107,9 @@ public sealed partial class DbcDecodeBackgroundService : BackgroundService, IFra
                         : frame.Id.Raw;
                     if (!doc.MessagesById.TryGetValue(lookupId, out var msg)) continue;
                     _signalVm.ApplyFrame(frame, msg);
+
+                    // 二期：只缓存当前选中消息的原始载荷（单槽，非选中消息零拷贝）。
+                    _liveSlot.Publish(msg.Id, frame.Data.Span);
 
                     // v1.2.11 PATCH Item 2 fan-out: if a TraceEntry is
                     // awaiting DBC decode for this frame, fill its Decoded

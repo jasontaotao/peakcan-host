@@ -80,6 +80,32 @@
                         <StackPanel DataContext="{Binding DataContext,
                             RelativeSource={RelativeSource AncestorType=DataGrid}}">
                             <views:ByteLayoutView />
+                            <Grid Margin="16,4,8,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18" />
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="50" />
+                                    <ColumnDefinition Width="90" />
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="1" Text="名称" FontSize="10"
+                                           Foreground="{StaticResource TextSecondary}" />
+                                <TextBlock Grid.Column="2" Text="位布局" FontSize="10"
+                                           Foreground="{StaticResource TextSecondary}" />
+                                <TextBlock Grid.Column="3" Text="系数 / 偏移" FontSize="10"
+                                           Foreground="{StaticResource TextSecondary}" />
+                                <TextBlock Grid.Column="4" Text="单位" FontSize="10"
+                                           Foreground="{StaticResource TextSecondary}" />
+                                <TextBlock Grid.Column="5" Text="当前值" FontSize="10"
+                                           Foreground="{StaticResource TextSecondary}" />
+                                <TextBlock Grid.Column="6" Text="注释" FontSize="10"
+                                           Foreground="{StaticResource TextSecondary}" />
+                                <TextBlock Grid.Column="7" Text="诊断" FontSize="10"
+                                           Foreground="{StaticResource TextSecondary}" />
+                            </Grid>
                             <ItemsControl ItemsSource="{Binding VisibleSignals}"
                                           Margin="16,0,8,8">
                                 <ItemsControl.ItemTemplate>
@@ -91,6 +117,7 @@
                                                 <ColumnDefinition Width="120" />
                                                 <ColumnDefinition Width="110" />
                                                 <ColumnDefinition Width="50" />
+                                                <ColumnDefinition Width="90" />
                                                 <ColumnDefinition Width="160" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
@@ -108,10 +135,12 @@
                                                        FontFamily="Consolas" FontSize="11" />
                                             <TextBlock Grid.Column="4" Text="{Binding Unit}"
                                                        FontSize="11" />
-                                            <TextBlock Grid.Column="5" Text="{Binding Comment}"
+                                            <TextBlock Grid.Column="5" Text="{Binding LiveValue}"
+                                                       FontFamily="Consolas" FontSize="11" />
+                                            <TextBlock Grid.Column="6" Text="{Binding Comment}"
                                                        FontSize="11" Foreground="{StaticResource TextSecondary}"
                                                        TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="6" Text="{Binding DiagnosticText}"
+                                            <TextBlock Grid.Column="7" Text="{Binding DiagnosticText}"
                                                        FontSize="11" Foreground="{StaticResource WarnText}"
                                                        TextWrapping="Wrap" />
                                         </Grid>
