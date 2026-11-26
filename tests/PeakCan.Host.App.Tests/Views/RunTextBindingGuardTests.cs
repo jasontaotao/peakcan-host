@@ -60,7 +60,9 @@ public class RunTextBindingGuardTests
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
         {
-            if (Directory.Exists(Path.Combine(dir.FullName, ".git")))
+            // git worktree 里 .git 是文件而不是目录，两种形式都要认。
+            var git = Path.Combine(dir.FullName, ".git");
+            if (Directory.Exists(git) || File.Exists(git))
                 return dir.FullName;
             dir = dir.Parent;
         }
