@@ -17,6 +17,9 @@ internal static class UdsOfflineFixtures
             isPartial: false,
             partialReason: null);
 
+    /// <summary>无 ODX 的普通报告（AI 提示词测试用）。</summary>
+    public static UdsOfflineReport ReportNoOdx() => Report();
+
     public static UdsOfflineReport ReportWithSensitiveData()
         => Build(
             transactions: new[] { SecurityAccessTransaction(), ReadDidTransaction() },

@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PeakCan.Host.App.Services.ChatTools;
+using PeakCan.Host.App.Services.Uds;
 using PeakCan.HIL.Core.Analysis;
 using PeakCan.HIL.Core.Analysis.Chat;
 using PeakCan.Host.Core.Analysis;
@@ -130,6 +131,25 @@ public sealed partial class TraceViewerViewModel
     /// 单独抽出便于单测验证「生成提示」与「未发送」两件事。
     /// </summary>
     internal void PrefillChatInput(string text) => ChatInput = text;
+
+    /// <summary>
+    /// UDS 离线分析页的 Handoff 入口：只预填问题 + 切到 AI 对话页 + 请求聚焦，
+    /// 不自动发送。系统提示里追加本次 Handoff 的证据边界规则。
+    /// </summary>
+    private UdsChatHandoffPayload? _udsHandoff;
+
+    internal void AcceptChatHandoff(UdsChatHandoffPayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        _udsHandoff = payload;
+        PrefillChatInput(payload.Prompt);
+        ChatPrefillHint = payload.Hint;
+        RightPanelSelectedIndex = ChatPanelTabIndex;
+        ChatInputFocusTicket++;
+    }
+
+    /// <summary>测试用：暴露私有 <see cref="BuildSystemMessage"/>（不引入公共 API）。</summary>
+    internal string BuildSystemMessageForTest() => BuildSystemMessage().Content ?? string.Empty;
 
     private bool CanSendChat() => !IsChatBusy && !string.IsNullOrWhiteSpace(ChatInput);
 
@@ -360,6 +380,21 @@ public sealed partial class TraceViewerViewModel
             sb.AppendLine("5. 第一轮可直接调 get_anchor_info 读已有 watch list 数据");
             sb.AppendLine("6. 不确定时说不确定");
         }
+
+        // UDS 离线分析 Handoff：本次对话以该报告快照为唯一证据，
+        // 不允许用 trace/DBC/NM 或工具补造证据。
+        if (_udsHandoff is { } handoff)
+        {
+            sb.AppendLine();
+            sb.AppendLine("UDS 离线分析 Handoff 规则:");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"- ReportId: {handoff.ReportId}");
+            sb.AppendLine("- 本次问题只以该报告为证据；其它 trace/DBC/NM 数据不是证据。");
+            sb.AppendLine("- 首版不新增 UDS AI 工具；只用 Handoff 提供的事实，不调用无关工具补造证据。");
+            sb.AppendLine("- 事务列表不等于总线全部流量；做“没有/只有”断言前先引用报告噪声计数。");
+            sb.AppendLine("- 未加载 ODX 时不得把 DID/例程原始 hex 解释为异常。");
+            sb.AppendLine("- 区分日志事实、假设与不可知，不把时间相关性写成因果。");
+        }
+
         return new ChatMessage("system", sb.ToString(), null, null);
     }
 
