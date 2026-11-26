@@ -6,22 +6,28 @@ using PeakCan.Host.Core;
 namespace PeakCan.Host.Infrastructure.Zlg;
 
 /// <summary>
-/// ZLG 通道探测。实现 <see cref="IChannelProbe"/>，对指定 handle 执行探测。
-/// 通过 <see cref="CompositeChannelProbe"/> 与 PEAK 的 probe 共存。
+/// ZLG 通道探测。按 ZCAN 句柄语义打开设备、读取设备信息、校验通道号后释放。
+/// 复用 <see cref="ZlgDeviceManager"/>，不会关闭正在被通道使用的设备。
 /// </summary>
 public sealed class ZlgChannelProbe : IChannelProbe
 {
+    private readonly IZlgApi _api;
+    private readonly ZlgDeviceManager _devices;
     private readonly ILogger<ZlgChannelProbe> _logger;
 
-    public ZlgChannelProbe(ILogger<ZlgChannelProbe>? logger = null)
+    public ZlgChannelProbe(
+        IZlgApi api,
+        ZlgDeviceManager devices,
+        ILogger<ZlgChannelProbe>? logger = null)
     {
+        _api = api ?? throw new ArgumentNullException(nameof(api));
+        _devices = devices ?? throw new ArgumentNullException(nameof(devices));
         _logger = logger ?? NullLogger<ZlgChannelProbe>.Instance;
     }
 
     public ProbeResult Probe(ushort handle)
     {
-        // 只处理 ZLG 范围的 handle（高 1 位固定 1）
-        if (handle < 0x0100)
+        if ((handle & 0x8000) == 0)
             return new ProbeResult(false, "Not a ZLG handle range");
 
         var devType = (uint)((handle >> 8) & 0x7F);
@@ -30,28 +36,39 @@ public sealed class ZlgChannelProbe : IChannelProbe
 
         try
         {
-            // 对于 ZLG，探测 = 尝试打开设备 + 初始化 CAN 通道
-            var openRet = ZlgNative.ZCAN_OpenDevice(devType, devIdx, 0);
-            if (openRet != ZlgError.Success)
-            {
-                var (code, msg) = ZlgErrorMapper.ToErrorCode(openRet);
-                return new ProbeResult(false, $"ZLG probe failed: {code} {msg}");
-            }
+            if (!_devices.TryAcquire(devType, devIdx, out var deviceHandle))
+                return new ProbeResult(false, $"ZLG device not found: type={devType} idx={devIdx}");
 
-            // 快速初始化/复位测试
-            try { _ = ZlgNative.ZCAN_ResetCAN(devType, devIdx, canIdx); }
-            catch { /* best-effort */ }
-            return new ProbeResult(true, $"ZLG dev {devType}/{devIdx} ch{canIdx} detected");
+            try
+            {
+                var info = ZcanDeviceInfo.Create();
+                var ret = _api.GetDeviceInf(deviceHandle, ref info);
+                if (ret != ZlgError.Success)
+                    return new ProbeResult(false, $"ZLG GetDeviceInf failed: {ret}");
+
+                if (canIdx >= info.CanNum)
+                    return new ProbeResult(
+                        false, $"ZLG channel {canIdx} out of range (device has {info.CanNum})");
+
+                return new ProbeResult(true, $"ZLG dev {devType}/{devIdx} ch{canIdx} detected");
+            }
+            finally
+            {
+                _devices.Release(devType, devIdx);
+            }
+        }
+        catch (DllNotFoundException)
+        {
+            return new ProbeResult(false, "zlgcan.dll not found (x86 required)");
+        }
+        catch (BadImageFormatException)
+        {
+            return new ProbeResult(false, "zlgcan.dll bitness mismatch (x86 required)");
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "ZLG probe failed: handle=0x{Handle:X4}", handle);
             return new ProbeResult(false, $"ZLG probe exception: {ex.GetType().Name}: {ex.Message}");
-        }
-        finally
-        {
-            // 确保设备关闭，不泄漏
-            try { _ = ZlgNative.ZCAN_CloseDevice(devType, devIdx); }
-            catch { /* best-effort */ }
         }
     }
 }

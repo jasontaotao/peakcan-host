@@ -1172,6 +1172,7 @@ public class AppShellViewModelTests
         // CA1859: concrete ChannelInfo[] avoids virtual dispatch through
         // IReadOnlyList<T> when callers iterate.
         public ChannelInfo[] Channels { get; set; } = Array.Empty<ChannelInfo>();
+        public string? LastDiagnostic { get; set; }
         public IReadOnlyList<ChannelInfo> Enumerate() => Channels;
     }
 
@@ -1277,7 +1278,24 @@ public class AppShellViewModelTests
 
         vm.AvailableChannels.Should().BeEmpty();
         vm.SelectedChannel.Should().BeNull();
-        vm.ChannelList.Should().Contain("未检测到 PEAK 硬件");
+        vm.ChannelList.Should().Contain("未检测到 CAN 硬件");
+        vm.ConnectCommand.CanExecute(null).Should().BeFalse("no channel means Connect must stay disabled");
+    }
+
+    [Fact]
+    public void EnumerateChannels_Empty_With_Diagnostic_SurfacesDiagnostic()
+    {
+        var enumerator = new FakeChannelEnumerator
+        {
+            Channels = Array.Empty<ChannelInfo>(),
+            LastDiagnostic = "zlgcan.dll 位数不匹配：当前程序必须为 32 位（x86）",
+        };
+        var vm = NewVmWithEnumerator(enumerator);
+
+        vm.EnumerateChannelsCommand.Execute(null);
+
+        vm.ChannelList.Should().Contain("未检测到 CAN 硬件");
+        vm.StatusMessage.Should().Contain("位数不匹配");
     }
 
     [Fact]

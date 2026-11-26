@@ -1,108 +1,117 @@
-using System.Runtime.InteropServices;
 using PeakCan.HIL.Core;
 
 namespace PeakCan.Host.Infrastructure.Zlg;
 
 /// <summary>
-/// ZLG 帧格式工具：DLC 转换、帧编码/解码。
-/// ZLG 的 CAN FD DLC 编码与标准 CAN FD 相同（0-8 字面量，9-15 映射到 12-64 字节）。
+/// ZLG 帧格式工具。ZCAN 的 can_frame.can_id 用 bit31/30/29 编码 EFF/RTR/ERR，
+/// 与 <see cref="CanId.Raw"/>（纯 ID 位）不同，编解码时必须显式转换。
+/// <para>canfd_frame.len 是实际字节数（0..64），不是 DLC 码。</para>
 /// </summary>
 internal static class ZlgCanFrameFormatter
 {
-    /// <summary>CAN FD DLC 码 → 实际字节数。</summary>
-    public static byte DlcToBytes(byte dlc) => dlc switch
+    public static CanFrame DecodeClassic(ChannelId channel, in ZcanCanFrame frame, Timestamp ts)
     {
-        <= 8 => dlc,
-        9 => 12,
-        10 => 16,
-        11 => 20,
-        12 => 24,
-        13 => 32,
-        14 => 48,
+        var canId = DecodeCanId(frame.CanId);
+        var len = Math.Min((int)frame.CanDlc, 8);
+        var data = new byte[len];
+        if (len > 0 && frame.Data is not null)
+            Array.Copy(frame.Data, data, len);
+
+        var flags = FrameFlags.None;
+        if ((frame.CanId & ZcanCanIdFlags.Remote) != 0) flags |= FrameFlags.Rtr;
+        if ((frame.CanId & ZcanCanIdFlags.Error) != 0) flags |= FrameFlags.ErrFrame;
+
+        return new CanFrame(canId, data, flags, channel, ts);
+    }
+
+    public static CanFrame DecodeFd(ChannelId channel, in ZcanCanFdFrame frame, Timestamp ts)
+    {
+        var canId = DecodeCanId(frame.CanId);
+        var len = Math.Min((int)frame.Len, 64);
+        var data = new byte[len];
+        if (len > 0 && frame.Data is not null)
+            Array.Copy(frame.Data, data, len);
+
+        var flags = FrameFlags.Fd;
+        if ((frame.Flags & ZcanCanFdFlags.Brs) != 0) flags |= FrameFlags.BitRateSwitch;
+        if ((frame.Flags & ZcanCanFdFlags.Esi) != 0) flags |= FrameFlags.ErrorStateIndicator;
+        if ((frame.CanId & ZcanCanIdFlags.Remote) != 0) flags |= FrameFlags.Rtr;
+        if ((frame.CanId & ZcanCanIdFlags.Error) != 0) flags |= FrameFlags.ErrFrame;
+
+        return new CanFrame(canId, data, flags, channel, ts);
+    }
+
+    public static ZcanTransmitData EncodeClassic(CanFrame frame)
+    {
+        var len = Math.Min((int)frame.Dlc, 8);
+        var copy = Math.Min(len, frame.Data.Length);
+        var data = new byte[8];
+        if (copy > 0) frame.Data.Span[..copy].CopyTo(data);
+
+        return new ZcanTransmitData
+        {
+            Frame = new ZcanCanFrame
+            {
+                CanId = EncodeCanId(frame),
+                CanDlc = (byte)copy,
+                Data = data,
+            },
+            TransmitType = ZcanTransmitType.Normal,
+        };
+    }
+
+    public static ZcanTransmitFdData EncodeFd(CanFrame frame)
+    {
+        var rawLen = Math.Min((int)frame.Dlc, 64);
+        var len = NormalizeFdLength(rawLen);
+        var copy = Math.Min(rawLen, frame.Data.Length);
+        var data = new byte[64];
+        if (copy > 0) frame.Data.Span[..copy].CopyTo(data);
+
+        var flags = (byte)0;
+        if ((frame.Flags & FrameFlags.BitRateSwitch) != 0) flags |= ZcanCanFdFlags.Brs;
+        if ((frame.Flags & FrameFlags.ErrorStateIndicator) != 0) flags |= ZcanCanFdFlags.Esi;
+
+        return new ZcanTransmitFdData
+        {
+            Frame = new ZcanCanFdFrame
+            {
+                CanId = EncodeCanId(frame),
+                Len = (byte)len,
+                Flags = flags,
+                Data = data,
+            },
+            TransmitType = ZcanTransmitType.Normal,
+        };
+    }
+
+    /// <summary>把实际字节数规范化为合法的 CAN FD 长度。</summary>
+    public static int NormalizeFdLength(int len) => len switch
+    {
+        <= 0 => 0,
+        <= 8 => len,
+        <= 12 => 12,
+        <= 16 => 16,
+        <= 20 => 20,
+        <= 24 => 24,
+        <= 32 => 32,
+        <= 48 => 48,
         _ => 64,
     };
 
-    /// <summary>实际字节数 → CAN FD DLC 码（反向映射）。</summary>
-    public static byte BytesToDlc(byte len) => len switch
+    private static CanId DecodeCanId(uint raw)
     {
-        <= 8 => len,
-        <= 12 => 9,
-        <= 16 => 10,
-        <= 20 => 11,
-        <= 24 => 12,
-        <= 32 => 13,
-        <= 48 => 14,
-        _ => 15,
-    };
-
-    /// <summary>将经典 ZLG CAN_OBJ 解码为 CanFrame（标准帧或扩展帧，不含 FD）。</summary>
-    public static CanFrame DecodeClassic(ChannelId channel, ZlgCanMsg msg, Timestamp ts)
-    {
-        var format = msg.ExternFlag != 0 ? FrameFormat.Extended : FrameFormat.Standard;
-        var canId = new CanId(msg.ID, format);
-        var len = Math.Min(msg.DataLen, (byte)8);
-        var data = new byte[len];
-        if (len > 0 && msg.Data is not null)
-            Array.Copy(msg.Data, data, len);
-        var flags = FrameFlags.None;
-        if (msg.RemoteFlag != 0) flags |= FrameFlags.Rtr;
-        return new CanFrame(canId, data, flags, channel, ts);
+        var extended = (raw & ZcanCanIdFlags.Extended) != 0;
+        var id = raw & ZcanCanIdFlags.IdMask;
+        return new CanId(id, extended ? FrameFormat.Extended : FrameFormat.Standard);
     }
 
-    /// <summary>将 ZLG CAN FD 帧解码为 CanFrame。</summary>
-    public static CanFrame DecodeFd(ChannelId channel, ZlgCanFdMsg msg, Timestamp ts)
+    private static uint EncodeCanId(CanFrame frame)
     {
-        var format = msg.ExternFlag != 0 ? FrameFormat.Extended : FrameFormat.Standard;
-        var canId = new CanId(msg.ID, format);
-        var dlc = DlcToBytes(msg.DataLen);
-        var data = new byte[dlc];
-        if (dlc > 0 && msg.Data is not null)
-            Array.Copy(msg.Data, data, dlc);
-        var flags = FrameFlags.Fd;
-        // BRS 和 ESI 标志位：ZLG 在 uReserved0 的低 2 位编码。
-        // 0x01 = BRS, 0x02 = ESI。具体位需对照 ZLG 驱动版本确认。
-        if ((msg.Reserved0 & 0x01) != 0) flags |= FrameFlags.BitRateSwitch;
-        if ((msg.Reserved0 & 0x02) != 0) flags |= FrameFlags.ErrorStateIndicator;
-        if (msg.RemoteFlag != 0) flags |= FrameFlags.Rtr;
-        return new CanFrame(canId, data, flags, channel, ts);
-    }
-
-    /// <summary>将 CanFrame 编码为经典 ZLG CAN_OBJ。</summary>
-    public static ZlgCanMsg EncodeClassic(CanFrame frame)
-    {
-        var len = Math.Min(frame.Dlc, (byte)8);
-        var data8 = new byte[8];
-        if (len > 0) frame.Data.Span.CopyTo(data8.AsSpan(0, len));
-        return new ZlgCanMsg
-        {
-            ID = frame.Id.Raw,
-            SendType = 0,
-            RemoteFlag = (byte)((frame.Flags & FrameFlags.Rtr) != 0 ? 1 : 0),
-            ExternFlag = (byte)(frame.Id.IsExtended ? 1 : 0),
-            DataLen = len,
-            Data = data8,
-            Reserved = new byte[3],
-        };
-    }
-
-    /// <summary>将 CanFrame 编码为 ZLG CAN FD 帧。</summary>
-    public static ZlgCanFdMsg EncodeFd(CanFrame frame)
-    {
-        var len = Math.Min(frame.Dlc, (byte)64);
-        var data64 = new byte[64];
-        if (len > 0) frame.Data.Span.CopyTo(data64.AsSpan(0, len));
-        var reserved0 = (byte)0;
-        if ((frame.Flags & FrameFlags.BitRateSwitch) != 0) reserved0 |= 0x01;
-        if ((frame.Flags & FrameFlags.ErrorStateIndicator) != 0) reserved0 |= 0x02;
-        return new ZlgCanFdMsg
-        {
-            ID = frame.Id.Raw,
-            SendType = 0,
-            RemoteFlag = (byte)((frame.Flags & FrameFlags.Rtr) != 0 ? 1 : 0),
-            ExternFlag = (byte)(frame.Id.IsExtended ? 1 : 0),
-            DataLen = BytesToDlc(len),
-            Data = data64,
-            Reserved0 = reserved0,
-        };
+        var raw = frame.Id.Raw;
+        if (frame.Id.IsExtended) raw |= ZcanCanIdFlags.Extended;
+        if ((frame.Flags & FrameFlags.Rtr) != 0) raw |= ZcanCanIdFlags.Remote;
+        if ((frame.Flags & FrameFlags.ErrFrame) != 0) raw |= ZcanCanIdFlags.Error;
+        return raw;
     }
 }

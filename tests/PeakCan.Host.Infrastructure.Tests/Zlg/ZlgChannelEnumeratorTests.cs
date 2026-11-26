@@ -5,98 +5,133 @@ using Xunit;
 namespace PeakCan.Host.Infrastructure.Tests.Zlg;
 
 /// <summary>
-/// Tests for <see cref="ZlgChannelEnumerator"/>.
-/// Pure logic tests (no hardware) for the handle encoding and decoding.
+/// Handle 编码与新设备常量；枚举走 fake API，不依赖硬件。
 /// </summary>
 public sealed class ZlgChannelEnumeratorTests
 {
-    // ── EncodeHandle ──
-
     [Theory]
-    [InlineData(0, 0, 0, 0x8000)]
-    [InlineData(1, 0, 0, 0x8100)]
-    [InlineData(70, 0, 0, 0xC600)] // USBCANFD_200U: 70 << 8 = 0x4600
-    [InlineData(0, 1, 0, 0x8010)]
-    [InlineData(0, 0, 1, 0x8001)]
-    [InlineData(70, 3, 1, 0xC631)]
-    public void EncodeHandle_Encodes_DevType_DevIdx_CanIdx(uint devType, uint devIdx, uint canIdx, ushort expected)
+    [InlineData(41u, 0u, 0u, 0xA900)] // USBCANFD_200U
+    [InlineData(42u, 0u, 0u, 0xAA00)] // USBCANFD_100U
+    [InlineData(43u, 0u, 0u, 0xAB00)] // USBCANFD_MINI
+    [InlineData(59u, 0u, 0u, 0xBB00)] // USBCANFD_800U
+    [InlineData(76u, 0u, 0u, 0xCC00)] // USBCANFD_400U
+    [InlineData(76u, 3u, 1u, 0xCC31)]
+    [InlineData(127u, 15u, 15u, 0xFFFF)]
+    [InlineData(0u, 0u, 0u, 0x8000)]
+    public void EncodeHandle_EncodesComponents(uint devType, uint devIdx, uint canIdx, ushort expected)
     {
         ZlgChannelEnumerator.EncodeHandle(devType, devIdx, canIdx).Should().Be(expected);
     }
 
-    [Theory]
-    [InlineData(0xC600, 70u, 0u, 0u)]
-    [InlineData(0xC631, 70u, 3u, 1u)]
-    [InlineData(0x8100, 1u, 0u, 0u)]
-    [InlineData(0x8010, 0u, 1u, 0u)]
-    [InlineData(0x8001, 0u, 0u, 1u)]
-    [InlineData(0x8000, 0u, 0u, 0u)]
-    public void EncodeHandle_Roundtrip(int handle, uint expectedDevType, uint expectedDevIdx, uint expectedCanIdx)
+    [Fact]
+    public void EncodeHandle_TruncatesDevTypeTo7Bits()
     {
-        // Decode: devType = (handle >> 8) & 0x7F, devIdx = (handle >> 4) & 0x0F, canIdx = handle & 0x0F
-        var h = (ushort)handle;
-        var devType = (uint)((h >> 8) & 0x7F);
-        var devIdx = (uint)((h >> 4) & 0x0F);
-        var canIdx = (uint)(h & 0x0F);
-
-        devType.Should().Be(expectedDevType);
-        devIdx.Should().Be(expectedDevIdx);
-        canIdx.Should().Be(expectedCanIdx);
-
-        // Re-encode should match
-        ZlgChannelEnumerator.EncodeHandle(devType, devIdx, canIdx).Should().Be(h);
+        // 128 & 0x7F == 0，只剩 ZLG 标志位。
+        ZlgChannelEnumerator.EncodeHandle(128, 0, 0).Should().Be(0x8000);
     }
 
     [Fact]
-    public void EncodeHandle_DevType70_ProducesC600()
+    public void Enumerate_DevicePresent_ReturnsAllChannelsWithNewConstants()
     {
-        // 70 << 8 = 0x4600, so 0x8000 | 0x4600 = 0xC600
-        var handle = ZlgChannelEnumerator.EncodeHandle(70, 0, 0);
-        handle.Should().Be(0xC600);
-        // The high bit (0x8000) must be set to distinguish from PEAK handles
-        (handle & 0x8000).Should().Be(0x8000);
+        var api = new FakeZlgApi { CanNum = 2 };
+        api.Devices[(ZlgDeviceType.USBCANFD_200U, 0)] = api.DefaultDeviceHandle;
+        using var manager = new ZlgDeviceManager(api);
+        var enumerator = new ZlgChannelEnumerator(api, manager);
+
+        var channels = enumerator.Enumerate();
+
+        channels.Should().HaveCount(2);
+        channels.Select(c => c.Handle).Should().Equal(0xA900, 0xA901);
+        channels[0].Name.Should().Contain("USBCANFD-200U");
+        enumerator.LastDiagnostic.Should().BeNull();
+        api.CloseCalls.Should().ContainSingle("enumeration opened and released the device");
     }
 
     [Fact]
-    public void EncodeHandle_AllMax_ProducesMaxHandle()
+    public void Enumerate_NoDevice_ReturnsEmptyWithoutClosing()
     {
-        // devType max 7 bits = 127, devIdx max 4 bits = 15, canIdx max 4 bits = 15
-        var handle = ZlgChannelEnumerator.EncodeHandle(127, 15, 15);
-        handle.Should().Be(0xFFFF);
+        var api = new FakeZlgApi();
+        using var manager = new ZlgDeviceManager(api);
+        var enumerator = new ZlgChannelEnumerator(api, manager);
+
+        enumerator.Enumerate().Should().BeEmpty();
+        api.CloseCalls.Should().BeEmpty();
     }
 
     [Fact]
-    public void EncodeHandle_ZeroHandle_HasZlgBit()
+    public void Enumerate_GetDeviceInfFails_ReturnsEmptyWithoutFabricatingChannels()
     {
-        // Even when all components are zero, the ZLG bit (0x8000) must be set
-        var handle = ZlgChannelEnumerator.EncodeHandle(0, 0, 0);
-        (handle & 0x8000).Should().Be(0x8000);
-        handle.Should().Be(0x8000);
-    }
+        var api = new FakeZlgApi { GetDeviceInfResult = ZlgError.Failed };
+        api.Devices[(ZlgDeviceType.USBCANFD_200U, 0)] = api.DefaultDeviceHandle;
+        using var manager = new ZlgDeviceManager(api);
+        var enumerator = new ZlgChannelEnumerator(api, manager);
 
-    // ── Device type constants ──
-
-    [Fact]
-    public void DeviceType_UsbCanFd200U_Is70()
-    {
-        ZlgDeviceType.USBCANFD_200U.Should().Be(70);
+        enumerator.Enumerate().Should().BeEmpty();
+        api.CloseCalls.Should().ContainSingle();
     }
 
     [Fact]
-    public void DeviceType_UsbCanFd_Is21()
+    public void Enumerate_ZeroChannels_ReturnsEmpty()
     {
-        ZlgDeviceType.USBCANFD.Should().Be(21);
+        var api = new FakeZlgApi { CanNum = 0 };
+        api.Devices[(ZlgDeviceType.USBCANFD_200U, 0)] = api.DefaultDeviceHandle;
+        using var manager = new ZlgDeviceManager(api);
+        var enumerator = new ZlgChannelEnumerator(api, manager);
+
+        enumerator.Enumerate().Should().BeEmpty();
     }
 
     [Fact]
-    public void DeviceType_UsbCan2_Is4()
+    public void Enumerate_DllNotFound_SetsDiagnostic()
     {
-        ZlgDeviceType.USBCAN2.Should().Be(4);
+        var api = new FakeZlgApi { OpenDeviceException = new DllNotFoundException("missing") };
+        using var manager = new ZlgDeviceManager(api);
+        var enumerator = new ZlgChannelEnumerator(api, manager);
+
+        enumerator.Enumerate().Should().BeEmpty();
+        enumerator.LastDiagnostic.Should().Contain("zlgcan.dll");
     }
 
     [Fact]
-    public void DeviceType_UsbCan1_Is1()
+    public void Enumerate_BadImageFormat_SetsBitnessDiagnostic()
     {
-        ZlgDeviceType.USBCAN1.Should().Be(1);
+        var api = new FakeZlgApi { OpenDeviceException = new BadImageFormatException("wrong arch") };
+        using var manager = new ZlgDeviceManager(api);
+        var enumerator = new ZlgChannelEnumerator(api, manager);
+
+        enumerator.Enumerate().Should().BeEmpty();
+        enumerator.LastDiagnostic.Should().Contain("32");
+    }
+
+    [Fact]
+    public void Enumerate_UnexpectedException_DoesNotThrowAndSetsDiagnostic()
+    {
+        var api = new FakeZlgApi
+        {
+            OpenDeviceException = new InvalidOperationException("driver fault"),
+        };
+        using var manager = new ZlgDeviceManager(api);
+        var enumerator = new ZlgChannelEnumerator(api, manager);
+
+        var act = () => enumerator.Enumerate();
+
+        act.Should().NotThrow("IChannelEnumerator 契约要求 Non-throwing");
+        enumerator.LastDiagnostic.Should().Contain("InvalidOperationException");
+    }
+
+    [Fact]
+    public void Enumerate_DoesNotCloseDeviceHeldByActiveChannel()
+    {
+        var api = new FakeZlgApi { CanNum = 2 };
+        api.Devices[(ZlgDeviceType.USBCANFD_200U, 0)] = api.DefaultDeviceHandle;
+        using var manager = new ZlgDeviceManager(api);
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out _);
+
+        var enumerator = new ZlgChannelEnumerator(api, manager);
+        enumerator.Enumerate();
+
+        api.CloseCalls.Should().BeEmpty("the active channel still holds a reference");
+        manager.Release(ZlgDeviceType.USBCANFD_200U, 0);
+        api.CloseCalls.Should().ContainSingle();
     }
 }

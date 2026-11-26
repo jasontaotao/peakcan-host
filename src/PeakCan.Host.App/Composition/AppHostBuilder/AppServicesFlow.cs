@@ -37,7 +37,11 @@ public partial class AppHostBuilder
             new WindowHostService(sp.GetRequiredService<WindowStateStore>()));
         // P1-1: device providers — one per supported CAN-box family (PEAK + ZLG).
         services.AddSingleton<ICanDeviceProvider, PeakCanDeviceProvider>();
-        services.AddSingleton<ICanDeviceProvider, ZlgCanDeviceProvider>();
+        // 显式绑定具体 ZlgChannelEnumerator：ZlgCanDeviceProvider 只需要 ZLG 自己的通道，
+        // 不能解析复合枚举器（否则会把 PEAK 通道也列进 ZLG 设备）。
+        services.AddSingleton<ICanDeviceProvider>(sp => new ZlgCanDeviceProvider(
+            sp.GetRequiredService<ZlgChannelEnumerator>(),
+            sp.GetRequiredService<ILogger<ZlgCanDeviceProvider>>()));
         // v1.2.12 PATCH Item 11: TraceService now takes an ILogger<TraceService>
         // so its OnError path is observable in Release builds (Debug.WriteLine
         // was previously stripped). Production DI resolves the logger from

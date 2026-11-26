@@ -99,7 +99,7 @@ public static class HeadlessHostBuilder
         {
             // Hardware mode (Sprint 3) — single channel（也走工厂，支持单通道 ZLG）
             RegisterChannelFactory(builder);
-            // ResolveChannelHandle 接受 USB{n}（PEAK）与 raw hex（如 "0xC600" ZLG），
+            // ResolveChannelHandle 接受 USB{n}（PEAK）与 raw hex（如 "0xA900" ZLG），
             // 取代 ParseChannelHandle（仅 USB{n}）——否则单通道 ZLG 选不了。
             var handle = ResolveChannelHandle(args.HardwareChannel);
             // M2.4b-0：组装点上移（spec D1 单点）——SecOC + fault injection 在此组装，
@@ -446,7 +446,7 @@ public static class HeadlessHostBuilder
     {
         builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Peak.IPcanReader>(
             _ => new PeakCan.Host.Infrastructure.Peak.PcanReader());
-        builder.Services.AddSingleton<IZlgReader>(_ => new ZlgReader());
+        builder.Services.AddSingleton<IZlgApi, ZlgNativeApi>();
         builder.Services.AddSingleton<ZlgDeviceManager>();
         builder.Services.AddSingleton<PeakCan.Host.Infrastructure.Peak.PeakCanChannelFactory>();
         builder.Services.AddSingleton<ZlgCanChannelFactory>();
@@ -558,8 +558,8 @@ public static class HeadlessHostBuilder
 
     /// <summary>
     /// Parse ChannelConfig.Handle into a PCAN-Basic channel handle.
-    /// Two forms (per ChannelConfig doc "raw hex 51 / C600"):
-    /// - raw hex ("51" / "0x51" / "C600") - direct ushort parse;
+    /// Two forms (per ChannelConfig doc "raw hex 51 / A900"):
+    /// - raw hex ("51" / "0x51" / "A900") - direct ushort parse;
     /// - "USB1".."USB16" convention - ParseChannelHandle (0x51..0x60).
     /// Empty/blank handle maps by index to 0x51+index (Spec v3 §3.4: studio
     /// declares names only; the physical port is host-side, ordered by index).

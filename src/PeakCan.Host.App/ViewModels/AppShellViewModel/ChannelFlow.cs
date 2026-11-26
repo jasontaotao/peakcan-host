@@ -104,10 +104,13 @@ public sealed partial class AppShellViewModel
             else
             {
                 SelectedChannel = null;
-                ChannelList = "未检测到 PEAK 硬件";
-                StatusMessage = "未找到通道";
+                var diagnostic = _channelEnumerator.LastDiagnostic;
+                ChannelList = "未检测到 CAN 硬件";
+                StatusMessage = diagnostic is null
+                    ? "未找到通道：请检查设备连接、驱动安装与 32 位运行环境"
+                    : $"未找到通道：{diagnostic}";
                 LogProbeThrew(_logger, DefaultHandle,
-                    new InvalidOperationException("No channels found"));
+                    new InvalidOperationException(diagnostic ?? "No channels found"));
             }
         }
         else

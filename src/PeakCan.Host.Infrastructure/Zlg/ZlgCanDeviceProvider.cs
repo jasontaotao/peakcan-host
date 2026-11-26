@@ -32,7 +32,7 @@ public sealed class ZlgCanDeviceProvider : ICanDeviceProvider
     private readonly ILogger<ZlgCanDeviceProvider> _logger;
 
     public ZlgCanDeviceProvider(
-        ZlgChannelEnumerator enumerator,
+        IChannelEnumerator enumerator,
         ILogger<ZlgCanDeviceProvider>? logger = null)
     {
         _enumerator = enumerator ?? throw new ArgumentNullException(nameof(enumerator));
@@ -47,8 +47,9 @@ public sealed class ZlgCanDeviceProvider : ICanDeviceProvider
             .ToList();
 
         // 始终返回设备描述符（即使无通道），让 UI 显示设备类型。
-        // 通道列表为空时用户仍能看到 "USBCAN FD (ZLG)" 选项，但无可用通道。
-        var defaultHandle = descriptors.Count > 0 ? descriptors[0].Handle : DefaultFirstHandle;
+        // 通道列表为空时用户仍能看到 "USBCAN FD (ZLG)" 选项，但无可用通道；
+        // DefaultHandle 此时为 0（无有效通道），避免伪造一个不存在的 handle。
+        var defaultHandle = descriptors.Count > 0 ? descriptors[0].Handle : (ushort)0;
         return new[]
         {
             new DeviceDescriptor(
@@ -63,6 +64,4 @@ public sealed class ZlgCanDeviceProvider : ICanDeviceProvider
         };
     }
 
-    // ZLG 默认 handle（编码 devType=0, devIdx=0, canIdx=0）。
-    private static ushort DefaultFirstHandle => ZlgChannelEnumerator.EncodeHandle(0, 0, 0);
 }

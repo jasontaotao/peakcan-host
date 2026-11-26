@@ -17,6 +17,10 @@
     <Project Path="tests/PeakCan.Security.Tests/PeakCan.Security.Tests.csproj" />
     <Project Path="tests/PromptCacheProbe.Tests/PromptCacheProbe.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <!-- ZLG USBCANFD 只读冒烟工具；与 App 共用同一份 ZlgAbi/ZlgNative 源文件。 -->
+    <Project Path="tools/zlg-smoke/zlg-smoke.csproj" />
+  </Folder>
   <!-- NOTE: the Android head project (src/PeakCan.Host.Mobile) is intentionally
        NOT here — it needs the android workload, unavailable on the CI runner.
        It lives in PeakCan.Host.Mobile.slnx and is built locally only. -->

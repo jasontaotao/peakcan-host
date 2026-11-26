@@ -596,7 +596,7 @@ public sealed partial class HilViewModel : ObservableObject, IDisposable
         foreach (var c in connected)
         {
             // 绑定值：PEAK 用 USB{n}（下游 ParseChannelHandle 语义不变）；非 PEAK（ZLG，高位 0x8000+）
-            // 用 raw hex（"0xC600"），host 单通道已走 CompositeChannelFactory 能解析。显示用设备名区分厂商。
+            // 用 raw hex（"0xA900"），host 单通道已走 CompositeChannelFactory 能解析。显示用设备名区分厂商。
             var handle = (c.Handle & PcanHandleConstants.ZlgVendorFlag) != 0
                 ? $"0x{c.Handle:X}"
                 : $"USB{c.Handle - PcanHandleConstants.PeakUsbBase}";

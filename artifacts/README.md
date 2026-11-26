@@ -18,18 +18,18 @@ PeakCan-Host WPF app.
 ## Build command
 
 ```bash
-dotnet publish src/PeakCan.Host.App -c Release -r win-x64 \
+dotnet publish src/PeakCan.Host.App -c Release -r win-x86 \
     --self-contained true \
     -p:PublishSingleFile=true \
     -p:IncludeNativeLibrariesForSelfExtract=true \
     -p:EnableCompressionInSingleFile=true \
-    -o artifacts/win-x64/
+    -o artifacts/win-x86/
 ```
 
 ## Smoke launch
 
 ```bash
-artifacts/win-x64/PeakCan.Host.exe
+artifacts/win-x86/PeakCan.Host.exe
 ```
 
 Expected: a 1280×720 WPF window appears with a menu (File / View),

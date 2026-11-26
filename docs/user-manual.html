@@ -296,7 +296,7 @@ dotnet run --project src/PeakCan.Host.App</code></pre>
 
 <h3>2.3 生成自包含单文件 EXE</h3>
 
-<pre><code>dotnet publish src/PeakCan.Host.App -c Release -r win-x64 \
+<pre><code>dotnet publish src/PeakCan.Host.App -c Release -r win-x86 \
 
     --self-contained true \
 
@@ -306,11 +306,11 @@ dotnet run --project src/PeakCan.Host.App</code></pre>
 
     -p:EnableCompressionInSingleFile=true \
 
-    -o artifacts/win-x64/
+    -o artifacts/win-x86/
 
 
 
-artifacts/win-x64/PeakCan.Host.exe</code></pre>
+artifacts/win-x86/PeakCan.Host.exe</code></pre>
 
 
 

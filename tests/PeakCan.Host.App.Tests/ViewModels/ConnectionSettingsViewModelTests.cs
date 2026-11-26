@@ -70,6 +70,32 @@ public sealed class ConnectionSettingsViewModelTests
     }
 
     [Fact]
+    public void ChannelHint_IsNull_WhenChannelsExist()
+    {
+        var sink = Substitute.For<IConnectSettingsSink>();
+        sink.AvailableChannels.Returns(Array.Empty<ChannelInfo>());
+
+        var vm = NewVm(sink);
+
+        vm.ChannelHint.Should().BeNull();
+    }
+
+    [Fact]
+    public void ChannelHint_PromptsDriverAndBitness_WhenNoChannels()
+    {
+        var sink = Substitute.For<IConnectSettingsSink>();
+        sink.AvailableChannels.Returns(Array.Empty<ChannelInfo>());
+        var device = FakeDevice() with { Channels = Array.Empty<ChannelDescriptor>() };
+        var vm = new ConnectionSettingsViewModel(
+            new ICanDeviceProvider[] { new FakeProvider(device) },
+            sink,
+            NullLogger<ConnectionSettingsViewModel>.Instance);
+
+        vm.Channels.Should().BeEmpty();
+        vm.ChannelHint.Should().Contain("32 位").And.Contain("驱动");
+    }
+
+    [Fact]
     public void ToggleIsFd_SwitchesBaudRateList_AndRateLabel()
     {
         // Arrange

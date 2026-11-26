@@ -142,6 +142,13 @@
     <InternalsVisibleTo Include="PeakCan.Host.App.Tests" />
   </ItemGroup>
 
+  <!-- zlgcan.dll 只有 32 位版本；用 win-x64 发布会产出无法加载 ZLG 原生库的包。
+       该守卫只拦 publish（dotnet build -r 仍可能产出 x64，但不会进入发布流程）。 -->
+  <Target Name="VerifyZlgPublishRid" BeforeTargets="Publish"
+          Condition="'$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != 'win-x86'">
+    <Error Text="zlgcan.dll is x86-only; publish with -r win-x86 (got '$(RuntimeIdentifier)')." />
+  </Target>
+
   <!-- Task 17: ship GB/T 27930 node templates (charger + BMS) with the app.
        Content (not None) so the items flow transitively through
        ProjectReference into test/CLI outputs — NodeConfigLibrary loads them

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PeakCan.HIL.Core;
@@ -7,32 +8,39 @@ using PeakCan.Host.Infrastructure.Channel;
 namespace PeakCan.Host.Infrastructure.Zlg;
 
 /// <summary>
-/// ZLG USBCAN FD 适配器，实现 <see cref="ICanChannel"/>。
-/// 封装 zlgcan.dll 的 VCI_* API，每个实例对应一个 (deviceType, deviceIndex, canIndex) 通道。
+/// ZLG USBCANFD 通道，实现 <see cref="ICanChannel"/>。
 /// <para>
-/// 设备生命周期通过 <see cref="ZlgDeviceManager"/> 管理（引用计数），
-/// 读循环通过 <see cref="IZlgReader"/> 抽象以支持测试。
-/// P2-1 2026-09-06：读循环调度/计数/give-up 收敛到 <see cref="ChannelReadLoop"/> 骨架。
+/// ZCAN 是句柄式 API：设备句柄由 <see cref="ZlgDeviceManager"/> 持有并引用计数，
+/// 通道句柄由 <c>ZCAN_InitCAN</c> 返回。所有读写都用通道句柄，绝不把原生句柄
+/// 与 <see cref="ChannelId.Handle"/> 的 16 位合成编码混用。
 /// </para>
 /// </summary>
 public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
 {
-    // 读循环 backoff 策略（与 PEAK 通道一致）——骨架统一持有，此处保留 const 别名。
     internal new const int MaxConsecutiveReadFailures = ChannelReadLoop.MaxConsecutiveReadFailures;
+
+    private const int ReceiveBatchSize = 32;
+    private const int ReadWaitTimeMs = 0;
+    // GetReceiveNum 对不支持的类型可能返回错误码；超过此值视为异常而不是帧数。
+    private const uint MaxPlausibleFrames = 100_000;
 
     private readonly uint _devType;
     private readonly uint _devIdx;
     private readonly uint _canIdx;
     private readonly ZlgDeviceManager _deviceManager;
+    private readonly IZlgApi _api;
     private readonly ILogger<ZlgCanChannel> _logger;
-    private readonly IZlgReader _reader;
 
-    // 连接状态门
+    private readonly ZcanReceiveData[] _classicBuffer = CreateClassicBuffer();
+    private readonly ZcanReceiveFdData[] _fdBuffer = CreateFdBuffer();
+
     private readonly object _connectLock = new();
     private CancellationTokenSource? _cts;
     private Task? _readLoop;
     private bool _connected;
+    private bool _connecting;
     private bool _disconnecting;
+    private IntPtr _channelHandle;
 
     public bool IsConnected => _connected;
 
@@ -41,16 +49,14 @@ public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
     public ZlgCanChannel(
         ChannelId id,
         ZlgDeviceManager deviceManager,
-        ILogger<ZlgCanChannel>? logger = null,
-        IZlgReader? reader = null)
+        IZlgApi api,
+        ILogger<ZlgCanChannel>? logger = null)
         : base(id, logger ?? NullLogger<ZlgCanChannel>.Instance)
     {
         _deviceManager = deviceManager ?? throw new ArgumentNullException(nameof(deviceManager));
+        _api = api ?? throw new ArgumentNullException(nameof(api));
         _logger = logger ?? NullLogger<ZlgCanChannel>.Instance;
-        _reader = reader ?? new ZlgReader();
 
-        // 从 ChannelId.Handle 解码 (devType, devIdx, canIdx)
-        // 编码格式：高 1 位固定 1, 7 位 devType, 4 位 devIdx, 4 位 canIdx
         _devType = (uint)((id.Handle >> 8) & 0x7F);
         _devIdx = (uint)((id.Handle >> 4) & 0x0F);
         _canIdx = (uint)(id.Handle & 0x0F);
@@ -61,59 +67,111 @@ public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
         ct.ThrowIfCancellationRequested();
         lock (_connectLock)
         {
-            if (_connected)
-                return Result<Unit>.Fail(ErrorCode.InvalidState, "Channel is already connected");
+            if (_connected || _connecting)
+                return Result<Unit>.Fail(
+                    ErrorCode.InvalidState,
+                    _connected ? "Channel is already connected" : "Channel is connecting");
             if (_disconnecting)
                 return Result<Unit>.Fail(ErrorCode.InvalidState, "Channel is disconnecting");
+            // 占位：Init/Start 在锁外执行，必须防止两个并发 Connect 各自打开
+            // 通道后互相覆盖句柄/读循环。
+            _connecting = true;
         }
 
-        // 1. 打开设备（引用计数管理）
-        var openRet = _deviceManager.AcquireDevice(_devType, _devIdx);
-        if (openRet != ZlgError.Success)
-        {
-            var (code, msg) = ZlgErrorMapper.ToErrorCode(openRet);
-            return Result<Unit>.Fail(code, $"OpenDevice failed: {msg}");
-        }
-
+        var releaseDevice = true;
         try
         {
-            // 2. 初始化 CAN 通道（波特率配置）
-            var initRet = InitCanChannel(baud, fd);
-            if (initRet != ZlgError.Success)
+            if (!_deviceManager.TryAcquire(_devType, _devIdx, out var deviceHandle))
+                return Result<Unit>.Fail(
+                    ErrorCode.HardwareNotAvailable,
+                    $"OpenDevice failed: devType={_devType} devIdx={_devIdx}");
+            var (arbBps, dataBps) = ZlgBaudRate.Resolve(baud, fd);
+            if (arbBps is null)
+                return Result<Unit>.Fail(
+                    ErrorCode.HardwareParameter, $"Unsupported baud rate: {baud.Name}");
+
+            var abitRet = _api.SetValue(
+                deviceHandle,
+                $"{_canIdx}/canfd_abit_baud_rate",
+                arbBps.Value.ToString(CultureInfo.InvariantCulture));
+
+            (byte Timing0, byte Timing1)? fallbackTiming = null;
+            if (abitRet != ZlgError.Success)
             {
-                _deviceManager.ReleaseDevice(_devType, _devIdx);
-                var (code, msg) = ZlgErrorMapper.ToErrorCode(initRet);
-                return Result<Unit>.Fail(code, $"InitCAN failed: {msg}");
+                if (fd)
+                {
+                    return Result<Unit>.Fail(
+                        ErrorCode.HardwareParameter, $"SetValue(abit) failed: {abitRet}");
+                }
+
+                fallbackTiming = ZlgBaudRate.ClassicTiming(baud.Name);
+                if (fallbackTiming is null)
+                {
+                    return Result<Unit>.Fail(
+                        ErrorCode.HardwareParameter,
+                        $"SetValue(abit) failed: {abitRet} (no classic timing fallback for {baud.Name})");
+                }
+
+                _logger.LogWarning(
+                    "ZLG SetValue(abit) failed ({Ret}); falling back to classic timing for {Baud}",
+                    abitRet, baud.Name);
             }
 
-            // 3. 启动 CAN 通道
-            var startRet = ZlgNative.ZCAN_StartCAN(_devType, _devIdx, _canIdx);
+            if (fd)
+            {
+                if (dataBps is null)
+                    return Result<Unit>.Fail(
+                        ErrorCode.HardwareParameter, $"Missing FD data baud rate for {baud.Name}");
+
+                var dbitRet = _api.SetValue(
+                    deviceHandle,
+                    $"{_canIdx}/canfd_dbit_baud_rate",
+                    dataBps.Value.ToString(CultureInfo.InvariantCulture));
+                if (dbitRet != ZlgError.Success)
+                    return Result<Unit>.Fail(
+                        ErrorCode.HardwareParameter, $"SetValue(dbit) failed: {dbitRet}");
+
+                // ISO CAN FD（非 ISO 总线需要后续提供切换项）。
+                var isoRet = _api.SetValue(deviceHandle, $"{_canIdx}/canfd_standard", "0");
+                if (isoRet != ZlgError.Success)
+                    _logger.LogWarning("ZLG SetValue(canfd_standard) returned {Ret}", isoRet);
+            }
+
+            var config = ZlgBaudRate.BuildConfig(fd, fallbackTiming);
+            var channelHandle = _api.InitCan(deviceHandle, _canIdx, ref config);
+            if (channelHandle == IntPtr.Zero)
+                return Result<Unit>.Fail(ErrorCode.HardwareNotAvailable, "InitCAN failed");
+
+            var startRet = _api.StartCan(channelHandle);
             if (startRet != ZlgError.Success)
             {
-                _ = ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx);
-                _deviceManager.ReleaseDevice(_devType, _devIdx);
-                var (code, msg) = ZlgErrorMapper.ToErrorCode(startRet);
-                return Result<Unit>.Fail(code, $"StartCAN failed: {msg}");
+                _ = _api.ResetCan(channelHandle);
+                return Result<Unit>.Fail(
+                    ErrorCode.HardwareNotAvailable, $"StartCAN failed: {startRet}");
             }
 
-            // 4. 启动读循环
             var cts = new CancellationTokenSource();
-            var token = cts.Token;
-            var loop = Task.Run(() => ReadLoopAsync(token), ct);
-
             lock (_connectLock)
             {
+                _channelHandle = channelHandle;
                 _cts = cts;
-                _readLoop = loop;
+                _readLoop = Task.Run(() => ReadLoopAsync(cts.Token), ct);
                 _connected = true;
             }
 
+            releaseDevice = false;
             return Result<Unit>.Ok(default);
         }
         catch (Exception ex)
         {
-            _deviceManager.ReleaseDevice(_devType, _devIdx);
+            _logger.LogError(ex, "ZLG connect failed: handle=0x{Handle:X4}", Id.Handle);
             return Result<Unit>.Fail(ErrorCode.HardwareNotAvailable, ex.Message);
+        }
+        finally
+        {
+            if (releaseDevice)
+                _deviceManager.Release(_devType, _devIdx);
+            lock (_connectLock) { _connecting = false; }
         }
     }
 
@@ -121,20 +179,22 @@ public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
     {
         CancellationTokenSource? cts;
         Task? loop;
+        IntPtr channelHandle;
         lock (_connectLock)
         {
             if (!_connected) return;
             _disconnecting = true;
             cts = _cts;
             loop = _readLoop;
+            channelHandle = _channelHandle;
             _connected = false;
             _cts = null;
             _readLoop = null;
+            _channelHandle = IntPtr.Zero;
         }
 
         try
         {
-            // 取消读循环
             try { cts?.Cancel(); }
             catch { /* best-effort */ }
 
@@ -144,15 +204,17 @@ public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
                 catch (OperationCanceledException) { /* expected */ }
             }
 
-            // 复位 CAN 通道
-            try { _ = ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx); }
-            catch { /* best-effort */ }
+            if (channelHandle != IntPtr.Zero)
+            {
+                try { _ = _api.ResetCan(channelHandle); }
+                catch { /* best-effort */ }
+            }
 
-            // 释放设备
-            _deviceManager.ReleaseDevice(_devType, _devIdx);
+            _deviceManager.Release(_devType, _devIdx);
         }
         finally
         {
+            cts?.Dispose();
             lock (_connectLock) { _disconnecting = false; }
         }
     }
@@ -164,80 +226,132 @@ public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
 
     /// <summary>
     /// 读循环放弃（bus-dead heuristic 命中）后的状态收口。
-    /// 仅在"已连接且非主动断开"时生效——主动 DisconnectAsync 路径自己负责
-    /// 复位 + 释放设备。Best-effort 复位 CAN 通道 + 释放设备引用，使
-    /// 未来 ConnectAsync 可以干净地重新 Acquire。
+    /// 仅在“已连接且非主动断开”时生效。
     /// </summary>
     internal void MarkDisconnectedAfterReadLoopGiveUp()
     {
         CancellationTokenSource? staleCts;
+        IntPtr channelHandle;
         lock (_connectLock)
         {
             if (!_connected || _disconnecting) return;
             _connected = false;
             staleCts = _cts;
+            channelHandle = _channelHandle;
             _cts = null;
             _readLoop = null;
+            _channelHandle = IntPtr.Zero;
         }
-        // 读循环已自行退出（未 Cancel），安全释放。
-        try { staleCts?.Dispose(); } catch { /* best-effort */ }
 
-        try { _ = ZlgNative.ZCAN_ResetCAN(_devType, _devIdx, _canIdx); }
-        catch { /* best-effort：设备可能已不在（DLL 缺失/拔出），忽略 */ }
+        try { staleCts?.Dispose(); }
+        catch { /* best-effort */ }
 
-        _deviceManager.ReleaseDevice(_devType, _devIdx);
+        if (channelHandle != IntPtr.Zero)
+        {
+            try { _ = _api.ResetCan(channelHandle); }
+            catch { /* best-effort：设备可能已拔出 */ }
+        }
+
+        _deviceManager.Release(_devType, _devIdx);
     }
 
-    // 构建 ZLG 的 INIT_CONFIG 并调用 VCI_InitCAN。
-    // FD 模式下额外调用 VCI_SetReference 配置数据段波特率。
-    private uint InitCanChannel(BaudRate baud, bool fd)
+    private IntPtr CurrentChannelHandle
     {
-        // 从 BaudRate.Name 匹配经典波特率时序
-        var timing = ResolveClassicTiming(baud.Name);
-        if (timing is null)
-            return ZlgError.Failed;
-
-        var config = new ZlgInitConfig
+        get
         {
-            AccCode = 0,
-            AccMask = 0xFFFFFFFF,
-            Filter = ZlgFilterMode.ReceiveAll,
-            Timing0 = timing.Value.Timing0,
-            Timing1 = timing.Value.Timing1,
-            Mode = ZlgWorkMode.Normal,
-        };
+            lock (_connectLock) return _channelHandle;
+        }
+    }
 
-        var initRet = ZlgNative.ZCAN_InitCAN(_devType, _devIdx, _canIdx, ref config);
-        if (initRet != ZlgError.Success)
-            return initRet;
+    private static ZcanReceiveData[] CreateClassicBuffer()
+    {
+        var buffer = new ZcanReceiveData[ReceiveBatchSize];
+        for (var i = 0; i < buffer.Length; i++)
+            buffer[i] = ZcanReceiveData.Create();
+        return buffer;
+    }
 
-        // FD 模式：额外配置数据段波特率
+    private static ZcanReceiveFdData[] CreateFdBuffer()
+    {
+        var buffer = new ZcanReceiveFdData[ReceiveBatchSize];
+        for (var i = 0; i < buffer.Length; i++)
+            buffer[i] = ZcanReceiveFdData.Create();
+        return buffer;
+    }
+}
+
+/// <summary>ZLG 波特率/初始化配置映射。</summary>
+internal static class ZlgBaudRate
+{
+    /// <summary>FD 预设的仲裁/数据段速率；classic 只返回仲裁段。</summary>
+    public static (int? ArbBps, int? DataBps) Resolve(BaudRate baud, bool fd)
+    {
         if (fd)
         {
-            var dataRate = ResolveFdDataRate(baud.Name);
-            if (dataRate.HasValue)
+            return baud.Name switch
             {
-                var rate = dataRate.Value;
-                var ratePtr = MarshalEx.StructureToPtr(rate);
-                try
-                {
-                    var setRet = ZlgNative.ZCAN_SetReference(_devType, _devIdx, _canIdx,
-                        ZlgReferenceCode.CanFdDataRate, ratePtr);
-                    if (setRet != ZlgError.Success)
-                        _logger.LogWarning("VCI_SetReference (FD data rate) returned {Ret}", setRet);
-                }
-                finally
-                {
-                    MarshalEx.FreeHGlobal(ratePtr);
-                }
-            }
+                "1 Mbps (FD)" => (1_000_000, 1_000_000),
+                "2 Mbps (FD)" => (1_000_000, 2_000_000),
+                "5 Mbps (FD)" => (1_000_000, 5_000_000),
+                _ => (null, null),
+            };
         }
 
-        return ZlgError.Success;
+        return baud.Name switch
+        {
+            "1 Mbps" => (1_000_000, null),
+            "800 kbps" => (800_000, null),
+            "500 kbps" => (500_000, null),
+            "250 kbps" => (250_000, null),
+            "125 kbps" => (125_000, null),
+            "100 kbps" => (100_000, null),
+            "50 kbps" => (50_000, null),
+            "20 kbps" => (20_000, null),
+            "10 kbps" => (10_000, null),
+            _ => (null, null),
+        };
     }
 
-    // 经典波特率时序表。Name 与 PEAK 的 BaudRate 预设名对齐。
-    private static (byte Timing0, byte Timing1)? ResolveClassicTiming(string name) => name switch
+    /// <summary>
+    /// 构造 ZCAN_CHANNEL_INIT_CONFIG。USBCANFD 的速率由 SetValue 驱动，
+    /// 正常情况下 timing 保持 0；只有 SetValue 失败时才回退到 SJA1000 时序表。
+    /// </summary>
+    public static ZcanChannelInitConfig BuildConfig(
+        bool fd, (byte Timing0, byte Timing1)? fallbackTiming = null)
+    {
+        var config = new ZcanChannelInitConfig
+        {
+            CanType = fd ? ZcanCanType.CanFd : ZcanCanType.Can,
+        };
+
+        if (fd)
+        {
+            config.CanFd = new ZcanCanFdInit
+            {
+                AccCode = 0,
+                AccMask = 0xFFFF_FFFF,
+                Filter = 0,
+                Mode = 0,
+            };
+        }
+        else
+        {
+            config.Can = new ZcanCanInit
+            {
+                AccCode = 0,
+                AccMask = 0xFFFF_FFFF,
+                Filter = 0,
+                Timing0 = fallbackTiming?.Timing0 ?? 0,
+                Timing1 = fallbackTiming?.Timing1 ?? 0,
+                Mode = 0,
+            };
+        }
+
+        return config;
+    }
+
+    /// <summary>经典 SJA1000 时序（仅作为 SetValue 失败时的回退）。</summary>
+    public static (byte Timing0, byte Timing1)? ClassicTiming(string name) => name switch
     {
         "1 Mbps" => (0x00, 0x14),
         "800 kbps" => (0x00, 0x16),
@@ -248,36 +362,6 @@ public sealed partial class ZlgCanChannel : ChannelReadLoop, ICanChannel
         "50 kbps" => (0x09, 0x1C),
         "20 kbps" => (0x18, 0x1C),
         "10 kbps" => (0x31, 0x1C),
-        // FD 预设名（仲裁段沿用 1 Mbps）
-        "1 Mbps (FD)" => (0x00, 0x14),
-        "2 Mbps (FD)" => (0x00, 0x14),
-        "5 Mbps (FD)" => (0x00, 0x14),
         _ => null,
     };
-
-    // FD 数据段波特率，匹配 BaudRate.Name。
-    private static uint? ResolveFdDataRate(string name) => name switch
-    {
-        "1 Mbps (FD)" => ZlgFdDataRate.Rate1Mbps,
-        "2 Mbps (FD)" => ZlgFdDataRate.Rate2Mbps,
-        "5 Mbps (FD)" => ZlgFdDataRate.Rate5Mbps,
-        _ => null,
-    };
-}
-
-/// <summary>Marshal 辅助（.NET 10 LibraryImport 不直接支持结构体 → IntPtr 的简单方式）。</summary>
-internal static class MarshalEx
-{
-    public static IntPtr StructureToPtr<T>(T value) where T : unmanaged
-    {
-        var ptr = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<T>());
-        System.Runtime.InteropServices.Marshal.StructureToPtr(value, ptr, false);
-        return ptr;
-    }
-
-    public static void FreeHGlobal(IntPtr ptr)
-    {
-        if (ptr != IntPtr.Zero)
-            System.Runtime.InteropServices.Marshal.FreeHGlobal(ptr);
-    }
 }

@@ -1,91 +1,62 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using PeakCan.Host.Core.Devices;
 using PeakCan.Host.Infrastructure.Zlg;
 using Xunit;
 
 namespace PeakCan.Host.Infrastructure.Tests.Zlg;
 
-/// <summary>
-/// Tests for <see cref="ZlgCanDeviceProvider"/>.
-/// Uses the real <see cref="ZlgChannelEnumerator"/> (no hardware = empty channels).
-/// </summary>
+/// <summary>设备描述符：通道、DefaultHandle、波特率表。</summary>
 public sealed class ZlgCanDeviceProviderTests
 {
     private static readonly string[] ExpectedBaudRates = { "125 kbps", "250 kbps", "500 kbps", "1 Mbps" };
 
-    [Fact]
-    public void EnumerateDevices_Always_ReturnsDeviceType()
+    private static ZlgCanDeviceProvider Provider(FakeZlgApi api)
     {
-        // Arrange — real enumerator without hardware returns empty channels
-        var provider = new ZlgCanDeviceProvider(
-            new ZlgChannelEnumerator(NullLogger<ZlgChannelEnumerator>.Instance),
-            NullLogger<ZlgCanDeviceProvider>.Instance);
-
-        // Act
-        var devices = provider.EnumerateDevices();
-
-        // Assert — device type always shows in UI even without hardware
-        devices.Should().HaveCount(1);
-        var d = devices[0];
-        d.Id.Should().Be("zlg-usbcan-fd");
-        d.DisplayName.Should().Be("USBCAN FD (ZLG)");
-        d.SupportsFd.Should().BeTrue();
+        var manager = new ZlgDeviceManager(api);
+        var enumerator = new ZlgChannelEnumerator(api, manager);
+        return new ZlgCanDeviceProvider(enumerator, NullLogger<ZlgCanDeviceProvider>.Instance);
     }
 
     [Fact]
-    public void EnumerateDevices_NoHardware_ReturnsDeviceWithEmptyChannels()
+    public void EnumerateDevices_AlwaysReturnsZlgDeviceFamily()
     {
-        // Arrange
-        var provider = new ZlgCanDeviceProvider(
-            new ZlgChannelEnumerator(NullLogger<ZlgChannelEnumerator>.Instance),
-            NullLogger<ZlgCanDeviceProvider>.Instance);
+        var devices = Provider(new FakeZlgApi()).EnumerateDevices();
 
-        // Act
-        var devices = provider.EnumerateDevices();
-
-        // Assert
-        devices.Should().HaveCount(1);
-        // Without hardware, channels will be empty
-        // DefaultHandle fallback = EncodeHandle(0, 0, 0) = 0x8000
-        devices[0].DefaultHandle.Should().Be(0x8000);
+        devices.Should().ContainSingle();
+        devices[0].Id.Should().Be("zlg-usbcan-fd");
+        devices[0].DisplayName.Should().Be("USBCAN FD (ZLG)");
+        devices[0].SupportsFd.Should().BeTrue();
     }
 
     [Fact]
-    public void EnumerateDevices_BaudRateTable_IsComplete()
+    public void EnumerateDevices_NoHardware_EmptyChannelsAndZeroDefaultHandle()
     {
-        // Arrange
-        var provider = new ZlgCanDeviceProvider(
-            new ZlgChannelEnumerator(NullLogger<ZlgChannelEnumerator>.Instance),
-            NullLogger<ZlgCanDeviceProvider>.Instance);
+        var devices = Provider(new FakeZlgApi()).EnumerateDevices();
 
-        // Act
-        var devices = provider.EnumerateDevices();
-
-        // Assert
-        var d = devices[0];
-        d.BaudRates.Should().HaveCount(4);
-        d.BaudRates.Select(b => b.Name).Should().Contain(ExpectedBaudRates);
-        d.FdBaudRates.Should().HaveCount(3);
-        d.DefaultBaudRate.Name.Should().Be("500 kbps");
+        devices[0].Channels.Should().BeEmpty();
+        devices[0].DefaultHandle.Should().Be(0, "no channel exists, so there is no valid default handle");
     }
 
     [Fact]
-    public void EnumerateDevices_DeviceDescriptor_HasCorrectDefaults()
+    public void EnumerateDevices_WithDevice_ExposesChannelsAndDefaultHandle()
     {
-        // Arrange
-        var provider = new ZlgCanDeviceProvider(
-            new ZlgChannelEnumerator(NullLogger<ZlgChannelEnumerator>.Instance),
-            NullLogger<ZlgCanDeviceProvider>.Instance);
+        var api = new FakeZlgApi { CanNum = 2 };
+        api.Devices[(ZlgDeviceType.USBCANFD_200U, 0)] = api.DefaultDeviceHandle;
 
-        // Act
-        var devices = provider.EnumerateDevices();
+        var devices = Provider(api).EnumerateDevices();
 
-        // Assert
-        var d = devices[0];
-        d.Id.Should().Be("zlg-usbcan-fd");
-        d.DisplayName.Should().Be("USBCAN FD (ZLG)");
-        d.SupportsFd.Should().BeTrue();
-        d.DefaultBaudRate.Name.Should().Be("500 kbps");
+        devices[0].Channels.Should().HaveCount(2);
+        devices[0].DefaultHandle.Should().Be(0xA900);
+    }
+
+    [Fact]
+    public void EnumerateDevices_BaudRateTableIsComplete()
+    {
+        var device = Provider(new FakeZlgApi()).EnumerateDevices()[0];
+
+        device.BaudRates.Should().HaveCount(4);
+        device.BaudRates.Select(b => b.Name).Should().Contain(ExpectedBaudRates);
+        device.FdBaudRates.Should().HaveCount(3);
+        device.DefaultBaudRate.Name.Should().Be("500 kbps");
     }
 }

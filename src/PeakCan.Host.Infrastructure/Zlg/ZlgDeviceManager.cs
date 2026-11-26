@@ -1,62 +1,86 @@
-using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace PeakCan.Host.Infrastructure.Zlg;
 
 /// <summary>
-/// ZLG 设备生命周期管理器。ZLG API 的设备句柄是进程级共享的：
-/// OpenDevice 在同一设备上多次调用返回相同句柄，CloseDevice 一次关闭所有。
-/// 本管理器维护引用计数，确保最后一个通道断开时才真正关闭设备。
+/// ZLG 设备生命周期管理器。ZCAN 的设备句柄是进程级共享资源：
+/// 同一 (devType, devIdx) 重复 OpenDevice 会返回同一句柄，CloseDevice 一次即关闭。
+/// 本管理器按引用计数持有句柄，保证最后一个通道断开时才真正关闭设备；
+/// 枚举器也复用本管理器，避免探测时把正在使用的设备关掉。
 /// </summary>
 public sealed class ZlgDeviceManager : IDisposable
 {
-    // (devType, devIdx) → 引用计数
-    private readonly ConcurrentDictionary<(uint, uint), int> _refCount = new();
+    private readonly IZlgApi _api;
+    private readonly ILogger<ZlgDeviceManager> _logger;
+    private readonly Dictionary<(uint DevType, uint DevIdx), Entry> _devices = new();
     private readonly object _lock = new();
     private bool _disposed;
 
-    /// <summary>打开设备，引用计数 +1。如果设备尚未打开，调用 VCI_OpenDevice。</summary>
-    public uint AcquireDevice(uint devType, uint devIdx)
+    public ZlgDeviceManager(IZlgApi api, ILogger<ZlgDeviceManager>? logger = null)
+    {
+        _api = api ?? throw new ArgumentNullException(nameof(api));
+        _logger = logger ?? NullLogger<ZlgDeviceManager>.Instance;
+    }
+
+    /// <summary>打开设备（首次）或增加引用计数。句柄为 0 表示失败。</summary>
+    public bool TryAcquire(uint devType, uint devIdx, out IntPtr deviceHandle)
     {
         lock (_lock)
         {
-            if (_disposed) return 0;
-
-            var key = (devType, devIdx);
-            var exists = _refCount.TryGetValue(key, out var count);
-            if (exists)
+            if (_disposed)
             {
-                _refCount[key] = count + 1;
-                return ZlgError.Success;
+                deviceHandle = IntPtr.Zero;
+                return false;
             }
 
-            // 首次打开
-            var ret = ZlgNative.ZCAN_OpenDevice(devType, devIdx, 0);
-            if (ret == ZlgError.Success)
-                _refCount[key] = 1;
-            return ret;
+            var key = (devType, devIdx);
+            if (_devices.TryGetValue(key, out var entry))
+            {
+                entry.RefCount++;
+                deviceHandle = entry.Handle;
+                return true;
+            }
+
+            var handle = _api.OpenDevice(devType, devIdx, 0);
+            if (handle == IntPtr.Zero)
+            {
+                deviceHandle = IntPtr.Zero;
+                _logger.LogDebug(
+                    "ZLG OpenDevice returned 0: devType={DevType} devIdx={DevIdx}", devType, devIdx);
+                return false;
+            }
+
+            _devices[key] = new Entry { Handle = handle, RefCount = 1 };
+            deviceHandle = handle;
+            return true;
         }
     }
 
-    /// <summary>释放设备，引用计数 -1。计数归零时调用 VCI_CloseDevice。</summary>
-    public uint ReleaseDevice(uint devType, uint devIdx)
+    /// <summary>减少引用计数；归零时关闭设备。</summary>
+    public bool Release(uint devType, uint devIdx)
     {
         lock (_lock)
         {
-            if (_disposed) return 0;
+            if (_disposed) return false;
 
             var key = (devType, devIdx);
-            if (!_refCount.TryGetValue(key, out var count) || count <= 0)
-                return ZlgError.Failed;
+            if (!_devices.TryGetValue(key, out var entry) || entry.RefCount <= 0)
+                return false;
 
-            count--;
-            if (count > 0)
+            entry.RefCount--;
+            if (entry.RefCount > 0) return true;
+
+            _devices.Remove(key);
+            try
             {
-                _refCount[key] = count;
-                return ZlgError.Success;
+                return _api.CloseDevice(entry.Handle) == ZlgError.Success;
             }
-
-            _refCount.TryRemove(key, out _);
-            return ZlgNative.ZCAN_CloseDevice(devType, devIdx);
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ZLG CloseDevice threw: devType={DevType} devIdx={DevIdx}", devType, devIdx);
+                return false;
+            }
         }
     }
 
@@ -66,13 +90,19 @@ public sealed class ZlgDeviceManager : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
-            // 关闭所有仍持有的设备
-            foreach (var key in _refCount.Keys)
+
+            foreach (var entry in _devices.Values)
             {
-                try { _ = ZlgNative.ZCAN_CloseDevice(key.Item1, key.Item2); }
-                catch { /* best-effort */ }
+                try { _ = _api.CloseDevice(entry.Handle); }
+                catch { /* best-effort：进程退出/设备已拔出 */ }
             }
-            _refCount.Clear();
+            _devices.Clear();
         }
+    }
+
+    private sealed class Entry
+    {
+        public IntPtr Handle;
+        public int RefCount;
     }
 }

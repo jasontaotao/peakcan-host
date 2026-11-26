@@ -32,4 +32,17 @@ public sealed class CompositeChannelEnumerator : IChannelEnumerator
         }
         return result;
     }
+
+    /// <inheritdoc />
+    public string? LastDiagnostic
+    {
+        get
+        {
+            var diagnostics = _enumerators
+                .Select(e => e.LastDiagnostic)
+                .Where(d => !string.IsNullOrWhiteSpace(d));
+            var joined = string.Join("; ", diagnostics);
+            return joined.Length == 0 ? null : joined;
+        }
+    }
 }

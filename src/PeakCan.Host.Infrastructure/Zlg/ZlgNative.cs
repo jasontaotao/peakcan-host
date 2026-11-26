@@ -1,158 +1,73 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
 namespace PeakCan.Host.Infrastructure.Zlg;
 
-// ZLG zlgcan.dll P/Invoke declarations — ZCAN API (new API, not VCI).
-// Device type constants.
-
-/// <summary>ZLG device type constants for ZCAN_OpenDevice.</summary>
-public static class ZlgDeviceType
-{
-    public const uint USBCAN1 = 1;
-    public const uint USBCAN2 = 4;
-    public const uint USBCANFD = 21;
-    public const uint USBCANFD_200U = 70;
-}
-
-/// <summary>INIT_CONFIG.Filter 过滤模式。</summary>
-public static class ZlgFilterMode
-{
-    public const byte ReceiveAll = 0;
-    public const byte SingleFilter = 1;
-    public const byte DualFilter = 2;
-}
-
-/// <summary>INIT_CONFIG.Mode 工作模式。</summary>
-public static class ZlgWorkMode
-{
-    public const byte Normal = 0;
-    public const byte ListenOnly = 1;
-    public const byte Loopback = 2;
-}
-
-/// <summary>CAN 经典帧（8 字节数据）。</summary>
-[StructLayout(LayoutKind.Sequential, Pack = 1)]
-public struct ZlgCanMsg
-{
-    public uint ID;
-    public uint TimeStamp;
-    public byte TimeFlag;
-    public byte SendType;
-    public byte RemoteFlag;
-    public byte ExternFlag;
-    public byte DataLen;
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-    public byte[] Data;
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)]
-    public byte[] Reserved;
-}
-
-/// <summary>CAN FD 帧（64 字节数据）。</summary>
-[StructLayout(LayoutKind.Sequential, Pack = 1)]
-public struct ZlgCanFdMsg
-{
-    public uint ID;
-    public uint TimeStamp;
-    public byte TimeFlag;
-    public byte SendType;
-    public byte RemoteFlag;
-    public byte ExternFlag;
-    public byte DataLen;
-    public byte Reserved0;
-    public byte Reserved1;
-    public byte Reserved2;
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)]
-    public byte[] Data;
-}
-
-/// <summary>CAN 初始化配置。</summary>
-[StructLayout(LayoutKind.Sequential)]
-public struct ZlgInitConfig
-{
-    public uint AccCode;
-    public uint AccMask;
-    public uint Reserved;
-    public byte Filter;
-    public byte Timing0;
-    public byte Timing1;
-    public byte Mode;
-}
-
-/// <summary>设备信息。</summary>
-[StructLayout(LayoutKind.Sequential)]
-public struct ZlgDeviceInfo
-{
-    public ushort hwVersion;
-    public ushort fwVersion;
-    public ushort drVersion;
-    public ushort inVersion;
-    public ushort irqNum;
-    public byte canNum;
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 20)]
-    public byte[] strSerialNum;
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 40)]
-    public byte[] strDeviceType;
-}
-
-/// <summary>CAN FD 数据段波特率参考值（用于 ZCAN_SetReference）。</summary>
-public static class ZlgFdDataRate
-{
-    public const uint Rate1Mbps = 0x00000000;
-    public const uint Rate2Mbps = 0x00000001;
-    public const uint Rate5Mbps = 0x00000002;
-}
-
-/// <summary>ZCAN_SetReference 参考代码。</summary>
-public static class ZlgReferenceCode
-{
-    public const uint CanFdDataRate = 0x000C;
-    public const uint CanFdDataTiming = 0x000D;
-}
-
 /// <summary>
-/// 原生 zlgcan.dll API — ZCAN 接口（新版本 DLL）。
-/// 所有函数返回 1=成功，0=失败。
+/// Raw zlgcan.dll P/Invoke declarations.
+/// <para>
+/// The ZCAN API is handle-based: <c>ZCAN_OpenDevice</c> returns a
+/// <c>DEVICE_HANDLE</c> (0 = failure), <c>ZCAN_InitCAN</c> returns a
+/// <c>CHANNEL_HANDLE</c> (0 = failure), and every per-channel call takes that
+/// channel handle. All functions use <c>__stdcall</c> (FUNC_CALL in zlgcan.h).
+/// </para>
+/// <para>Test fakes should use <see cref="IZlgApi"/>; this class is the real binding.</para>
 /// </summary>
-public static class ZlgNative
+internal static class ZlgNative
 {
     private const string Dll = "zlgcan.dll";
+    private const CallingConvention Std = CallingConvention.StdCall;
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_OpenDevice(uint deviceType, uint deviceIndex, uint reserved);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern IntPtr ZCAN_OpenDevice(uint deviceType, uint deviceIndex, uint reserved);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_CloseDevice(uint deviceType, uint deviceIndex);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_CloseDevice(IntPtr deviceHandle);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_InitCAN(uint deviceType, uint deviceIndex, uint canIndex, ref ZlgInitConfig config);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_GetDeviceInf(IntPtr deviceHandle, ref ZcanDeviceInfo info);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_StartCAN(uint deviceType, uint deviceIndex, uint canIndex);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern IntPtr ZCAN_InitCAN(
+        IntPtr deviceHandle, uint canIndex, ref ZcanChannelInitConfig config);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_ResetCAN(uint deviceType, uint deviceIndex, uint canIndex);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_StartCAN(IntPtr channelHandle);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_ClearBuffer(uint deviceType, uint deviceIndex, uint canIndex);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_ResetCAN(IntPtr channelHandle);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_GetDeviceInf(uint deviceType, uint deviceIndex, out ZlgDeviceInfo info);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_ClearBuffer(IntPtr channelHandle);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_GetReceiveNum(uint deviceType, uint deviceIndex, uint canIndex);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_GetReceiveNum(IntPtr channelHandle, byte type);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_Transmit(uint deviceType, uint deviceIndex, uint canIndex, ref ZlgCanMsg msg, uint len);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_Receive(
+        IntPtr channelHandle, [In, Out] ZcanReceiveData[] messages, uint length, int waitTime);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_Receive(uint deviceType, uint deviceIndex, uint canIndex, [In, Out] ZlgCanMsg[] msg, uint len, int waitTime);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_ReceiveFD(
+        IntPtr channelHandle, [In, Out] ZcanReceiveFdData[] messages, uint length, int waitTime);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_TransmitFD(uint deviceType, uint deviceIndex, uint canIndex, ref ZlgCanFdMsg msg, uint len);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_Transmit(
+        IntPtr channelHandle, ref ZcanTransmitData message, uint length);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_ReceiveFD(uint deviceType, uint deviceIndex, uint canIndex, [In, Out] ZlgCanFdMsg[] msg, uint len, int waitTime);
+    [DllImport(Dll, CallingConvention = Std)]
+    internal static extern uint ZCAN_TransmitFD(
+        IntPtr channelHandle, ref ZcanTransmitFdData message, uint length);
 
-    [DllImport(Dll)]
-    internal static extern uint ZCAN_SetReference(uint deviceType, uint deviceIndex, uint canIndex, uint refCode, IntPtr data);
+    // CA2101: path/value 都是 ASCII 常量（"0/canfd_abit_baud_rate" 等），
+    // 不存在宽字符到 ANSI 的 best-fit 映射风险；LPStr 与厂商 API 的 const char* 对齐。
+    [SuppressMessage(
+        "Interoperability",
+        "CA2101:Specify marshaling for P/Invoke string arguments",
+        Justification = "ZLG SetValue paths/values are ASCII constants.")]
+    [DllImport(Dll, CallingConvention = Std, CharSet = CharSet.Ansi)]
+    internal static extern uint ZCAN_SetValue(
+        IntPtr deviceHandle,
+        [MarshalAs(UnmanagedType.LPStr)] string path,
+        [MarshalAs(UnmanagedType.LPStr)] string value);
 }

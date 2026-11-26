@@ -12,6 +12,13 @@ public interface IChannelEnumerator
     /// Non-throwing: if no hardware is detected, returns an empty list.
     /// </summary>
     IReadOnlyList<ChannelInfo> Enumerate();
+
+    /// <summary>
+    /// Human-readable reason the last <see cref="Enumerate"/> found nothing
+    /// (missing native DLL, bitness mismatch, driver issue). Null when the
+    /// enumerator has no specific diagnosis.
+    /// </summary>
+    string? LastDiagnostic => null;
 }
 
 /// <summary>

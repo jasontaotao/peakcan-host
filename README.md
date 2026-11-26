@@ -112,7 +112,8 @@ host / studio 双 pin 同一版本（sibling ProjectReference 优先，否则 Nu
   发布后的 exe 是自包含的，目标机器无需安装运行时）
 - **PEAK PCAN 驱动**（PEAK 硬件运行需安装，
   [PEAK-System 下载页面](https://www.peak-system.com/PCAN-USB-FD.366.0.html)）
-- **ZLG 驱动**（ZLG USBCAN FD 200U 运行需安装厂商驱动，`zlgcan.dll` 随发布包分发）
+- **ZLG 驱动**（ZLG USBCAN FD 200U 运行需安装厂商驱动；`zlgcan.dll` 为 **32 位**，
+  随 x86 发布包分发）
 
 ## 构建
 
@@ -136,17 +137,21 @@ Shell 窗口打开到 **Trace** 选项卡。点击**探测**检测设备，然�
 ## 运行（自包含发布 exe）
 
 ```bash
-dotnet publish src/PeakCan.Host.App -c Release -r win-x64 \
+dotnet publish src/PeakCan.Host.App -c Release -r win-x86 \
     --self-contained true \
     -p:PublishSingleFile=true \
     -p:IncludeNativeLibrariesForSelfExtract=true \
     -p:EnableCompressionInSingleFile=true \
-    -o artifacts/win-x64/
+    -o artifacts/win-x86/
 
-artifacts/win-x64/PeakCan.Host.exe
+artifacts/win-x86/PeakCan.Host.exe
 ```
 
 输出是一个约 66 MB 的单个 `.exe`，包含 .NET 10 运行时。详见 [artifacts/README.md](artifacts/README.md)。
+
+> **必须用 `win-x86`**：随包 `zlgcan.dll` 是 32 位库，`-r win-x64` 产出的进程无法加载它
+> （`BadImageFormatException`，ZLG 通道会静默为空）。`PeakCan.Host.App.csproj` 的
+> `VerifyZlgPublishRid` 目标会在 publish 时直接报错，避免再发出坏包。
 
 ## 测试
 

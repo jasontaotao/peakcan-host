@@ -28,6 +28,7 @@ public partial class AppHostBuilder
                                       PeakCan.Host.Infrastructure.Peak.PcanReader>();
 
         // === ZLG 基础设施 ===
+        services.AddSingleton<IZlgApi, ZlgNativeApi>();
         services.AddSingleton<ZlgDeviceManager>();
         services.AddSingleton<ZlgChannelProbe>();
         services.AddSingleton<ZlgChannelEnumerator>();

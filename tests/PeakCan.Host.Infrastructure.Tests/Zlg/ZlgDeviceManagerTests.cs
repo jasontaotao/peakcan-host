@@ -5,78 +5,115 @@ using Xunit;
 namespace PeakCan.Host.Infrastructure.Tests.Zlg;
 
 /// <summary>
-/// Tests for <see cref="ZlgDeviceManager"/>.
-///
-/// These tests run against the actual zlgcan.dll. On a machine without
-/// ZLG USB hardware / driver installed, ZCAN_OpenDevice returns 0 (failure),
-/// so the AcquireDevice tests verify the failure path. The ref-counting
-/// logic and Dispose cleanup are still exercised.
+/// 引用计数与句柄语义。全部走 fake IZlgApi，不依赖真实 DLL/硬件。
 /// </summary>
 public sealed class ZlgDeviceManagerTests
 {
-    [Fact]
-    public void AcquireDevice_NoHardware_ReturnsFailed()
+    private static FakeZlgApi ApiWithDevice(uint devType = ZlgDeviceType.USBCANFD_200U, uint devIdx = 0)
     {
-        using var mgr = new ZlgDeviceManager();
-        var ret = mgr.AcquireDevice(ZlgDeviceType.USBCANFD_200U, 0);
-        // Without hardware, ZCAN_OpenDevice returns 0 (failed)
-        ret.Should().Be(ZlgError.Failed);
+        var api = new FakeZlgApi();
+        api.Devices[(devType, devIdx)] = api.DefaultDeviceHandle;
+        return api;
     }
 
     [Fact]
-    public void AcquireDevice_NullDeviceType_DoesNotThrow()
+    public void TryAcquire_FirstCall_OpensDeviceAndReturnsHandle()
     {
-        using var mgr = new ZlgDeviceManager();
-        // Various device types should not throw even without hardware
-        var act = () => mgr.AcquireDevice(ZlgDeviceType.USBCANFD, 0);
-        act.Should().NotThrow();
+        var api = ApiWithDevice();
+        using var manager = new ZlgDeviceManager(api);
+
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out var handle).Should().BeTrue();
+
+        handle.Should().Be(api.DefaultDeviceHandle);
+        api.OpenCalls.Should().ContainSingle();
     }
 
     [Fact]
-    public void ReleaseDevice_WithoutAcquire_ReturnsFailed()
+    public void TryAcquire_SecondCall_ReusesHandleWithoutReopening()
     {
-        using var mgr = new ZlgDeviceManager();
-        var ret = mgr.ReleaseDevice(ZlgDeviceType.USBCANFD_200U, 0);
-        ret.Should().Be(ZlgError.Failed);
+        var api = ApiWithDevice();
+        using var manager = new ZlgDeviceManager(api);
+
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out var first).Should().BeTrue();
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out var second).Should().BeTrue();
+
+        first.Should().Be(second);
+        api.OpenCalls.Should().ContainSingle("the device was already open");
     }
 
     [Fact]
-    public void Dispose_DoesNotThrow()
+    public void Release_OnlyLastReferenceClosesDevice()
     {
-        var mgr = new ZlgDeviceManager();
-        // Acquire something first (will fail, but internal state is set up)
-        mgr.AcquireDevice(ZlgDeviceType.USBCANFD_200U, 0);
-        // Dispose should not throw
-        var act = () => mgr.Dispose();
-        act.Should().NotThrow();
+        var api = ApiWithDevice();
+        using var manager = new ZlgDeviceManager(api);
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out _);
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out _);
+
+        manager.Release(ZlgDeviceType.USBCANFD_200U, 0).Should().BeTrue();
+        api.CloseCalls.Should().BeEmpty();
+
+        manager.Release(ZlgDeviceType.USBCANFD_200U, 0).Should().BeTrue();
+        api.CloseCalls.Should().ContainSingle().Which.Should().Be(api.DefaultDeviceHandle);
     }
 
     [Fact]
-    public void AcquireDevice_AfterDispose_ReturnsFailed()
+    public void TryAcquire_OpenFails_ReturnsFalse()
     {
-        var mgr = new ZlgDeviceManager();
-        mgr.Dispose();
-        var ret = mgr.AcquireDevice(ZlgDeviceType.USBCANFD_200U, 0);
-        ret.Should().Be(ZlgError.Failed);
+        var api = new FakeZlgApi();
+        using var manager = new ZlgDeviceManager(api);
+
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out var handle).Should().BeFalse();
+
+        handle.Should().Be(IntPtr.Zero);
+        api.OpenCalls.Should().ContainSingle();
+        api.CloseCalls.Should().BeEmpty();
     }
 
     [Fact]
-    public void ReleaseDevice_AfterDispose_ReturnsFailed()
+    public void Release_WithoutAcquire_ReturnsFalse()
     {
-        var mgr = new ZlgDeviceManager();
-        mgr.Dispose();
-        var ret = mgr.ReleaseDevice(ZlgDeviceType.USBCANFD_200U, 0);
-        ret.Should().Be(ZlgError.Failed);
+        using var manager = new ZlgDeviceManager(new FakeZlgApi());
+
+        manager.Release(ZlgDeviceType.USBCANFD_200U, 0).Should().BeFalse();
     }
 
     [Fact]
-    public void ConcurrentAcquire_DoesNotThrow()
+    public void Dispose_ClosesEveryOpenDeviceOnce()
     {
-        using var mgr = new ZlgDeviceManager();
-        // Simulate concurrent access from multiple channels
-        var tasks = Enumerable.Range(0, 10).Select(_ =>
-            Task.Run(() => mgr.AcquireDevice(ZlgDeviceType.USBCANFD_200U, 0)));
-        var act = () => Task.WhenAll(tasks).Wait();
-        act.Should().NotThrow();
+        var api = ApiWithDevice();
+        api.Devices[(ZlgDeviceType.USBCANFD_100U, 1)] = (IntPtr)0x1010;
+        var manager = new ZlgDeviceManager(api);
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out _);
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_100U, 1, out _);
+
+        manager.Dispose();
+        manager.Dispose();
+
+        api.CloseCalls.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void AfterDispose_AcquireAndReleaseFail()
+    {
+        var api = ApiWithDevice();
+        var manager = new ZlgDeviceManager(api);
+        manager.Dispose();
+
+        manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out _).Should().BeFalse();
+        manager.Release(ZlgDeviceType.USBCANFD_200U, 0).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ConcurrentAcquire_OpensDeviceOnce()
+    {
+        var api = ApiWithDevice();
+        using var manager = new ZlgDeviceManager(api);
+
+        var results = new bool[10];
+        Parallel.For(0, results.Length, i =>
+            results[i] = manager.TryAcquire(ZlgDeviceType.USBCANFD_200U, 0, out _));
+
+        results.Should().OnlyContain(ok => ok);
+        api.OpenCalls.Should().ContainSingle();
     }
 }

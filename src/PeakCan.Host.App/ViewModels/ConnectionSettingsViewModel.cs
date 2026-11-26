@@ -107,6 +107,14 @@ public partial class ConnectionSettingsViewModel : ObservableObject
     [ObservableProperty]
     private ChannelDescriptor? _selectedChannel;
 
+    /// <summary>通道为空时的排查提示；有通道时为 null。</summary>
+    public string? ChannelHint => Channels.Count == 0
+        ? "未检测到通道。请确认设备已连接、ZLG/PEAK 驱动已安装，且程序以 32 位运行（zlgcan.dll 为 x86）。"
+        : null;
+
+    partial void OnChannelsChanged(IReadOnlyList<ChannelDescriptor> value)
+        => OnPropertyChanged(nameof(ChannelHint));
+
     // Default true aligns with AppShellViewModel._isFd so an ApplyAndConnect
     // before any device-driven OnSelectedDeviceChanged (or for a device that
     // supports FD) does not silently flip the shell's FD mode to false.

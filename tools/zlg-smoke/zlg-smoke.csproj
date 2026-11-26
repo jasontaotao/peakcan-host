@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>zlg-smoke</AssemblyName>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- 直接链接生产代码里的 ABI/PInvoke 源文件：工具与 App 使用同一份声明，
+       避免结构体/签名在诊断工具里漂移。工具不引用 Infrastructure，避免拖入
+       PEAK/HIL.Core/私有包。 -->
+  <ItemGroup>
+    <Compile Include="..\..\src\PeakCan.Host.Infrastructure\Zlg\ZlgAbi.cs" Link="ZlgAbi.cs" />
+    <Compile Include="..\..\src\PeakCan.Host.Infrastructure\Zlg\ZlgNative.cs" Link="ZlgNative.cs" />
+    <None Include="..\..\src\PeakCan.Host.Infrastructure\zlgcan.dll"
+          Link="zlgcan.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

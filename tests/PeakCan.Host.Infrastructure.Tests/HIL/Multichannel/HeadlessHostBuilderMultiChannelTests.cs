@@ -105,7 +105,7 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
     [InlineData("51", 0x51)]      // raw hex（无前缀）— ChannelConfig 文档契约
     [InlineData("0x52", 0x52)]     // 0x 前缀 hex
     [InlineData("USB1", 0x51)]     // USBn 习惯形式（回落 ParseChannelHandle）
-    [InlineData("C600", 0xC600)]   // ZLG 风格大 hex
+    [InlineData("A900", 0xA900)]   // ZLG 风格大 hex
     public void ResolveChannelHandle_Accepts_Hex_And_Usb_Forms(string handle, ushort expected)
     {
         Assert.Equal(expected, HeadlessHostBuilder.ResolveChannelHandle(handle));
@@ -114,7 +114,7 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
     [Fact]
     public void Build_Accepts_RawHex_Handle_Per_ChannelConfig_Contract()
     {
-        // ChannelConfig 文档说 Handle 是 raw hex（"51"/"C600"）。验证 hex 形式不抛异常。
+        // ChannelConfig 文档说 Handle 是 raw hex（"51"/"A900"）。验证 hex 形式不抛异常。
         var channels = new[]
         {
             new ChannelConfig("bus-a", "51", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
@@ -303,12 +303,12 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
     [Fact]
     public void Build_ZlgFirstChannel_ResolvesZlgCanChannel_NotPeak()
     {
-        // 产品 review: 多厂商设备身份。首通道是 ZLG handle（0xC600，高位 0x8000+）→
+        // 产品 review: 多厂商设备身份。首通道是 ZLG handle（0xA900，高位 0x8000+）→
         // 默认 ICanChannel 应为 ZlgCanChannel（CompositeChannelFactory 分派），
         // 而非硬编码 PeakCanChannel。RED：现在 Build 一律 new PeakCanChannel。
         var channels = new[]
         {
-            new ChannelConfig("bus-a", "0xC600", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+            new ChannelConfig("bus-a", "0xA900", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
             new ChannelConfig("bus-b", "0x51", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
         };
         var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
@@ -316,17 +316,17 @@ public sealed class HeadlessHostBuilderMultiChannelTests : IDisposable
         using var host = HeadlessHostBuilder.Build(args);
         var channel = host.Services.GetRequiredService<ICanChannel>();
         Assert.IsType<ZlgCanChannel>(channel);
-        Assert.Equal(new ChannelId(0xC600), channel.Id);
+        Assert.Equal(new ChannelId(0xA900), channel.Id);
     }
 
     [Fact]
     public void Build_ZlgSecondChannel_ResolvesZlgCanChannel()
     {
-        // 混用：首通道 PEAK（0x51）、第二通道 ZLG（0xC600）→ 第二通道 context 底层是 ZlgCanChannel。
+        // 混用：首通道 PEAK（0x51）、第二通道 ZLG（0xA900）→ 第二通道 context 底层是 ZlgCanChannel。
         var channels = new[]
         {
             new ChannelConfig("bus-a", "0x51", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
-            new ChannelConfig("bus-b", "0xC600", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
+            new ChannelConfig("bus-b", "0xA900", BaudRate.Can500kbps, false, DbcPath: _dbcPath, null, null),
         };
         var args = new CliArgs(_dbcPath, "suite.json", HardwareChannel: null, HardwareChannels: channels);
 

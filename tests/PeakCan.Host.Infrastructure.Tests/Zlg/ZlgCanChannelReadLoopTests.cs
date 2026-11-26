@@ -1,60 +1,116 @@
+using System.Reflection;
 using FluentAssertions;
 using PeakCan.HIL.Core;
 using PeakCan.Host.Infrastructure.Zlg;
+using Xunit;
 
 namespace PeakCan.Host.Infrastructure.Tests.Zlg;
 
 /// <summary>
-/// 2026-09-04 审查 🟠 HIGH：ZLG 读循环放弃（bus-dead heuristic）后
-/// <see cref="ZlgCanChannel.IsConnected"/> 仍为 true —— UI 显示
-/// "已连接"但总线已死，仍允许发送/录制。对齐 PEAK 通道
-/// （commit c9fbaaa 的 _gate.MarkFailed 修复）。
+/// 读循环：两个队列都排空、时间戳按微秒、getReceiveNum 为 0 时不调用 Receive。
 /// </summary>
-public class ZlgCanChannelReadLoopTests
+public sealed class ZlgCanChannelReadLoopTests
 {
-    private const uint DevType = 21; // USBCANFD-200U（值仅用于句柄解码，不触硬件）
-    private const uint DevIdx = 0;
-    private const uint CanIdx = 0;
+    private static readonly ChannelId TestChannel = new(0xA900);
 
     [Fact]
-    public async Task ReadLoop_Gives_Up_Marks_Channel_Disconnected()
+    public async Task ReadLoop_DrainsBothClassicAndFdQueues()
     {
-        var channel = new ZlgCanChannel(
-            new ChannelId(HandleFrom(DevType, DevIdx, CanIdx)),
-            new ZlgDeviceManager(),
-            logger: null,
-            reader: new ThrowingZlgReader());
+        var api = new FakeZlgApi
+        {
+            GetReceiveNumCanResult = 1,
+            GetReceiveNumFdResult = 1,
+            ReceiveResult = 1,
+            ReceiveFdResult = 1,
+            ClassicFrameFactory = () => new ZcanReceiveData
+            {
+                Frame = new ZcanCanFrame
+                {
+                    CanId = 0x123,
+                    CanDlc = 2,
+                    Data = new byte[] { 0xAA, 0xBB, 0, 0, 0, 0, 0, 0 },
+                },
+                Timestamp = 1_500,
+            },
+            FdFrameFactory = () => new ZcanReceiveFdData
+            {
+                Frame = new ZcanCanFdFrame
+                {
+                    CanId = 0x456,
+                    Len = 3,
+                    Flags = ZcanCanFdFlags.Brs,
+                    Data = new byte[64],
+                },
+                Timestamp = 2_500,
+            },
+        };
 
-        // 读循环由 ConnectAsync 启动；测试直接用反射置位 _connected 模拟
-        // 已连接状态（与 PEAK 通道 give-up 测试同款手法，不触硬件）。
-        var connectedField = typeof(ZlgCanChannel).GetField("_connected",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        connectedField!.SetValue(channel, true);
+        var channel = CreateConnectedChannel(api);
+        var frames = new List<CanFrame>();
+        channel.FrameReceived += frames.Add;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(120));
+        await channel.ReadLoopAsync(cts.Token);
+
+        frames.Should().Contain(f => !f.IsFd
+            && f.Id.Raw == 0x123
+            && f.Timestamp == Timestamp.FromMicroseconds(1_500));
+        frames.Should().Contain(f => f.IsFd
+            && f.Id.Raw == 0x456
+            && f.Flags.HasFlag(FrameFlags.BitRateSwitch)
+            && f.Timestamp == Timestamp.FromMicroseconds(2_500));
+    }
+
+    [Fact]
+    public async Task ReadLoop_EmptyQueues_DoesNotCallReceive()
+    {
+        var api = new FakeZlgApi
+        {
+            GetReceiveNumCanResult = 0,
+            GetReceiveNumFdResult = 0,
+        };
+        var channel = CreateConnectedChannel(api);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(60));
+        await channel.ReadLoopAsync(cts.Token);
+
+        api.ReceiveCalls.Should().BeEmpty();
+        api.ReceiveFdCalls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ReadLoop_GivesUp_MarksChannelDisconnected()
+    {
+        var api = new FakeZlgApi
+        {
+            GetReceiveNumCanResult = 1,
+            GetReceiveNumFdResult = 0,
+            ReceiveException = new InvalidOperationException("Simulated bus-off"),
+        };
+        var channel = CreateConnectedChannel(api);
         channel.IsConnected.Should().BeTrue();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         await channel.ReadLoopAsync(cts.Token);
 
         channel.IsConnected.Should().BeFalse(
-            "读循环放弃后通道必须标记为断开，否则 UI 显示'已连接但总线已死'");
+            "give-up 后必须标记断开，否则 UI 显示已连接但总线已死");
     }
 
-    // ChannelId.Handle 编码：高 1 位固定 1, 7 位 devType, 4 位 devIdx, 4 位 canIdx
-    private static ushort HandleFrom(uint devType, uint devIdx, uint canIdx)
-        => (ushort)(0x8000 | ((devType & 0x7F) << 8) | ((devIdx & 0x0F) << 4) | (canIdx & 0x0F));
-
-    private sealed class ThrowingZlgReader : IZlgReader
+    private static ZlgCanChannel CreateConnectedChannel(FakeZlgApi api)
     {
-        public uint ReadClassic(uint devType, uint devIdx, uint canIdx, out ZlgCanMsg msg)
-        {
-            msg = default;
-            throw new InvalidOperationException("Simulated bus-off: reader always throws");
-        }
+        var manager = new ZlgDeviceManager(api);
+        var channel = new ZlgCanChannel(TestChannel, manager, api);
+        SetField(channel, "_connected", true);
+        SetField(channel, "_channelHandle", (IntPtr)0x2000);
+        return channel;
+    }
 
-        public uint ReadFd(uint devType, uint devIdx, uint canIdx, out ZlgCanFdMsg msg)
-        {
-            msg = default;
-            throw new InvalidOperationException("Simulated bus-off: reader always throws");
-        }
+    private static void SetField<T>(ZlgCanChannel channel, string name, T value)
+    {
+        var field = typeof(ZlgCanChannel).GetField(
+            name, BindingFlags.NonPublic | BindingFlags.Instance);
+        field.Should().NotBeNull($"ZlgCanChannel must have a private field {name}");
+        field!.SetValue(channel, value);
     }
 }

@@ -3,43 +3,53 @@ using PeakCan.Host.Core;
 
 namespace PeakCan.Host.Infrastructure.Zlg;
 
-// 读循环：P2-1 2026-09-06 骨架化重写。
-// 轮询调度 / 失败计数 / backoff / give-up 判定 / ReadLoopError 每订阅者隔离
-// 收敛到 ChannelReadLoop 骨架（含骨架统一持有的带属性 LoggerMessage——
-// 日志改为按 ChannelId.Handle 辨识设备，dev/can 索引编码于 handle 高位）。
-// 本文件只剩 3 个厂商 hook。
+// 读循环：两个队列（经典 / FD）都必须排空。
+// CAN FD 通道上经典帧与 FD 帧走两个独立接收队列，按 _isFd 门控会静默丢帧。
+// 先用 GetReceiveNum 判断是否有数据，再以 wait=0 批量读取，空闲时不阻塞。
 public sealed partial class ZlgCanChannel
 {
-    /// <inheritdoc cref="ChannelReadLoop.DrainClassicFrames"/>
     protected override void DrainClassicFrames()
     {
-        while (true)
+        var channelHandle = CurrentChannelHandle;
+        if (channelHandle == IntPtr.Zero) return;
+
+        var available = _api.GetReceiveNum(channelHandle, ZcanReceiveType.Can);
+        if (available == 0 || available > MaxPlausibleFrames) return;
+
+        var want = Math.Min(available, (uint)_classicBuffer.Length);
+        var read = _api.Receive(channelHandle, _classicBuffer, want, ReadWaitTimeMs);
+        for (uint i = 0; i < read && i < (uint)_classicBuffer.Length; i++)
         {
-            var ret = _reader.ReadClassic(_devType, _devIdx, _canIdx, out var msg);
-            if (ret == 0) break;
-            var ts = Timestamp.FromMillis(msg.TimeStamp, 0);
-            FrameReceived?.Invoke(ZlgCanFrameFormatter.DecodeClassic(Id, msg, ts));
+            var msg = _classicBuffer[i];
+            var ts = Timestamp.FromMicroseconds(msg.Timestamp);
+            FrameReceived?.Invoke(ZlgCanFrameFormatter.DecodeClassic(Id, msg.Frame, ts));
             MarkFrameEmitted();
         }
     }
 
-    /// <inheritdoc cref="ChannelReadLoop.DrainFdFrames"/>
     protected override void DrainFdFrames()
     {
-        while (true)
+        var channelHandle = CurrentChannelHandle;
+        if (channelHandle == IntPtr.Zero) return;
+
+        // classic-only 通道（或底层不支持 FD 队列）时这里为 0，直接返回，
+        // 绝不调用 ReceiveFD，避免骨架把它计为读失败。
+        var available = _api.GetReceiveNum(channelHandle, ZcanReceiveType.CanFd);
+        if (available == 0 || available > MaxPlausibleFrames) return;
+
+        var want = Math.Min(available, (uint)_fdBuffer.Length);
+        var read = _api.ReceiveFd(channelHandle, _fdBuffer, want, ReadWaitTimeMs);
+        for (uint i = 0; i < read && i < (uint)_fdBuffer.Length; i++)
         {
-            var ret = _reader.ReadFd(_devType, _devIdx, _canIdx, out var fdMsg);
-            if (ret == 0) break;
-            // ZLG 的时间戳单位是毫秒
-            var ts = Timestamp.FromMillis(fdMsg.TimeStamp, 0);
-            FrameReceived?.Invoke(ZlgCanFrameFormatter.DecodeFd(Id, fdMsg, ts));
+            var msg = _fdBuffer[i];
+            var ts = Timestamp.FromMicroseconds(msg.Timestamp);
+            FrameReceived?.Invoke(ZlgCanFrameFormatter.DecodeFd(Id, msg.Frame, ts));
             MarkFrameEmitted();
         }
     }
 
     /// <summary>
-    /// give-up 收口：对齐 PEAK 通道（commit c9fbaaa）——标记断开（UI 不再显示
-    /// "已连接但总线已死"）+ best-effort 复位 + 释放设备引用。
+    /// give-up 收口：对齐 PEAK 通道——标记断开 + best-effort 复位 + 释放设备引用。
     /// </summary>
     protected override void OnReadLoopGiveUp()
         => MarkDisconnectedAfterReadLoopGiveUp();
