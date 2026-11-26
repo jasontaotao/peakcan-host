@@ -36,6 +36,9 @@ public sealed record UdsOfflineTransaction(
 
     /// <summary>P2/P2* 的来源事务（例如 <c>ECU:0x50</c>）；无会话控制响应时为 <c>Unknown</c>。</summary>
     public string TimingSource { get; init; } = "Unknown";
+
+    /// <summary>服务解释结果；由 <see cref="UdsOfflineAnalyzer"/> 在报告组装阶段填充。</summary>
+    public UdsInterpretation? Interpretation { get; init; }
 }
 
 /// <summary>
