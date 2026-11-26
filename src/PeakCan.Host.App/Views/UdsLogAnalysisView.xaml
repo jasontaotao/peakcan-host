@@ -1,0 +1,71 @@
+<UserControl x:Class="PeakCan.Host.App.Views.UdsLogAnalysisView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels.Uds"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:UdsLogAnalysisViewModel}">
+    <DockPanel Margin="8">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+            <Button Content="打开 ASC/BLF" Command="{Binding OpenLogCommand}" Padding="6,2"/>
+            <Button Content="重新分析" Command="{Binding AnalyzeCommand}" Padding="6,2" Margin="8,0,0,0"/>
+            <Button Content="取消" Command="{Binding CancelCommand}" Padding="6,2" Margin="8,0,0,0"/>
+            <Button Content="导出报告" Command="{Binding ExportCommand}" Padding="6,2" Margin="8,0,0,0"/>
+            <Button Content="在 AI 中解读选中事务" Command="{Binding InterpretSelectedCommand}" Padding="6,2" Margin="8,0,0,0"/>
+            <TextBlock Text="{Binding Status}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,6">
+            <TextBlock Text="通道" VerticalAlignment="Center"/>
+            <TextBox Text="{Binding ChannelText, UpdateSourceTrigger=PropertyChanged}" Width="40" Margin="4,0,8,0"/>
+            <TextBlock Text="请求 ID" VerticalAlignment="Center"/>
+            <TextBox Text="{Binding RequestIdText, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="4,0,8,0"/>
+            <TextBlock Text="响应 ID" VerticalAlignment="Center"/>
+            <TextBox Text="{Binding ResponseIdText, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="4,0,8,0"/>
+            <CheckBox Content="扩展帧" IsChecked="{Binding IsExtended}" Margin="8,0,0,0"/>
+            <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Width="160" Margin="16,0,0,0"
+                     ToolTip="按服务名/结果/NRC 过滤"/>
+            <TextBlock Text="离线只读；未连接硬件；发送 0 帧"
+                       Margin="16,0,0,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource TextSecondary}"/>
+        </StackPanel>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="320"/>
+            </Grid.ColumnDefinitions>
+
+            <DataGrid ItemsSource="{Binding VisibleTransactions}"
+                      SelectedItem="{Binding SelectedTransaction}"
+                      AutoGenerateColumns="False" IsReadOnly="True">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="服务" Binding="{Binding Interpretation.ServiceDisplay}"/>
+                    <DataGridTextColumn Header="结果" Binding="{Binding FinalKind}"/>
+                    <DataGridTextColumn Header="pending" Binding="{Binding PendingCount}"/>
+                    <DataGridTextColumn Header="NRC" Binding="{Binding FinalNrc, StringFormat=0x{0:X2}}"/>
+                    <DataGridTextColumn Header="首次(ms)" Binding="{Binding FirstResponseMs, StringFormat=F3}"/>
+                    <DataGridTextColumn Header="总(ms)" Binding="{Binding TotalMs, StringFormat=F3}"/>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                <TextBlock Text="噪声汇总" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding Noise.AggregationTruncated, StringFormat='聚合已截断：{0}'}"/>
+                <TextBlock Text="响应校验失败 / 重复最终响应" Margin="0,4,0,0"/>
+                <TextBlock Text="{Binding Noise.ResponseValidationFailed}"/>
+                <TextBlock Text="{Binding Noise.DuplicateFinalResponses}"/>
+                <TextBlock Text="{Binding SelectedTransaction.Unknowns, StringFormat='不可知：{0}'}" TextWrapping="Wrap"/>
+                <TextBlock Text="原始证据" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                <ListBox ItemsSource="{Binding SelectedEvidence}" Height="180">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Display}" FontFamily="Consolas" FontSize="11"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </StackPanel>
+        </Grid>
+    </DockPanel>
+</UserControl>

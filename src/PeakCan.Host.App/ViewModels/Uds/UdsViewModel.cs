@@ -40,6 +40,26 @@ public sealed partial class UdsViewModel : ObservableObject
     /// <summary>Shared UDS log; all panels append here.</summary>
     public ObservableCollection<UdsLogLine> OutputLog { get; } = new();
 
+    /// <summary>「日志分析」页签在 TabControl 中的索引（DID/例程/DTC/刷写之后）。</summary>
+    public const int LogAnalysisTabIndex = 4;
+
+    [ObservableProperty]
+    private int _selectedTabIndex;
+
+    /// <summary>当前是否停留在在线页签。XAML 用它隐藏会话/安全访问/TesterPresent/通信参数/在线日志。</summary>
+    public bool IsOnlineTab => SelectedTabIndex != LogAnalysisTabIndex;
+
+    public bool IsLogAnalysisTab => SelectedTabIndex == LogAnalysisTabIndex;
+
+    /// <summary>离线日志分析子 ViewModel；back-compat ctor 下为 null。</summary>
+    public UdsLogAnalysisViewModel? LogAnalysis { get; }
+
+    partial void OnSelectedTabIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsOnlineTab));
+        OnPropertyChanged(nameof(IsLogAnalysisTab));
+    }
+
     /// <summary>
     /// Production ctor (DI). Six panels: Session / DID / Routine / DTC / OdxImport / Flash,
     /// plus the optional transport-parameters panel.
@@ -51,7 +71,8 @@ public sealed partial class UdsViewModel : ObservableObject
         DtcPanelViewModel     dtc,
         OdxImportViewModel    odxImport,
         FlashPanelViewModel   flash,
-        TransportParamsViewModel? transportParams = null)
+        TransportParamsViewModel? transportParams = null,
+        UdsLogAnalysisViewModel? logAnalysis = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(did);
@@ -67,6 +88,7 @@ public sealed partial class UdsViewModel : ObservableObject
         OdxImport = odxImport;
         Flash = flash;
         Params = transportParams ?? TransportParamsViewModel.CreateDisabled();
+        LogAnalysis = logAnalysis;
 
         Session.AttachLog(OutputLog);
         Did.AttachLog(OutputLog);

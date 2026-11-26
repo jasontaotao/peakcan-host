@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:PeakCan.Host.App.ViewModels.Uds"
+        xmlns:views="clr-namespace:PeakCan.Host.App.Views"
         xmlns:flash="clr-namespace:PeakCan.Host.App.ViewModels.Uds.FlashPipeline"
         xmlns:core="clr-namespace:PeakCan.Host.Core.Uds.FlashPipeline;assembly=PeakCan.Host.Core"
         xmlns:conv="clr-namespace:PeakCan.Host.App.Composition.Converters"
@@ -31,23 +32,29 @@
         <Border DockPanel.Dock="Top" Padding="8" Background="{StaticResource SurfaceSubtle}"
                 IsEnabled="{Binding IsDiagnosticsEnabled}">
             <StackPanel Orientation="Horizontal">
-                <Button Content="默认"     Command="{Binding Session.SetDefaultSessionCommand}"   Padding="6,2" Margin="0,0,4,0"/>
-                <Button Content="扩展"    Command="{Binding Session.SetExtendedSessionCommand}"  Padding="6,2" Margin="0,0,4,0"/>
-                <Button Content="编程" Command="{Binding Session.SetProgrammingSessionCommand}" Padding="6,2" Margin="0,0,12,0"/>
+                <!-- 选中「日志分析」时隐藏在线控件；「加载 ODX…」保留（只影响下一次分析）。 -->
+                <Button Content="默认"     Command="{Binding Session.SetDefaultSessionCommand}"   Padding="6,2" Margin="0,0,4,0"
+                        Visibility="{Binding IsOnlineTab, Converter={StaticResource BoolToVis}}"/>
+                <Button Content="扩展"    Command="{Binding Session.SetExtendedSessionCommand}"  Padding="6,2" Margin="0,0,4,0"
+                        Visibility="{Binding IsOnlineTab, Converter={StaticResource BoolToVis}}"/>
+                <Button Content="编程" Command="{Binding Session.SetProgrammingSessionCommand}" Padding="6,2" Margin="0,0,12,0"
+                        Visibility="{Binding IsOnlineTab, Converter={StaticResource BoolToVis}}"/>
                 <Separator/>
                 <Button Content="加载 ODX…"
                         Command="{Binding LoadOdxCommand}"
                         Padding="6,2" Margin="0,0,12,0"/>
                 <CheckBox Content="TesterPresent" IsChecked="{Binding Session.TesterPresentActive, Mode=OneWay}"
                           Command="{Binding Session.ToggleTesterPresentCommand}"
-                          VerticalAlignment="Center" Margin="0,0,12,0"/>
+                          VerticalAlignment="Center" Margin="0,0,12,0"
+                          Visibility="{Binding IsOnlineTab, Converter={StaticResource BoolToVis}}"/>
                 <Separator/>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="等级：" VerticalAlignment="Center" Margin="0,0,4,0"/>
                     <TextBox Text="{Binding Session.SecurityLevel, Converter={StaticResource HexConverter}, ConverterParameter=2, UpdateSourceTrigger=PropertyChanged}" Width="40" Margin="0,0,4,0"/>
                     <Button Content="SecurityAccess"
                             Command="{Binding Session.SecurityAccessCommand}"
-                            Padding="6,2" Margin="0,0,12,0"/>
+                            Padding="6,2" Margin="0,0,12,0"
+                            Visibility="{Binding IsOnlineTab, Converter={StaticResource BoolToVis}}"/>
                 </StackPanel>
                 <TextBlock Text="{Binding Session.CurrentSession, StringFormat='会话：{0}'}"
                            VerticalAlignment="Center" Margin="0,0,12,0"/>
@@ -69,7 +76,8 @@
         <!-- 通信参数 (只读): 诊断栈 + Flash 副栈当前生效的时序参数及其来源.
              Params 面板 500ms 轮询; 向后兼容 ctor 下为 Disabled 实例 (全部显示 —). -->
         <Expander DockPanel.Dock="Top" Header="通信参数"
-                  IsExpanded="False" Padding="8,4" Background="{StaticResource SurfaceSubtle}">
+                  IsExpanded="False" Padding="8,4" Background="{StaticResource SurfaceSubtle}"
+                  Visibility="{Binding IsOnlineTab, Converter={StaticResource BoolToVis}}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -103,7 +111,8 @@
         </Expander>
 
         <!-- Bottom: Output Log -->
-        <Border DockPanel.Dock="Bottom" Padding="8" Background="{StaticResource ConsoleBg}">
+        <Border DockPanel.Dock="Bottom" Padding="8" Background="{StaticResource ConsoleBg}"
+                Visibility="{Binding IsOnlineTab, Converter={StaticResource BoolToVis}}">
             <DockPanel>
                 <Button DockPanel.Dock="Top" Content="清空" HorizontalAlignment="Right"
                         Command="{Binding ClearOutputCommand}" Margin="0,0,0,4"/>
@@ -118,8 +127,8 @@
             </DockPanel>
         </Border>
 
-        <!-- Middle: TabControl (DIDs / Routines / DTCs) -->
-        <TabControl>
+        <!-- Middle: TabControl (DIDs / Routines / DTCs / Flashing / 日志分析) -->
+        <TabControl SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
             <TabItem Header="DID"
                      IsEnabled="{Binding IsDiagnosticsEnabled}">
                 <Grid>
@@ -741,6 +750,11 @@
                         </ScrollViewer>
                     </Grid>
                 </DockPanel>
+            </TabItem>
+
+            <!-- 离线日志分析页签：只读解析 ASC/BLF，不接触硬件；在线控件在选中本页时隐藏。 -->
+            <TabItem Header="日志分析">
+                <views:UdsLogAnalysisView DataContext="{Binding LogAnalysis}"/>
             </TabItem>
         </TabControl>
     </DockPanel>
