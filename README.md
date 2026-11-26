@@ -6,13 +6,15 @@ Windows 专用 WPF 桌面主机，适配 **PEAK PCAN-USB FD / Pro FD** 与 **ZLG
 通用 CAN 总线监控工具，支持 DBC 解码、手动/循环/多帧发送、实时信号视图、
 ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
 
-> **状态:** v3.68.0。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
+> **状态:** v3.69.0。双厂商 CAN 驱动（PEAK + ZLG）、Trace 查看器 + AI 聊天/推理、
 > UDS 诊断栈 + Flash Pipeline、脚本引擎、HIL 测试执行（单/多通道）、
-> 多通道录制与回放、报告侧 per-channel DBC 解码、**网络管理（NM）分析**、**DBC 字节位图**。
-> **3732 个单元测试通过、11 跳过**（Core 1132 / Infrastructure 716 / App 1465 / Cli 73 /
-> Mobile.Core 275 / Security 48 / PromptCacheProbe 23，2026-09-15 全量基线）；
+> 多通道录制与回放、报告侧 per-channel DBC 解码、**网络管理（NM）分析**、**DBC 字节位图**、
+> **UDS 通讯参数可配置**、**离线日志分析**。
+> **6296 个单元测试通过、11 跳过**（Core 2498 / Infrastructure 730 / App 2640 / Cli 82 /
+> Mobile.Core 275 / Security 48 / PromptCacheProbe 23，2026-11-26 全量）；
 > NM M1 定向测试 Core 190 / App 225 通过（2026-11-20）；
 > DBC 字节位图定向测试 Core 21 / App 87 通过（2026-11-26）；
+> UDS 通讯参数与离线分析定向测试 Core 406 / App 474 通过（2026-11-26）；
 > 依赖 **PeakCan.HIL.Core 0.23.1**（控制流/参数化/多通道模型 + DBC NM 属性；sibling 仓库存在时走 ProjectReference，
 > 否则 NuGet 包，host / studio 双侧 pin 已对齐）；NetArchTest 强制执行架构规则；
 > 每次推送 `main` 自动运行 CI。
@@ -67,6 +69,13 @@ ASC/BLF 回放、UDS 诊断与 Flash 编程、HIL 测试执行。
 - **Flash Pipeline** — 闪烁配置（profiles + 步骤编排）+ 二次引导栈；UDS 日志控制台。
 - **ODX 导入（v3.50.0+）** — `OdxImportService` 解析 ODX 数据，自动填充
   SecurityAccess 参数（🔗 ODX 标记自动 vs 手动配置）。
+- **通讯参数可配置（v3.69.0）** — 诊断 CAN ID、扩展帧、P2 / P2* / N_Bs / N_Cr 可在界面编辑，
+  「应用」后运行时立即生效（无需重启），并落盘到用户 AppData 下的 `PeakCan.Host/uds-transport.json`
+  跨重启记忆。时序来源三态标注（ECU 0x10 协商 / 用户配置 / 本地默认）。
+  有诊断请求或多帧传输在途时拒绝重配并提示稍后重试。
+- **离线日志分析（v3.69.0）** — 加载 ASC/BLF，按 ISO-TP 重组、配对 UDS 事务、结合 ODX
+  定义生成不可变报告；噪声统计、Markdown/CSV 导出（脱敏）、交接给 AI 聊天继续分析。
+  地址输入框继承在线配置，不必每次手敲。
 
 ### HIL 测试执行
 
