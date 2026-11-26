@@ -22,6 +22,16 @@ public sealed class UdsOfflineAiPromptBuilderTests
     }
 
     [Fact]
+    public void Prompt_carries_engine_version_and_unknown_service_flag()
+    {
+        var report = UdsOfflineFixtures.ReportWithUnknownService();
+        var payload = UdsOfflineAiPromptBuilder.Build(report, report.Transactions[0]);
+
+        payload.Prompt.Should().Contain("test-engine");
+        payload.Prompt.Should().Contain("未知服务");
+    }
+
+    [Fact]
     public void Prompt_without_transaction_still_carries_report_counts()
     {
         var report = UdsOfflineFixtures.ReportNoOdx();

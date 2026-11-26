@@ -35,25 +35,30 @@ public sealed class UdsServiceInterpreter
 
         var req = transaction.Request.Payload;
         var sid = req.Length == 0 ? (byte)0 : req[0];
-        var display = Services.TryGetValue(sid, out var name) ? name : $"SID 0x{sid:X2}";
+        var known = Services.TryGetValue(sid, out var name);
+        var display = known ? name! : $"SID 0x{sid:X2}";
 
         if (transaction.FinalKind == UdsFinalKind.Negative)
-            return new(display, null, null, null, null,
-                transaction.FinalNrc is { } nrc ? $"NRC 0x{nrc:X2}" : null);
+            return Tag(new(display, null, null, null, null,
+                transaction.FinalNrc is { } nrc ? $"NRC 0x{nrc:X2}" : null), known);
 
         if (sid == 0x22 && transaction.FinalKind == UdsFinalKind.Positive && transaction.Responses.Count > 0)
-            return InterpretDid(transaction, diagnostics, display);
+            return Tag(InterpretDid(transaction, diagnostics, display), known);
 
         if (sid == 0x31 && transaction.FinalKind == UdsFinalKind.Positive && req.Length >= 4)
         {
             var routineId = (ushort)((req[2] << 8) | req[3]);
             var routine = diagnostics.Routines.FirstOrDefault(r => r.Id == routineId);
-            return new(display, null, routine?.Name, null, null,
-                routine is null ? $"例程 0x{routineId:X4} 无定义" : null);
+            return Tag(new(display, null, routine?.Name, null, null,
+                routine is null ? $"例程 0x{routineId:X4} 无定义" : null), known);
         }
 
-        return new(display, null, null, null, null, null);
+        return Tag(new(display, null, null, null, null, null), known);
     }
+
+    /// <summary>未知 SID 只打标记，不改变服务显示与其余解释结果（D17）。</summary>
+    private static UdsInterpretation Tag(UdsInterpretation value, bool known)
+        => known ? value : value with { IsUnknownService = true };
 
     private static UdsInterpretation InterpretDid(
         UdsOfflineTransaction transaction, UdsOfflineDiagnostics diagnostics, string display)

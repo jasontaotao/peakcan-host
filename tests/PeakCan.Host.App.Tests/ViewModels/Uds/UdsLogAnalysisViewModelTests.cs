@@ -200,10 +200,40 @@ public sealed class UdsLogAnalysisViewModelTests
         vm.IsBusy.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task Status_distinguishes_reading_the_file_from_analyzing()
+    {
+        var loader = new StagedLoader();
+        var vm = Vm(loader);
+        vm.FilePath = "slow.asc";
+
+        var run = vm.AnalyzeAsync();
+        await loader.Started;
+        vm.Status.Should().Contain("读取文件");
+
+        loader.ReleaseSlow();
+        await run;
+    }
+
+    [Fact]
+    public async Task Unclosed_transaction_shows_an_explicit_conclusion()
+    {
+        // 只有请求、没有响应：必须说明“未闭合”，而不是留一个 None。
+        var vm = Vm(new FakeLoader(new[] { Frame(0x7E0, 0x02, 0x10, 0x03) }));
+        vm.FilePath = "fake.asc";
+        await vm.AnalyzeAsync();
+        vm.SelectedTransaction = vm.Report!.Transactions.Single();
+
+        vm.SelectedConclusion.Should().Contain("未闭合");
+    }
+
     private sealed class StagedLoader : IUdsOfflineTraceLoader
     {
         private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _first = true;
+
+        public Task Started => _started.Task;
 
         public void ReleaseSlow() => _gate.TrySetResult();
 
@@ -211,6 +241,7 @@ public sealed class UdsLogAnalysisViewModelTests
         {
             if (!_first) return new UdsOfflineTraceLoadResult(ThreeFrameLog(), "ASC");
             _first = false;
+            _started.TrySetResult();
             await _gate.Task;
             return new UdsOfflineTraceLoadResult(ThreeFrameLog(), "ASC");
         }

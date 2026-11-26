@@ -73,10 +73,12 @@
                     <DataGridTextColumn Header="重复最终响应" Binding="{Binding HasDuplicateFinalResponse}"/>
                     <DataGridTextColumn Header="DID" Binding="{Binding Interpretation.DidName}"/>
                     <DataGridTextColumn Header="降级" Binding="{Binding Interpretation.DegradeReason}"/>
+                    <DataGridTextColumn Header="未知服务" Binding="{Binding Interpretation.IsUnknownService}"/>
                 </DataGrid.Columns>
             </DataGrid>
 
-            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+            <ScrollViewer Grid.Column="1" Margin="8,0,0,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
                 <TextBlock Text="计数（闭合等式）" FontWeight="SemiBold" Margin="0,0,0,4"/>
                 <TextBlock Text="{Binding Report.Counts.Input, StringFormat='输入帧 {0}'}"/>
                 <TextBlock Text="{Binding Report.Counts.MatchedDiagnostic, StringFormat='匹配诊断 {0}'}"/>
@@ -95,6 +97,9 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <TextBlock Text="聚合已截断（Top-N 不是全部 ID）"
+                           Foreground="{StaticResource WarnText}"
+                           Visibility="{Binding Noise.AggregationTruncated, Converter={StaticResource BoolToVis}}"/>
 
                 <TextBlock Text="无法成帧原因" FontWeight="SemiBold" Margin="0,8,0,4"/>
                 <ItemsControl ItemsSource="{Binding Noise.Reasons}">
@@ -111,8 +116,11 @@
                 <TextBlock Text="响应校验失败 / 重复最终响应" Margin="0,8,0,0"/>
                 <TextBlock Text="{Binding Noise.ResponseValidationFailed}"/>
                 <TextBlock Text="{Binding Noise.DuplicateFinalResponses}"/>
+                <TextBlock Text="{Binding Report.OrphanResponses.Count, StringFormat='孤立响应 {0}'}"/>
 
                 <TextBlock Text="选中事务解释" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                <TextBlock Text="{Binding SelectedConclusion}" TextWrapping="Wrap"
+                           Foreground="{StaticResource WarnText}"/>
                 <TextBlock Text="{Binding SelectedTransaction.Interpretation.DidName, StringFormat='DID：{0}'}"
                            TextWrapping="Wrap"/>
                 <TextBlock Text="{Binding SelectedTransaction.Interpretation.DecodedValue, StringFormat='解码值：{0}'}"
@@ -131,6 +139,7 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
             </StackPanel>
+            </ScrollViewer>
         </Grid>
     </DockPanel>
 </UserControl>

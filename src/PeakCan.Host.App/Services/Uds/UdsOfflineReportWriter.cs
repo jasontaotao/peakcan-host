@@ -94,9 +94,11 @@ public static class UdsOfflineReportWriter
             sb.AppendLine(CultureInfo.InvariantCulture,
                 $"- final={t.FinalKind} pending={t.PendingCount} nrc={(t.FinalNrc is { } n ? $"0x{n:X2}" : "—")} " +
                 $"first_ms={FormatMs(t.FirstResponseMs)} total_ms={FormatMs(t.TotalMs)} timing={t.TimingSource}");
-            if (t.IsAmbiguous || t.HasDuplicateFinalResponse || t.ExceedsP2)
+            if (t.IsAmbiguous || t.HasDuplicateFinalResponse || t.ExceedsP2
+                || t.Interpretation?.IsUnknownService == true)
                 sb.AppendLine(CultureInfo.InvariantCulture,
-                    $"- 标记：歧义={(t.IsAmbiguous ? "是" : "否")} 重复最终响应={(t.HasDuplicateFinalResponse ? "是" : "否")} P2超限={(t.ExceedsP2 ? "是" : "否")}");
+                    $"- 标记：歧义={(t.IsAmbiguous ? "是" : "否")} 重复最终响应={(t.HasDuplicateFinalResponse ? "是" : "否")} " +
+                    $"P2超限={(t.ExceedsP2 ? "是" : "否")} 未知服务={(t.Interpretation?.IsUnknownService == true ? "是" : "否")}");
             sb.AppendLine(redact ? $"- 请求数据：{MaskedText}" : $"- 请求数据：{Hex(t.Request.Payload)}");
             foreach (var response in t.Responses)
                 sb.AppendLine(redact ? $"- 响应数据：{MaskedText}" : $"- 响应数据：{Hex(response.Payload)}");
@@ -134,6 +136,7 @@ public static class UdsOfflineReportWriter
 
         var sb = new StringBuilder();
         sb.AppendLine(CultureInfo.InvariantCulture, $"# report_id={report.ReportId}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# engine={report.EngineVersion}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"# source={(redact ? MaskedText : report.SourcePath)}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"# redacted={redact.ToString().ToLowerInvariant()}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"# input_frames={report.Counts.Input}");
@@ -152,7 +155,7 @@ public static class UdsOfflineReportWriter
         }
         foreach (var reason in report.Noise.Reasons)
             sb.AppendLine(CultureInfo.InvariantCulture, $"# noise_reason_{reason.Reason}={reason.Count}");
-        sb.AppendLine("transaction_index,service,final_kind,pending_count,nrc,first_ms,total_ms,first_evidence,last_evidence,ambiguous,duplicate_final,p2_exceeded");
+        sb.AppendLine("transaction_index,service,final_kind,pending_count,nrc,first_ms,total_ms,first_evidence,last_evidence,ambiguous,duplicate_final,p2_exceeded,unknown_service");
         for (var i = 0; i < report.Transactions.Count; i++)
         {
             var t = report.Transactions[i];
@@ -163,7 +166,8 @@ public static class UdsOfflineReportWriter
                 $"{FormatMs(t.FirstResponseMs)},{FormatMs(t.TotalMs)}," +
                 $"{(evidence.Count > 0 ? evidence[0] : -1)},{(evidence.Count > 0 ? evidence[^1] : -1)}," +
                 $"{t.IsAmbiguous.ToString().ToLowerInvariant()},{t.HasDuplicateFinalResponse.ToString().ToLowerInvariant()}," +
-                $"{t.ExceedsP2.ToString().ToLowerInvariant()}");
+                $"{t.ExceedsP2.ToString().ToLowerInvariant()}," +
+                $"{(t.Interpretation?.IsUnknownService == true).ToString().ToLowerInvariant()}");
         }
         return sb.ToString();
     }

@@ -70,6 +70,14 @@ public sealed class UdsServiceInterpreterTests
     {
         var i = new UdsServiceInterpreter().Interpret(RequestOnly(0xF0), Diag());
         i.ServiceDisplay.Should().Be("SID 0xF0");
+        i.IsUnknownService.Should().BeTrue("D17：未知 SID 要标记 UnknownService 而不是丢弃");
+    }
+
+    [Fact]
+    public void Known_sid_is_not_flagged_as_unknown_service()
+    {
+        var i = new UdsServiceInterpreter().Interpret(RequestOnly(0x3E), Diag());
+        i.IsUnknownService.Should().BeFalse();
     }
 
     [Fact]

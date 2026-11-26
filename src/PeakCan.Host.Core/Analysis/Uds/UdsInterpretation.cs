@@ -11,4 +11,11 @@ public sealed record UdsInterpretation(
     string? RoutineName,
     string? DecodedValue,
     UdsDegradeReason? DegradeReason,
-    string? DegradeDetail);
+    string? DegradeDetail)
+{
+    /// <summary>
+    /// 请求 SID 不在已知服务表内（D17）：事务照常建立并标记，
+    /// 不能因为服务表不全就把真实 OEM 服务丢掉。
+    /// </summary>
+    public bool IsUnknownService { get; init; }
+}

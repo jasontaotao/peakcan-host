@@ -67,6 +67,16 @@ public sealed class UdsOfflineReportWriterTests
     }
 
     [Fact]
+    public void Markdown_marks_unknown_service_and_csv_carries_engine_version()
+    {
+        var md = UdsOfflineReportWriter.WriteMarkdown(UdsOfflineFixtures.ReportWithUnknownService(), redact: false);
+        md.Should().Contain("未知服务=是");
+
+        var csv = UdsOfflineReportWriter.WriteCsv(UdsOfflineFixtures.Report(), redact: false);
+        csv.Should().Contain("# engine=test-engine", "§16 #15 要求导出携带 EngineVersion");
+    }
+
+    [Fact]
     public void Csv_marks_whether_the_export_was_redacted()
     {
         var text = UdsOfflineReportWriter.WriteCsv(UdsOfflineFixtures.Report(), redact: true);

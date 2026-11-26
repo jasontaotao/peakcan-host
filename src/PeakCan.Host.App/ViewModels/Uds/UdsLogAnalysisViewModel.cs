@@ -101,6 +101,17 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
 
     public bool IsFilterEmpty => FilterEmptyHint is not null;
 
+    /// <summary>选中事务的结论状态：把 NRC / 未闭合 / 归属歧义说清楚，不只靠 FinalKind 枚举名。</summary>
+    public string? SelectedConclusion => SelectedTransaction switch
+    {
+        null => null,
+        { HasDuplicateFinalResponse: true } => "归属歧义：收到重复最终响应，不判确定成功",
+        { IsAmbiguous: true } => "归属歧义：同 SID 请求重叠，配对仅供参考",
+        { FinalKind: UdsFinalKind.None } => "未闭合：日志结束前未收到通过校验的响应",
+        { FinalKind: UdsFinalKind.Negative } t => $"最终 NRC 0x{t.FinalNrc:X2}",
+        _ => null,
+    };
+
     [RelayCommand]
     private async Task OpenLogAsync()
     {
@@ -149,7 +160,10 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         {
             var path = FilePath;
             var address = ParseAddress();
+            Status = "读取文件中…";
             var frames = await _loader.LoadAsync(path, cts.Token).ConfigureAwait(true);
+            if (generation != _analysisGeneration) return;
+            Status = "分析中…";
             var request = new UdsOfflineAnalysisRequest(
                 Guid.NewGuid(),
                 Path.GetFileName(path),
@@ -261,7 +275,11 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
 
     partial void OnFilterTextChanged(string value) => RefreshVisible();
 
-    partial void OnSelectedTransactionChanged(UdsOfflineTransaction? value) => RefreshSelectedEvidence();
+    partial void OnSelectedTransactionChanged(UdsOfflineTransaction? value)
+    {
+        RefreshSelectedEvidence();
+        OnPropertyChanged(nameof(SelectedConclusion));
+    }
 
     private void RefreshSelectedEvidence()
     {

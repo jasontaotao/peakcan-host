@@ -36,6 +36,22 @@ internal static class UdsOfflineFixtures
             isPartial: false,
             partialReason: null);
 
+    /// <summary>未知 SID 事务（UnknownService 标记）。</summary>
+    public static UdsOfflineReport ReportWithUnknownService()
+        => Build(
+            transactions: new[]
+            {
+                ReadDidTransaction() with
+                {
+                    Interpretation = new UdsInterpretation("SID 0xF0", null, null, null, null, null)
+                    {
+                        IsUnknownService = true,
+                    },
+                },
+            },
+            isPartial: false,
+            partialReason: null);
+
     public static UdsOfflineReport PartialReport()
         => Build(
             transactions: Array.Empty<UdsOfflineTransaction>(),

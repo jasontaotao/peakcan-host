@@ -70,8 +70,9 @@ public sealed class UdsLogAnalysisViewLayoutTests
     public void Analysis_view_shows_interpretation_degradation_counts_and_odx_state()
     {
         var doc = LoadXaml("src", "PeakCan.Host.App", "Views", "UdsLogAnalysisView.xaml");
+        var attributes = new[] { "Text", "Binding", "ItemsSource", "Visibility" };
         var bindings = doc.Descendants()
-            .Select(e => (string?)e.Attribute("Text") ?? (string?)e.Attribute("Binding") ?? (string?)e.Attribute("ItemsSource"))
+            .SelectMany(e => attributes.Select(a => (string?)e.Attribute(a)))
             .Where(v => v != null)
             .ToList();
 
@@ -81,5 +82,9 @@ public sealed class UdsLogAnalysisViewLayoutTests
         bindings.Should().Contain(b => b!.Contains("Noise.TopIds") || b!.Contains("Noise.Reasons"));
         bindings.Should().Contain(b => b!.Contains("IsOdxLoaded"));
         bindings.Should().Contain(b => b!.Contains("FilterEmptyHint"));
+        bindings.Should().Contain(b => b!.Contains("Interpretation.IsUnknownService"));
+        bindings.Should().Contain(b => b!.Contains("OrphanResponses.Count"));
+        bindings.Should().Contain(b => b!.Contains("Noise.AggregationTruncated"));
+        bindings.Should().Contain(b => b!.Contains("SelectedConclusion"));
     }
 }

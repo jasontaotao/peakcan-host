@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Globalization;
 using System.Text;
 using PeakCan.Host.Core.Analysis.Uds;
@@ -21,15 +22,25 @@ public static class UdsOfflineAiPromptBuilder
         var sb = new StringBuilder();
         sb.AppendLine("请基于以下 UDS 离线分析报告解读选定事务。");
         sb.AppendLine(CultureInfo.InvariantCulture, $"report_id: {report.ReportId}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"engine: {report.EngineVersion}");
         sb.AppendLine(CultureInfo.InvariantCulture,
             $"地址: ch{report.Address.Channel} 0x{report.Address.RequestId:X3} → 0x{report.Address.ResponseId:X3} ext={report.Address.IsExtended}");
         sb.AppendLine(CultureInfo.InvariantCulture,
             $"输入帧 {report.Counts.Input} / 匹配诊断 {report.Counts.MatchedDiagnostic} / 非诊断 {report.Counts.NonDiagnostic} / 噪声 {report.Counts.Noise} / 未支持 {report.Counts.UnsupportedInput}");
         sb.AppendLine(CultureInfo.InvariantCulture,
             $"响应校验失败 {report.Noise.ResponseValidationFailed}；重复最终响应 {report.Noise.DuplicateFinalResponses}");
+        if (report.Noise.TopIds.Count > 0)
+            sb.AppendLine(
+                "非诊断 Top-N CAN ID: " + string.Join("; ", report.Noise.TopIds.Select(
+                    n => $"0x{n.Id:X3}{(n.IsExtended ? "(29bit)" : "")}×{n.Count}")));
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"定义来源: {(report.Diagnostics.OdxLoaded ? "ODX" : "未加载 ODX")}；" +
+            $"DID JSON={report.Diagnostics.DidUserJsonStatus}，例程 JSON={report.Diagnostics.RoutineUserJsonStatus}");
         sb.AppendLine(report.Diagnostics.OdxLoaded
             ? "ODX 已加载。"
             : "未加载 ODX：DID/例程按原始值显示，不要解释为异常。");
+        if (report.Transactions.Any(t => t.Interpretation?.IsUnknownService == true))
+            sb.AppendLine("存在未知服务事务（服务表未覆盖的 SID），已标记为未知服务，不代表异常。");
         if (report.IsPartial)
             sb.AppendLine(CultureInfo.InvariantCulture, $"报告不完整：{report.PartialReason ?? "原因未记录"}");
 
