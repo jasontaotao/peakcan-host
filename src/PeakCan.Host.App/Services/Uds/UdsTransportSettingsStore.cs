@@ -163,9 +163,11 @@ public sealed partial class UdsTransportSettingsStore
         {
             File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
 
-            // 并发 Move 到同一目标时，Windows 上偶发 IOException（目标正被另一线程
-            // 替换）。内容等价，重试即可——不重试会让「另一个实例刚好也在保存」
-            // 变成一次可见的保存失败。
+            // 并发 Move 到同一目标时 Windows 会拒绝（目标正被另一线程替换）。
+            // 实测抛的是 **UnauthorizedAccessException**（"Access to the path is
+            // denied"），不是 IOException——只 catch IOException 会让「另一个实例
+            // 刚好也在保存」变成一次可见的保存失败。
+            // 两次写入内容等价，重试即可。
             for (var attempt = 0; ; attempt++)
             {
                 try
@@ -173,9 +175,10 @@ public sealed partial class UdsTransportSettingsStore
                     File.Move(tmp, _path, overwrite: true);
                     break;
                 }
-                catch (IOException) when (attempt < 4)
+                catch (Exception ex) when (
+                    (ex is IOException or UnauthorizedAccessException) && attempt < 6)
                 {
-                    Thread.Sleep(10);
+                    Thread.Sleep(5);
                 }
             }
         }
