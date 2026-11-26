@@ -23,6 +23,12 @@ public sealed partial class DidDatabase
     /// <summary>All known DIDs (built-in + user), with user overrides applied.</summary>
     public IReadOnlyList<DidDefinition> All { get; private set; }
 
+    /// <summary>
+    /// Outcome of the user-JSON load at construction time. Offline reports
+    /// surface this instead of assuming "definition missing" means "no ODX".
+    /// </summary>
+    public UserJsonLoadStatus UserJsonLoadStatus { get; private set; }
+
     /// <summary>Create a database reading from the default user-JSON path.</summary>
     public DidDatabase(ILogger<DidDatabase>? logger = null)
         : this(DidDatabaseDefaults.DefaultJsonPath, logger, PathOptions.Default) { }
@@ -106,12 +112,14 @@ public sealed partial class DidDatabase
         {
             if (string.IsNullOrEmpty(path))
             {
+                UserJsonLoadStatus = UserJsonLoadStatus.NotConfigured;
                 LogNoPathConfigured(l);
                 return null;
             }
 
             if (!File.Exists(path))
             {
+                UserJsonLoadStatus = UserJsonLoadStatus.Missing;
                 LogFileMissing(l, path);
                 return null;
             }
@@ -120,23 +128,33 @@ public sealed partial class DidDatabase
             {
                 var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [.. _options.AllowedRoots]));
                 var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
+                UserJsonLoadStatus = UserJsonLoadStatus.Loaded;
                 return dto?.Dids;
             }
             catch (JsonException ex)
             {
+                UserJsonLoadStatus = UserJsonLoadStatus.Failed;
                 LogMalformedJson(l, ex, path);
                 return null;
             }
             catch (IOException ex)
             {
+                UserJsonLoadStatus = UserJsonLoadStatus.Failed;
                 LogIoError(l, ex, path);
                 return null;
             }
         }
 
         // No logger: still execute the file-IO logic, but skip log calls.
-        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        if (string.IsNullOrEmpty(path))
         {
+            UserJsonLoadStatus = UserJsonLoadStatus.NotConfigured;
+            return null;
+        }
+
+        if (!File.Exists(path))
+        {
+            UserJsonLoadStatus = UserJsonLoadStatus.Missing;
             return null;
         }
 
@@ -144,14 +162,17 @@ public sealed partial class DidDatabase
         {
             var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [.. _options.AllowedRoots]));
             var dto = JsonSerializer.Deserialize<DidFileDto>(json, JsonOpts);
+            UserJsonLoadStatus = UserJsonLoadStatus.Loaded;
             return dto?.Dids;
         }
         catch (JsonException)
         {
+            UserJsonLoadStatus = UserJsonLoadStatus.Failed;
             return null;
         }
         catch (IOException)
         {
+            UserJsonLoadStatus = UserJsonLoadStatus.Failed;
             return null;
         }
     }

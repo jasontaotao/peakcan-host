@@ -28,6 +28,14 @@ public sealed partial class OdxImportViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>
+    /// 是否至少发生过一次成功的 ODX 导入。离线分析用它判断当前 DID/例程定义
+    /// 是否来自 ODX（导入失败时 <c>OdxImportService</c> 不清库，所以这里的
+    /// 值始终与库内容一致）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasSuccessfulImport;
+
     [ObservableProperty]
     private string? _lastStatus;
 
@@ -64,6 +72,9 @@ public sealed partial class OdxImportViewModel : ObservableObject, IDisposable
             // its last CT check).
             if (!_importCts.IsCancellationRequested)
             {
+                if (!result.HasError)
+                    HasSuccessfulImport = true;
+
                 LastStatus = result.HasError
                     ? $"ODX 加载失败：{result.ErrorCode} — {result.ErrorMessage}"
                     : $"ODX 加载完成：{result.DidCount} 个 DID / {result.RoutineCount} 个例程 / {result.DtcCount} 个 DTC（{odxPath}）";

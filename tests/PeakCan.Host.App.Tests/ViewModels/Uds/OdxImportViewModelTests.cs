@@ -91,6 +91,39 @@ public class OdxImportViewModelTests
         await importTask;
     }
 
+    // ---------- 离线分析的 ODX 来源标记 ----------
+
+    /// <summary>
+    /// 离线报告需要知道“定义是否来自成功导入的 ODX”。导入成功置位，
+    /// 失败不得置位（否则报告会把内置 DID 当成 ODX 解释结果）。
+    /// </summary>
+    [Fact]
+    public async Task Successful_import_sets_HasSuccessfulImport()
+    {
+        var vm = new OdxImportViewModel(new StubOdxImportService());
+
+        await vm.ImportAsync("x.odx");
+
+        vm.HasSuccessfulImport.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Failed_import_does_not_set_HasSuccessfulImport()
+    {
+        var vm = new OdxImportViewModel(new FailingOdxImportService());
+
+        await vm.ImportAsync("x.odx");
+
+        vm.HasSuccessfulImport.Should().BeFalse();
+    }
+
+    private sealed class FailingOdxImportService : IOdxImportService
+    {
+        public Task<OdxImportResult> ImportAsync(
+            string odxPath, CancellationToken ct = default)
+            => Task.FromResult(OdxImportResult.Failed(OdxErrorCode.ParseError, "bad"));
+    }
+
     private sealed class StubOdxImportService : IOdxImportService
     {
         public Task<OdxImportResult> ImportAsync(

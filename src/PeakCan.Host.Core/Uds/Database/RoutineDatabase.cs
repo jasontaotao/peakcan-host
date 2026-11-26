@@ -21,6 +21,12 @@ public sealed partial class RoutineDatabase
     /// <summary>All known routines. Empty if no user file is present.</summary>
     public IReadOnlyList<RoutineDefinition> All { get; private set; }
 
+    /// <summary>
+    /// Outcome of the user-JSON load at construction time. Mirrors
+    /// <see cref="DidDatabase.UserJsonLoadStatus"/>.
+    /// </summary>
+    public UserJsonLoadStatus UserJsonLoadStatus { get; private set; }
+
     /// <summary>Create a database reading from the default user-JSON path.</summary>
     public RoutineDatabase(ILogger<RoutineDatabase>? logger = null)
         : this(RoutineDatabaseDefaults.DefaultJsonPath, logger, PathOptions.Default) { }
@@ -91,12 +97,14 @@ public sealed partial class RoutineDatabase
         {
             if (string.IsNullOrEmpty(path))
             {
+                UserJsonLoadStatus = UserJsonLoadStatus.NotConfigured;
                 LogNoPathConfigured(l);
                 return new List<RoutineDefinition>();
             }
 
             if (!File.Exists(path))
             {
+                UserJsonLoadStatus = UserJsonLoadStatus.Missing;
                 LogFileMissing(l, path);
                 return new List<RoutineDefinition>();
             }
@@ -105,23 +113,33 @@ public sealed partial class RoutineDatabase
             {
                 var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [.. _options.AllowedRoots]));
                 var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
+                UserJsonLoadStatus = UserJsonLoadStatus.Loaded;
                 return dto?.Routines ?? new List<RoutineDefinition>();
             }
             catch (JsonException ex)
             {
+                UserJsonLoadStatus = UserJsonLoadStatus.Failed;
                 LogMalformedJson(l, ex, path);
                 return new List<RoutineDefinition>();
             }
             catch (IOException ex)
             {
+                UserJsonLoadStatus = UserJsonLoadStatus.Failed;
                 LogIoError(l, ex, path);
                 return new List<RoutineDefinition>();
             }
         }
 
         // No logger: still execute the file-IO logic, but skip log calls.
-        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        if (string.IsNullOrEmpty(path))
         {
+            UserJsonLoadStatus = UserJsonLoadStatus.NotConfigured;
+            return new List<RoutineDefinition>();
+        }
+
+        if (!File.Exists(path))
+        {
+            UserJsonLoadStatus = UserJsonLoadStatus.Missing;
             return new List<RoutineDefinition>();
         }
 
@@ -129,14 +147,17 @@ public sealed partial class RoutineDatabase
         {
             var json = File.ReadAllText(PathNormalizer.NormalizeRestricted(path, [.. _options.AllowedRoots]));
             var dto = JsonSerializer.Deserialize<RoutineFileDto>(json, JsonOpts);
+            UserJsonLoadStatus = UserJsonLoadStatus.Loaded;
             return dto?.Routines ?? new List<RoutineDefinition>();
         }
         catch (JsonException)
         {
+            UserJsonLoadStatus = UserJsonLoadStatus.Failed;
             return new List<RoutineDefinition>();
         }
         catch (IOException)
         {
+            UserJsonLoadStatus = UserJsonLoadStatus.Failed;
             return new List<RoutineDefinition>();
         }
     }
