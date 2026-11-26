@@ -404,4 +404,63 @@ public class DbcDecodeBackgroundServiceTests
             await svc.StopAsync(CancellationToken.None);
         }
     }
+
+    private static DbcDocument DocWithOneSignalAtExtendedId()
+    {
+        var sig = new Signal(
+            Name: "S1", StartBit: 0, Length: 8,
+            Order: ByteOrder.LittleEndian,
+            ValueType: DbcValueType.Unsigned,
+            Factor: 1.0, Offset: 0.0,
+            Min: 0, Max: 255, Unit: "u", Receivers: Array.Empty<string>());
+        var msg = new Message(
+            Id: 0x80001000, Name: "M1", Dlc: 8, Sender: "n1",
+            Signals: new[] { sig },
+            IsMultiplexed: false, MultiplexorSignalIndex: null);
+        var dict = new Dictionary<uint, Message> { [0x80001000] = msg };
+        return new DbcDocument(
+            Version: "",
+            Nodes: Array.Empty<Node>(),
+            Messages: new[] { msg },
+            MessagesById: dict,
+            ValueTables: new Dictionary<string, ValueTable>());
+    }
+
+    [Fact]
+    public async Task Extended_Frame_Is_Cached_Under_Merged_Ide_Id()
+    {
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        dbc.SetCurrentForTests(DocWithOneSignalAtExtendedId());
+        var slot = new LiveFrameSlot();
+        slot.SetTarget(0x80001000);
+        var svc = new DbcDecodeBackgroundService(
+            dbc, new SignalViewModel(), new TraceViewModel(), slot,
+            NullLogger<DbcDecodeBackgroundService>.Instance);
+
+        using var startCts = new System.Threading.CancellationTokenSource();
+        await svc.StartAsync(startCts.Token);
+        try
+        {
+            var frame = new CanFrame(
+                new CanId(0x1000, FrameFormat.Extended),
+                new byte[] { 0x7E },
+                FrameFlags.None,
+                new ChannelId(0x51),
+                Timestamp.FromMicroseconds(0));
+            svc.OnFrame(frame);
+
+            LiveFramePayload payload = default;
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!slot.TryRead(0x80001000, out payload) && DateTime.UtcNow < deadline)
+                await Task.Delay(20);
+
+            slot.TryRead(0x80001000, out payload).Should()
+                .BeTrue("扩展帧必须按合并 IDE 位后的消息 ID 进单槽");
+            payload.Data.Span.ToArray().Should().Equal(new byte[] { 0x7E });
+        }
+        finally
+        {
+            await svc.StopAsync(CancellationToken.None);
+        }
+    }
 }

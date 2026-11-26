@@ -18,11 +18,10 @@ namespace PeakCan.Host.App.ViewModels;
 /// <b>Event wiring:</b> subscribes to <see cref="DbcService.DbcLoaded"/>
 /// and <see cref="DbcService.LoadFailed"/> in the constructor. The
 /// shell registers the VM as a DI singleton that lives for the whole
-/// app, so the event subscriptions are intentionally NEVER unsubscribed
-/// — a previous <see cref="IDisposable"/> implementation was a latent
-/// footgun (see review Task 15 fix-history). Both <c>DbcService</c> and
-/// <c>DbcViewModel</c> die together at process exit, so GC + finalizer
-/// pass handles cleanup.
+/// app, so the event subscriptions are intentionally NEVER unsubscribed.
+/// The class also implements <see cref="IDisposable"/>, but only to
+/// release the phase-2 live-refresh timer — event wiring still lives
+/// for the process lifetime by design.
 /// </para>
 /// <para>
 /// <b>Dispatcher marshaling:</b> <see cref="DbcService.LoadAsync"/> runs

@@ -134,6 +134,9 @@ public sealed partial class DbcViewModel
         // DispatcherExtensions.cs class doc-comment for the regression.
         ((Action)(() =>
         {
+            // 重载换文档：单槽里的旧帧不能点亮新文档同 ID 消息
+            //（为将来“重载后按 Id+Name 恢复选中”留的正确性保障）。
+            _liveSlot?.Clear();
             // 重载换文档：旧选中行的位图必须立即失效，不能指向旧消息。
             SelectedMessage = null;
             Messages.Clear();

@@ -479,4 +479,84 @@ public class DbcLayoutViewModelTests
         vm.VisibleSignals.Single().LiveValue.Should()
             .Be("—", "信号在声明 DLC 之外，不能因为总线帧更长就显示数值");
     }
+
+    [Fact]
+    public async Task Hiding_The_View_Stops_Refreshes_And_Keeps_Last_Value()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, SimpleMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        slot.Publish(0x100, new byte[] { 0x05 });
+        vm.RefreshLiveLayoutForTest();
+        vm.VisibleSignals.Single().LiveValue.Should().Be("5");
+
+        vm.SetLiveVisible(false);
+        vm.IsLiveTicking.Should().BeFalse("切走标签页后定时器必须停止");
+        slot.Publish(0x100, new byte[] { 0x7F });
+        await Task.Delay(200);   // 6 个 33ms 周期，足够暴露“没停表”
+
+        vm.VisibleSignals.Single().LiveValue.Should()
+            .Be("5", "切走标签页后必须停表，并保留最后显示（不能闪空）");
+    }
+
+    [Fact]
+    public void Showing_The_View_Resumes_Live_Refreshes()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, SimpleMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.SetLiveVisible(false);
+
+        slot.Publish(0x100, new byte[] { 0x05 });
+        vm.SetLiveVisible(true);
+
+        vm.IsLiveTicking.Should().BeTrue("切回标签页后必须重启定时器");
+        vm.VisibleSignals.Single().LiveValue.Should()
+            .Be("5", "切回标签页必须立即按最新帧恢复，而不是等下一次 tick");
+    }
+
+    [Fact]
+    public void Showing_Without_Selection_Is_NoOp()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+
+        vm.SetLiveVisible(false);
+        vm.SetLiveVisible(true);
+
+        vm.LayoutSnapshot.Should().BeNull();
+        vm.IsLiveTicking.Should().BeFalse("没有选中消息时不能启动空转定时器");
+    }
+
+    [Fact]
+    public void Selecting_Starts_And_Deselecting_Stops_The_Live_Timer()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, SimpleMessage());
+
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.IsLiveTicking.Should().BeTrue("选中消息后必须启动 33ms 刷新");
+
+        vm.SelectedMessage = null;
+        vm.IsLiveTicking.Should().BeFalse("取消选中后必须停表");
+    }
+
+    [Fact]
+    public void Reload_While_Hidden_Drops_The_Live_Payload()
+    {
+        var slot = new LiveFrameSlot();
+        using var vm = NewVm(out var svc, slot);
+        RaiseLoaded(svc, SimpleMessage());
+        vm.SelectedMessage = vm.Messages.Single();
+        vm.SetLiveVisible(false);
+        slot.Publish(0x100, new byte[] { 0xFF });
+
+        RaiseLoaded(svc, SimpleMessage());   // 隐藏状态下重载
+
+        slot.TryRead(0x100, out _).Should()
+            .BeFalse("重载后旧文档的帧不能留给新文档同 ID 消息");
+    }
 }

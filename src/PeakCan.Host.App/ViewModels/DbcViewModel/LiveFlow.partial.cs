@@ -26,15 +26,23 @@ public sealed partial class DbcViewModel
 
     private readonly LiveFrameSlot? _liveSlot;
     private readonly System.Threading.Timer? _liveTimer;
+    // 并发边界：_liveGate 只串行化 RefreshLiveLayout 自身，不保护 UpdateLayout 对
+    // LayoutRows / VisibleSignals 的重建。生产环境两者都在 UI 线程，天然串行；
+    // 无 WPF Application 的宿主里 RunOnUiPost 会就地执行，调用方必须先停表再重建集合。
     private readonly object _liveGate = new();
     private long _lastLiveSequence = -1;
     private bool _liveDisposed;
+    private bool _liveVisible = true;
+    private bool _liveTicking;
 
     /// <summary>测试接缝：同步跑一次实时刷新（xunit 没有 WPF 调度器，不能等 Timer）。</summary>
     internal void RefreshLiveLayoutForTest() => RefreshLiveLayout(force: true);
 
     /// <summary>测试接缝：停掉自动 tick，避免测试线程与线程池回调并发改行集合。</summary>
-    internal void StopLiveTimerForTest() => _liveTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+    internal void StopLiveTimerForTest() => StopLiveTimer();
+
+    /// <summary>测试接缝：33ms Timer 是否处于运行状态（选中启动、取消/切走停止）。</summary>
+    internal bool IsLiveTicking => _liveTicking;
 
     /// <summary>组合根测试用：确认 DI 把同一个单槽注入了 VM。</summary>
     internal LiveFrameSlot? LiveSlot => _liveSlot;
@@ -46,8 +54,27 @@ public sealed partial class DbcViewModel
     public void Dispose()
     {
         _liveDisposed = true;
+        _liveTicking = false;
         _liveTimer?.Dispose();
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// 标签页可见性联动：切走停表（保留最后显示，不闪空），切回立即恢复刷新。
+    /// 与选中变化正交；无选中时切回是 no-op。
+    /// </summary>
+    internal void SetLiveVisible(bool visible)
+    {
+        if (_liveDisposed) return;
+        _liveVisible = visible;
+
+        if (!visible)
+        {
+            StopLiveTimer();
+            return;
+        }
+
+        if (SelectedMessage?.RawMessage is not null) SyncLive();
     }
 
     /// <summary>
@@ -60,16 +87,39 @@ public sealed partial class DbcViewModel
 
         if (SelectedMessage?.RawMessage is not { } message)
         {
+            // 无选中：目标必须清空（无论标签页是否可见），否则隐藏期间 worker
+            // 仍会为一条已不存在的选中消息逐帧拷贝。
             _liveSlot.SetTarget(null);
-            _liveTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            StopLiveTimer();
             lock (_liveGate) { _lastLiveSequence = -1; }
             return;
         }
 
+        // 有选中：目标始终跟随选中，保证切回标签页时能立刻用最近一帧刷新。
         _liveSlot.SetTarget(message.Id);
+
+        if (!_liveVisible)
+        {
+            StopLiveTimer();
+            return;
+        }
+
         lock (_liveGate) { _lastLiveSequence = -1; }
         RefreshLiveLayout(force: true);
-        _liveTimer?.Change(LiveRefreshIntervalMs, LiveRefreshIntervalMs);
+        StartLiveTimer();
+    }
+
+    private void StartLiveTimer()
+    {
+        if (_liveTimer is null) return;
+        _liveTicking = true;
+        _liveTimer.Change(LiveRefreshIntervalMs, LiveRefreshIntervalMs);
+    }
+
+    private void StopLiveTimer()
+    {
+        _liveTicking = false;
+        _liveTimer?.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
     private void OnLiveTick() => ((Action)(() => RefreshLiveLayout(force: false))).RunOnUiPost();

@@ -1,7 +1,7 @@
 # DBC 页字节位图（Byte Layout）设计
 
 日期：2026-11-25
-状态：已修订（评审意见已合并；待实施）
+状态：已实施（一期静态布局 + 二期实时点亮已交付；收口期见 2026-11-26 closeout spec）
 Mockup：`docs/dbc-byte-layout-mockup.html`（单文件，双击即开）。视觉/交互参考；规则以本 spec §5 为准，与 mockup 的差异见 §5.7。
 
 ## 1. 背景与目标
@@ -35,7 +35,7 @@ DBC 页（Ctrl+2）当前消息行详情里信号只是一串格式化文本（`
 | `src/PeakCan.Host.Core/Analysis/Dbc/SignalBitLayout.cs`（新增） | 纯函数：输入 `Message` + 当前 mux 值，输出每 bit 格归属 + 每信号色块段 + 诊断。不可变布局快照。**不修改 peakcan-hil-core。** |
 | `DbcMessageViewModel` | 新增 `Message? RawMessage`（携带原始 `Signal` / `Dlc`）；现有 `Signals` 字符串列表与 `Dlc` 字符串**原样保留**（搜索零改动；旧 RowDetails 在步骤 2 仍可用，步骤 3 再替换） |
 | `DbcViewModel` | 新增 `SelectedMessage`、`SelectedMuxValue`、`MuxValues`、`HasMux`、`LayoutSnapshot`、`VisibleSignals`（当前 mux 分支的信号行：原始 `Signal` + `PaletteIndex` + 诊断文本，供信号表绑定）；选中 / mux 变化时重算快照；DBC 重载清空选中；搜索过滤后按 `Id + Name` 尝试恢复选中 |
-| `Views/ByteLayoutView.xaml`（新增控件） | Canvas + Viewbox 渲染快照；hover Popup；照 NM 时间线模式，但 Viewbox 用 `Stretch="Uniform"` |
+| `Views/ByteLayoutView.xaml`（新增控件） | `ItemsControl + UniformGrid` 渲染快照 + Viewbox `Stretch="Uniform"` 等比缩放；hover / 键盘聚焦 Popup |
 | `DbcView.xaml` | DataGrid 增加 `SelectedItem="{Binding SelectedMessage, Mode=TwoWay}"`；RowDetails 换成 `ByteLayoutView` + 信号表 |
 
 接线说明：DataGrid 行的 DataContext 是 `DbcMessageViewModel`；RowDetails 模板里的 `ByteLayoutView` 通过 `RelativeSource AncestorType=DataGrid` 绑定 `DbcViewModel.LayoutSnapshot` / `VisibleSignals` / `SelectedMuxValue`，因为快照只对应当前选中行。
@@ -129,7 +129,7 @@ public sealed record SignalBitLayoutSnapshot(
 - `Diagnostic.Code` 取值：`out_of_dlc`、`partial_out_of_dlc`、`length_zero`、`length_unsupported`、`overlap`。
 - `LayoutWarning.Code` 取值：`dlc_truncated`、`mux_no_match`。
 - 颜色分配：按声明顺序、在 mux 过滤之后顺序取 `PaletteIndex`，过滤掉的信号不消耗索引；UI 映射到 `ByteLayoutSignal{n}` 资源，超过调色板数量循环复用，信号名仍是非颜色主标识。
-- 信号表数据源：`VisibleSignals`（按 `Message.Signals` 声明顺序、同一 mux 过滤规则）；列沿用 mockup（名称 / Start|Len@Order / factor / offset / 单位 / 注释）；颜色由 `PaletteIndex` 决定；旧 `Signals` 字符串列表只服务搜索。
+- 信号表数据源：`VisibleSignals`（按 `Message.Signals` 声明顺序、同一 mux 过滤规则）；列：色块 / 名称 / 位布局 / 系数与偏移 / 单位 / 当前值 / 注释 / 诊断（8 列，与 XAML 对齐）；颜色由 `PaletteIndex` 决定；旧 `Signals` 字符串列表只服务搜索。
 
 ### 5.7 与 mockup 的差异（以实现规则为准）
 
@@ -181,6 +181,8 @@ public sealed record SignalBitLayoutSnapshot(
 8. 快照不可变性与确定性：同一 `Message` + mux 值重复计算结果相等。
 
 UI 侧手动验证：打开 `tests/PeakCan.Host.Core.Tests/TestData/Dbc/byte-layout-demo.dbc`（与 mockup `MSGS` 等价的 ASCII DBC fixture，LF 换行，随测试数据入仓），逐消息对比位图与 mockup 渲染一致；并验证搜索过滤后选中不丢。mux 无匹配提示是防御路径（下拉只列已有分支，UI 选不到无匹配值），由 Core / VM 单测覆盖。
+
+二期（实时点亮）的测试：单槽缓存、worker 发布、33ms VM 刷新（含 Timer 投递）、mux 失配、短帧、FD 64 字节、切页停表、XAML 触发器、DI 组合；见 `docs/superpowers/plans/2026-11-26-dbc-byte-layout-phase2.md` 与收口期计划。
 
 ## 9. 交付顺序与验收
 

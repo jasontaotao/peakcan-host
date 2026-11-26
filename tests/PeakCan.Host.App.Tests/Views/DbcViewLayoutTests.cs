@@ -152,4 +152,28 @@ public sealed class DbcViewLayoutTests
                 "LiveValue", StringComparison.Ordinal),
                 "信号表必须显示实时值");
     }
+
+    [Fact]
+    public void Signal_Table_Header_And_Rows_Have_Eight_Aligned_Columns()
+    {
+        var rowDetails = DbcView()
+            .Descendants(P + "DataGrid.RowDetailsTemplate").Single();
+
+        var liveHeader = rowDetails.Descendants(P + "TextBlock")
+            .Single(t => (string?)t.Attribute("Text") == "当前值");
+        ((string?)liveHeader.Attribute("Grid.Column")).Should().Be("5");
+
+        var headerGrid = liveHeader.Ancestors(P + "Grid").First();
+        headerGrid.Element(P + "Grid.ColumnDefinitions")!
+            .Elements(P + "ColumnDefinition").Should().HaveCount(8);
+
+        var liveValue = rowDetails.Descendants(P + "TextBlock")
+            .Single(t => (((string?)t.Attribute("Text")) ?? "").Contains(
+                "LiveValue", StringComparison.Ordinal));
+        ((string?)liveValue.Attribute("Grid.Column")).Should().Be("5");
+
+        var dataGrid = liveValue.Ancestors(P + "Grid").First();
+        dataGrid.Element(P + "Grid.ColumnDefinitions")!
+            .Elements(P + "ColumnDefinition").Should().HaveCount(8);
+    }
 }

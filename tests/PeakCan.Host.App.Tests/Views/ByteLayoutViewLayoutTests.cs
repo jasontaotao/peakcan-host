@@ -60,7 +60,8 @@ public class ByteLayoutViewLayoutTests
 
         trigger.Should().NotBeNull("0 位必须通过 IsSet 触发变淡");
         ((string?)trigger!.Attribute("Value")).Should().Be("False");
-        trigger.Descendants(P + "Setter").Should()
-            .Contain(s => ((string?)s.Attribute("Property")) == "Opacity");
+        trigger.Descendants(P + "Setter")
+            .Single(s => ((string?)s.Attribute("Property")) == "Opacity")
+            .Attribute("Value")!.Value.Should().Be("0.28");
     }
 }
