@@ -157,6 +157,8 @@ public sealed partial class TraceViewModel : ObservableObject
     [RelayCommand]
     private void Clear()
     {
+        // 清空后这些行不会再出现在表里：标记淘汰，让解码回填跳过它们。
+        foreach (var entry in Entries) entry.MarkEvicted();
         Entries.Clear();
         // J1939TP 会话事件随清空一并丢弃（与 Entries 同生命周期；桥接层后续新事件仍会入列）。
         J1939SessionEvents.Clear();

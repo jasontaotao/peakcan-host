@@ -7,6 +7,17 @@ namespace PeakCan.Host.App.ViewModels;
 public sealed partial class TraceViewModel
 {
     /// <summary>
+    /// 一次批次追加完成（UI 线程触发）。视图用它做"每批一次"的自动滚动，
+    /// 而不是订阅 <see cref="Entries"/> 的每次 <c>CollectionChanged</c>——
+    /// 一批 1600 帧就是 1600 次 ScrollIntoView，会把 UI 线程压垮。
+    /// <para>
+    /// 订阅者不得抛异常：本事件在数据摄入核心的同步路径里触发，异常会沿
+    /// <c>AppendBatchAsync</c> 的 Task 冒泡、终止 <c>TraceService</c> 的接收循环。
+    /// </para>
+    /// </summary>
+    public event Action? BatchAppended;
+
+    /// <summary>
     /// v1.2.11: test-only helper to inject a pending entry directly,
     /// bypassing <see cref="AppendBatchAsync"/>'s dispatcher hop. Used by
     /// <c>DbcDecodeBackgroundServiceTests</c> which run on the xunit MTA
@@ -150,11 +161,16 @@ public sealed partial class TraceViewModel
                     }
                 }
             }
+            // 标记已淘汰：解码 worker 看到后不再为这一行排队回填。
+            removed.MarkEvicted();
             Entries.RemoveAt(0);
         }
 
         // 批次末：统计面板若展开则刷；状态文本重算。
         if (StatsExpanded) RefreshStats();
         UpdateStatusText();
+
+        // 视图的自动滚动入口：每批一次，而不是每行一次。
+        BatchAppended?.Invoke();
     }
 }

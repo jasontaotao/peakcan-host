@@ -264,6 +264,135 @@ public class DbcDecodeBackgroundServiceTests
     }
 
     [Fact]
+    public async Task Worker_Buffers_Decoded_Until_Ui_Flush()
+    {
+        // 8 kfps 下每帧一次 RunOnUiPost 等于 8 000 次/秒的 Dispatcher 投递，
+        // 队列无界积压 → 内存持续上涨。worker 只入队，UI 侧定时批量回填。
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        dbc.SetCurrentForTests(DocWithOneSignal());
+        using var sigVm = new SignalViewModel();
+        var traceVm = new TraceViewModel();
+        var entry = new TraceEntry
+        {
+            Id = new CanId(0x100, FrameFormat.Standard),
+            Timestamp = Timestamp.FromMicroseconds(0UL),
+            Channel = new ChannelId(0x51),
+            DataHex = "42",
+        };
+        traceVm.RegisterForTesting(new TraceEntryKey(0x100, 0UL, 0x51), entry);
+
+        var svc = new DbcDecodeBackgroundService(
+            dbc, sigVm, traceVm, new LiveFrameSlot(),
+            NullLogger<DbcDecodeBackgroundService>.Instance)
+        {
+            FlushTimerEnabled = false, // 手动驱动 drain，避免 33ms timer 抢跑
+        };
+
+        using var startCts = new System.Threading.CancellationTokenSource();
+        await svc.StartAsync(startCts.Token);
+        try
+        {
+            svc.OnFrame(new CanFrame(
+                new CanId(0x100, FrameFormat.Standard),
+                new byte[] { 0x42 },
+                FrameFlags.None,
+                new ChannelId(0x51),
+                Timestamp.FromMicroseconds(0)));
+
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (svc.PendingDecodedCount == 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(10);
+
+            svc.PendingDecodedCount.Should().BeGreaterThan(0,
+                "worker 应把解码结果放进待回填缓冲，而不是直接投递 UI");
+            entry.Decoded.Should().Be("", "UI 侧还没 flush，行不应被改动");
+
+            // 走生产路径：VM 的导出钩子由解码服务在构造时接上 → 触发 flush。
+            traceVm.FlushDecodedBeforeExport.Should().NotBeNull(
+                "解码服务构造时必须接上导出前的 flush 钩子");
+            traceVm.FlushDecodedBeforeExport!();
+
+            entry.Decoded.Should().Contain("S1");
+            svc.PendingDecodedCount.Should().Be(0, "flush 之后缓冲应清空");
+        }
+        finally
+        {
+            await svc.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Worker_Skips_Decoded_For_Evicted_Trace_Entry()
+    {
+        // 行被 FIFO 淘汰后不再为它排队回填：否则缓冲里留着已经不可见的行引用，
+        // 撑到最后也只是做一次没人看的赋值。
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        dbc.SetCurrentForTests(DocWithOneSignal());
+        using var sigVm = new SignalViewModel();
+        var traceVm = new TraceViewModel();
+        var entry = new TraceEntry
+        {
+            Id = new CanId(0x100, FrameFormat.Standard),
+            Timestamp = Timestamp.FromMicroseconds(0UL),
+            Channel = new ChannelId(0x51),
+            DataHex = "42",
+        };
+        entry.MarkEvicted();
+        traceVm.RegisterForTesting(new TraceEntryKey(0x100, 0UL, 0x51), entry);
+
+        var svc = new DbcDecodeBackgroundService(
+            dbc, sigVm, traceVm, new LiveFrameSlot(),
+            NullLogger<DbcDecodeBackgroundService>.Instance)
+        {
+            FlushTimerEnabled = false,
+        };
+
+        using var startCts = new System.Threading.CancellationTokenSource();
+        await svc.StartAsync(startCts.Token);
+        try
+        {
+            svc.OnFrame(new CanFrame(
+                new CanId(0x100, FrameFormat.Standard),
+                new byte[] { 0x42 },
+                FrameFlags.None,
+                new ChannelId(0x51),
+                Timestamp.FromMicroseconds(0)));
+
+            // pending 注册被 worker 出列即说明这一帧已经处理过。
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (traceVm.PendingDecode.Count > 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(10);
+
+            traceVm.PendingDecode.Count.Should().Be(0,
+                "worker 必须在超时前消费这一帧，否则无法区分'跳过'和'没处理'");
+            svc.PendingDecodedCount.Should().Be(0, "已淘汰的行不应进入回填缓冲");
+            svc.DrainPendingDecodedForTest();
+            entry.Decoded.Should().Be("", "已淘汰的行不应再被回填");
+        }
+        finally
+        {
+            await svc.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public void Pending_Decoded_Writes_Are_Bounded()
+    {
+        // UI 彻底卡死时回填缓冲也不能无限增长。
+        var dbc = new DbcService(NullLogger<DbcService>.Instance);
+        using var sigVm = new SignalViewModel();
+        var svc = new DbcDecodeBackgroundService(
+            dbc, sigVm, new TraceViewModel(), new LiveFrameSlot(),
+            NullLogger<DbcDecodeBackgroundService>.Instance);
+
+        for (var i = 0; i < 20_500; i++)
+            svc.EnqueueDecodedForTest(new TraceEntry(), "x");
+
+        svc.PendingDecodedCount.Should().BeLessThanOrEqualTo(20_000);
+        svc.DroppedDecodedWrites.Should().BeGreaterThan(0, "超出上限的写入应被丢弃并计数");
+    }
+
+    [Fact]
     public async Task Worker_NoOp_When_Frame_Not_In_Dbc()
     {
         // v1.2.11: if frame id is not in DBC, the worker skips the lookup

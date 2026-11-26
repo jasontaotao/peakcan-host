@@ -323,6 +323,38 @@ public class TraceViewModelTests
         vm.PendingDecode.Should().BeEmpty("完成后 key 应被移除（防长跑泄漏）");
     }
 
+    [Fact]
+    public void BuildExportSnapshot_Flushes_Pending_Decoded_First()
+    {
+        // 解码回填现在是 33ms 批量应用：导出取快照前必须先 flush，否则 CSV
+        // 的 Decoded 列会缺最近一个窗口的内容。
+        var vm = new TraceViewModel();
+        vm.AppendBatchCore([MakeFrame(id: 0x100)]);
+        var flushes = 0;
+        vm.FlushDecodedBeforeExport = () => flushes++;
+
+        var snapshot = vm.BuildExportSnapshot(all: true);
+
+        flushes.Should().Be(1, "取快照前必须先把待回填的解码文本落地");
+        snapshot.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void AppendBatchCore_Raises_BatchAppended_Once_Per_Batch()
+    {
+        // 自动滚动原来挂在 CollectionChanged 的每个 Add 上：一批 1600 帧就是
+        // 1600 次 ScrollIntoView，高帧率下直接压垮 UI 线程。批次末尾只发一次
+        // 事件，视图每批滚动一次。
+        var vm = new TraceViewModel();
+        var raised = 0;
+        vm.BatchAppended += () => raised++;
+
+        vm.AppendBatchCore([MakeFrame(id: 0x100), MakeFrame(id: 0x200), MakeFrame(id: 0x300)]);
+
+        vm.Entries.Should().HaveCount(3);
+        raised.Should().Be(1, "一次 AppendBatchCore 只应触发一次批次事件");
+    }
+
     // ── Task 7 (phase 2 A-5) 原 PassesFilters_* 测试：2026-08-31 P1 移除 ──
     // `PassesFilters` 方法消亡（入口过滤 → 视图层过滤）。通道/复合过滤语义改由
     // `TraceFilterSpec.Matches`（TraceFilterSpecTests）与视图层断言

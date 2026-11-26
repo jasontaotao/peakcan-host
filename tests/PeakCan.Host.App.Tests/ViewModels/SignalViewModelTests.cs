@@ -50,6 +50,10 @@ public class SignalViewModelTests
                new ChannelId(0x51),
                Timestamp.FromMicroseconds(1_000_000UL));
 
+    /// <summary>指定接收时刻的帧（合并/图表排序类测试需要可区分的时间戳）。</summary>
+    private static CanFrame FrameAt(uint id, ulong microseconds, params byte[] data)
+        => MakeFrame(id, data) with { Timestamp = Timestamp.FromMicroseconds(microseconds) };
+
     private static Signal Sig(string name, double factor = 1.0, double offset = 0.0,
                               string unit = "", bool isMultiplexor = false, bool isMultiplexed = false,
                               ushort? multiplexValue = null)
@@ -452,6 +456,128 @@ public class SignalViewModelTests
 
         vm.Latest.Should().HaveCount(1,
             "100 buffered frames + 50 more = still 1 row; the drain coalesces by (Message, Signal)");
+    }
+
+    [Fact]
+    public void ApplyFrame_Bounds_Pending_Buffer_By_Signal_Key()
+    {
+        // 数据量大时内存持续上涨：旧实现每帧追加一个 PendingWork（整份信号
+        // 快照），UI 消费跟不上时缓冲无界增长。实时值表只显示每个信号的最新
+        // 值，因此缓冲应按 (Message, Signal) 合并，上限 = 信号种类数。
+        //
+        // 构造即启动 33ms drain timer，测试上下文里 tick 会在 timer 线程
+        // inline drain、和断言抢跑。构造后立即停表（Dispose 幂等，using 保留
+        // 作兜底）；ApplyFrame 不依赖 timer，仍可正常缓冲。
+        using var vm = new SignalViewModel();
+        vm.Dispose();
+        var msg = Msg(0x100, "M1", Sig("Speed"), Sig("Rpm"));
+
+        for (var i = 0; i < 100; i++) vm.ApplyFrame(MakeFrame(0x100, (byte)i), msg);
+
+        vm.PendingBufferCount.Should().Be(2,
+            "100 帧同一条消息只应留下 2 个信号的最新值，而不是 100 份快照");
+
+        DrainPending_ForTest(vm);
+        vm.Latest.Single(e => e.Signal == "Speed").Physical.Should().Be("99",
+            "合并必须保留最后一帧的值，而不是第一帧");
+    }
+
+    [Fact]
+    public void ApplyFrame_Bounds_Pending_Chart_Samples_By_Signal_Key()
+    {
+        // 图表侧 AppendSample 本身按信号覆盖，但 ApplyFrame 每帧都为全部信号
+        // 构建样本列表并留着，消费落后时同样无界。缓冲阶段就应按信号合并。
+        var chartVm = new SignalChartViewModel();
+        chartVm.AddSignal("M1.Speed", "Speed");
+        using var vm = new SignalViewModel(chartVm);
+        vm.Dispose(); // 立即停表，避免 timer tick 在断言前把缓冲 drain 掉
+        var msg = Msg(0x100, "M1", Sig("Speed"));
+
+        for (var i = 0; i < 100; i++) vm.ApplyFrame(MakeFrame(0x100, (byte)i), msg);
+
+        vm.PendingChartSampleCount.Should().Be(1,
+            "同一信号 100 帧只应留下 1 个待送图表的样本");
+
+        DrainPending_ForTest(vm);
+        chartVm.DrainBufferForTest();
+        var series = (OxyPlot.Series.LineSeries)chartVm.PlotModel.Series[0];
+        series.Points.Should().ContainSingle();
+        series.Points[^1].Y.Should().Be(99, "图表样本也必须保留最后一帧");
+    }
+
+    [Fact]
+    public void ApplyFrame_Coalesces_Muxed_Signals_Within_One_Window()
+    {
+        // 同一 drain 窗口内 mux 值切换：不同 mux 子信号是不同 key，各自的
+        // 最新值都要保留；mux 行本身只留最后一帧。
+        using var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1",
+            Sig("Mux", isMultiplexor: true),
+            Sig("Muxed0", isMultiplexed: true, multiplexValue: 0),
+            Sig("Muxed1", isMultiplexed: true, multiplexValue: 1));
+
+        vm.ApplyFrame(MakeFrame(0x100, 0x00), msg); // mux=0 → Muxed0
+        vm.ApplyFrame(MakeFrame(0x100, 0x01), msg); // mux=1 → Muxed1
+
+        DrainPending_ForTest(vm);
+
+        vm.Latest.Should().Contain(e => e.Signal == "Muxed0",
+            "前一个 mux 分支的值仍应保留在本窗口");
+        vm.Latest.Should().Contain(e => e.Signal == "Muxed1");
+        vm.Latest.Single(e => e.Signal == "Mux").Physical.Should().Be("1",
+            "mux 行保留最后一帧");
+        vm.Latest.Single(e => e.Signal == "Muxed0").Physical.Should().Be("0",
+            "mux=0 分支保留自己那一帧的值");
+        vm.Latest.Single(e => e.Signal == "Muxed1").Physical.Should().Be("1",
+            "mux=1 分支保留自己那一帧的值");
+    }
+
+    [Fact]
+    public void Chart_Samples_Are_Forwarded_In_Timestamp_Order()
+    {
+        // 字典枚举序是"首次插入序"，而每个值带的是"最后一次出现"的时间戳。
+        // 若不排序，先插入但后更新的信号会把图表 _t0 种到较晚时刻，给其他
+        // 信号算出负的相对时间（x<0 的孤立点）。
+        var chartVm = new SignalChartViewModel();
+        chartVm.AddSignal("M1.Speed", "Speed");
+        chartVm.AddSignal("M2.Rpm", "Rpm");
+        using var vm = new SignalViewModel(chartVm);
+        vm.Dispose();
+
+        var msg1 = Msg(0x100, "M1", Sig("Speed"));
+        var msg2 = Msg(0x200, "M2", Sig("Rpm"));
+
+        // 首次插入序：Speed → Rpm；但 Speed 随后又被更新到更晚的时间。
+        vm.ApplyFrame(FrameAt(0x100, 1_000_000UL), msg1);
+        vm.ApplyFrame(FrameAt(0x200, 1_010_000UL), msg2);
+        vm.ApplyFrame(FrameAt(0x100, 1_020_000UL), msg1);
+
+        DrainPending_ForTest(vm);
+        chartVm.DrainBufferForTest();
+
+        var allPoints = chartVm.PlotModel.Series
+            .Cast<OxyPlot.Series.LineSeries>()
+            .SelectMany(s => s.Points)
+            .ToList();
+        allPoints.Should().NotBeEmpty();
+        double[] expectedX = [0.0, 0.01];
+        allPoints.Select(p => p.X).Should().BeEquivalentTo(expectedX,
+            "Rpm 在 1.010s、Speed 在 1.020s，相对最早样本应落在 0 / 0.01");
+    }
+
+    [Fact]
+    public void Reset_Drops_Buffered_Frames_Before_Next_Drain()
+    {
+        // 换 DBC 时 Reset 必须连待应用缓冲一起丢：否则旧文档最近 33ms 的帧
+        // 会在下一 tick 被写进新表，显示上自相矛盾。
+        using var vm = new SignalViewModel();
+        var msg = Msg(0x100, "M1", Sig("Speed"));
+
+        vm.ApplyFrame(MakeFrame(0x100, 0x42), msg);
+        vm.Reset();
+        DrainPending_ForTest(vm);
+
+        vm.Latest.Should().BeEmpty("Reset 后不应残留旧 DBC 的待应用帧");
     }
 
     [Fact]

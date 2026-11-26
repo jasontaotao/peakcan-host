@@ -6,6 +6,29 @@ namespace PeakCan.Host.App.ViewModels;
 public sealed partial class TraceViewModel
 {
     /// <summary>
+    /// 导出前的解码回填钩子。解码 worker 现在把结果攒到 33ms 批量应用，
+    /// 直接取快照会把最近一个窗口的解码文本落成空串。由
+    /// <see cref="Services.DbcDecodeBackgroundService"/> 在构造时接上。
+    /// </summary>
+    public Action? FlushDecodedBeforeExport { get; set; }
+
+    /// <summary>
+    /// 取导出快照。先 flush 解码回填，保证 Decoded 列不落后一个窗口；
+    /// <paramref name="all"/> = true 取 <see cref="Entries"/> 全量（含被过滤
+    /// 隐藏的行），false 取 <see cref="EntriesView"/> 可见行（显示顺序）。
+    /// </summary>
+    internal List<TraceEntry> BuildExportSnapshot(bool all)
+    {
+        FlushDecodedBeforeExport?.Invoke();
+
+        if (all) return new List<TraceEntry>(Entries);
+
+        var snapshot = new List<TraceEntry>(EntriesView.Count);
+        foreach (var e in EntriesView) snapshot.Add((TraceEntry)e);
+        return snapshot;
+    }
+
+    /// <summary>
     /// 2026-08-31 P1：导出**可见行**（沿 <see cref="EntriesView"/> 枚举，显示顺序）——
     /// 所见即所得（spec §5.9）。UI 线程弹 SaveFileDialog（modal by design），文件写盘
     /// 委托 <see cref="Task.Run"/> 保持 dispatcher 响应。
@@ -13,8 +36,7 @@ public sealed partial class TraceViewModel
     [RelayCommand]
     private void ExportCsv()
     {
-        var snapshot = new List<TraceEntry>(EntriesView.Count);
-        foreach (var e in EntriesView) snapshot.Add((TraceEntry)e);
+        var snapshot = BuildExportSnapshot(all: false);
         if (snapshot.Count == 0) return;
 
         var dlg = new Microsoft.Win32.SaveFileDialog
@@ -34,7 +56,8 @@ public sealed partial class TraceViewModel
     [RelayCommand]
     private void ExportAllCsv()
     {
-        if (Entries.Count == 0) return;
+        var snapshot = BuildExportSnapshot(all: true);
+        if (snapshot.Count == 0) return;
 
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
@@ -44,7 +67,7 @@ public sealed partial class TraceViewModel
         };
         if (dlg.ShowDialog() != true) return;
 
-        WriteCsvAsync(new List<TraceEntry>(Entries), dlg.FileName);
+        WriteCsvAsync(snapshot, dlg.FileName);
     }
 
     /// <summary>公共 CSV 写盘（快照已取定，Task.Run 后台写；异常 Debug.WriteLine 不崩）。</summary>

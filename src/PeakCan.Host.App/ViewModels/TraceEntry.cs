@@ -111,6 +111,17 @@ public sealed class TraceEntry : INotifyPropertyChanged
     }
     private SecOcBadge _secOcBadge = SecOcBadge.Offline;
 
+    private volatile bool _evicted;
+
+    /// <summary>
+    /// 行已离开表格（FIFO 淘汰或整表清空）。解码回填据此跳过，避免为已经
+    /// 不可见的行排队等待 UI 通知。
+    /// </summary>
+    public bool IsEvicted => _evicted;
+
+    /// <summary>标记行已离开表格（UI 线程调用；worker 线程可见）。</summary>
+    public void MarkEvicted() => _evicted = true;
+
     /// <summary>Fires when a mutable property (e.g. <see cref="Decoded"/>/<see cref="HighlightColorIndex"/>) changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 }

@@ -1,4 +1,3 @@
-using System.Collections.Specialized;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -19,30 +18,47 @@ namespace PeakCan.Host.App.Views;
 public partial class TraceView : UserControl
 {
     private bool _autoScroll = true;
-    private bool _collectionSubscribed;
+    private TraceViewModel? _boundVm;
 
     public TraceView()
     {
         InitializeComponent();
-        TraceGrid.Loaded += (_, _) =>
-        {
-            // Loaded 每次切回 tab 都会触发；_collectionSubscribed 防止重复订阅
-            // （重复订阅会让每帧触发多次 ScrollIntoView）。
-            if (!_collectionSubscribed &&
-                TraceGrid.ItemsSource is INotifyCollectionChanged cc)
-            {
-                cc.CollectionChanged += OnCollectionChanged;
-                _collectionSubscribed = true;
-            }
-        };
+        Loaded += OnLoaded;
+        DataContextChanged += OnDataContextChanged;
+        Unloaded += OnUnloaded;
     }
 
-    private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    private void OnLoaded(object sender, RoutedEventArgs e) => BindVm();
+
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e) => BindVm();
+
+    /// <summary>
+    /// 幂等订阅：TabControl 切走时视图被摘出可视树（Unloaded 退订），切回来
+    /// 再挂载时 DataContext 仍是构造时设的本地值、不会触发 DataContextChanged，
+    /// 所以 Loaded 必须也走这里重新订阅，否则切一次 Tab 后自动滚动永久失效。
+    /// </summary>
+    private void BindVm()
     {
-        if (e.Action == NotifyCollectionChangedAction.Add && _autoScroll)
-        {
-            TraceGrid.ScrollIntoView(TraceGrid.Items[^1]);
-        }
+        if (_boundVm is not null) _boundVm.BatchAppended -= OnBatchAppended;
+        _boundVm = DataContext as TraceViewModel;
+        if (_boundVm is not null) _boundVm.BatchAppended += OnBatchAppended;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_boundVm is null) return;
+        _boundVm.BatchAppended -= OnBatchAppended;
+        _boundVm = null;
+    }
+
+    /// <summary>
+    /// 每批滚动一次。旧实现订阅 Entries 的每次 Add：一批 1600 帧就会调
+    /// 1600 次 ScrollIntoView，高帧率下把 UI 线程压垮。
+    /// </summary>
+    private void OnBatchAppended()
+    {
+        if (!_autoScroll || TraceGrid.Items.Count == 0) return;
+        TraceGrid.ScrollIntoView(TraceGrid.Items[^1]);
     }
 
     private void OnScrollChanged(object sender, ScrollChangedEventArgs e)

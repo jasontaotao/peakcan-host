@@ -45,6 +45,13 @@ public sealed partial class SignalViewModel
     /// </summary>
     public void Reset()
     {
+        // 换 DBC 时连待应用缓冲一起丢：否则最近一个 drain 窗口内旧文档的
+        // 帧还会在下一 tick 被写进新表。
+        lock (_pendingLock)
+        {
+            _pendingEntries.Clear();
+            _pendingChartSamples.Clear();
+        }
         Latest.Clear();
         // 表格绑的是 FilteredSignals 而不是 Latest：只清 Latest 会把上一份 DBC
         // 的信号留在表里，直到下一帧解码才被替换（换 DBC 后显示上自相矛盾）。

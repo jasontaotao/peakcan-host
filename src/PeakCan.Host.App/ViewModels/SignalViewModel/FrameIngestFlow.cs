@@ -31,19 +31,34 @@ public sealed partial class SignalViewModel
     // leaving the 1 Hz StatsView tick room to pump.
     private static readonly TimeSpan DrainInterval = TimeSpan.FromMilliseconds(33);
     private readonly object _pendingLock = new();
-    private readonly List<PendingWork> _pending = new();
+
+    // 按 (Message, Signal) 合并的待应用缓冲：每帧只覆盖最新值，缓冲上限 =
+    // 信号种类数。旧实现每帧追加一份完整快照，UI 消费落后时无界增长（数据量
+    // 大时内存持续上涨的主因之一）。
+    private readonly Dictionary<(string Message, string Signal), SignalEntry> _pendingEntries = new();
+    private readonly Dictionary<string, PendingChartSample> _pendingChartSamples = new();
     private readonly System.Threading.Timer _drainTimer;
 
-    private readonly record struct PendingWork(
-        List<SignalEntry> Entries,
-        List<(string Key, double Physical, ulong TimestampMicroseconds)>? ChartSamples);
+    /// <summary>待应用缓冲里的条目数（测试接缝：验证按信号合并后的有界性）。</summary>
+    internal int PendingBufferCount
+    {
+        get { lock (_pendingLock) return _pendingEntries.Count; }
+    }
+
+    /// <summary>待应用缓冲里的图表样本数（测试接缝：验证按信号合并后的有界性）。</summary>
+    internal int PendingChartSampleCount
+    {
+        get { lock (_pendingLock) return _pendingChartSamples.Count; }
+    }
+
+    private readonly record struct PendingChartSample(double Physical, ulong TimestampMicroseconds);
 
     /// <summary>
     /// Test-visible counter for <see cref="DrainPending"/> invocations.
     /// Each call (timer tick or <c>DrainPendingForTest</c>) increments
     /// this by one; the contract under test is that ApplyFrame never
-    /// drains inline, and that a drain tick processes every batch
-    /// queued since the last tick.
+    /// drains inline, and that a drain tick applies every coalesced
+    /// value queued since the last tick.
     /// </summary>
     internal int DrainCount { get; private set; }
 
@@ -51,8 +66,11 @@ public sealed partial class SignalViewModel
 
     /// <summary>
     /// Decode signals in <paramref name="msg"/> against
-    /// <paramref name="frame"/> and upsert one row per signal into
-    /// <see cref="Latest"/>. The key is <c>(Message, Signal)</c>.
+    /// <paramref name="frame"/> and buffer one row per signal keyed by
+    /// <c>(Message, Signal)</c> for the next drain tick. Repeated frames
+    /// for the same key overwrite each other: the live table only shows
+    /// the latest value, so the buffer stays bounded by the number of
+    /// distinct signals instead of growing with the frame rate.
     /// <para>
     /// <b>v0.6.0 multiplexor support:</b> if the message has a
     /// multiplexor signal, its raw value is extracted first. Then only
@@ -145,17 +163,24 @@ public sealed partial class SignalViewModel
 
         var samples = chartSamples;
 
-        // v1.2.3 PATCH-2: buffer the decoded entries + chart samples
-        // for the next drain tick. No RunOnUiPost here — the SDK
-        // worker thread is done with this frame, and the UI
-        // dispatcher will pick the batch up on the ~30 Hz timer.
-        // The lock is cheap (no allocations inside the critical
-        // section — we hand the lists over verbatim and the timer
-        // tick swaps them out under the same lock).
-        var work = new PendingWork(pending, samples);
+        // v1.2.3 PATCH-2: buffer the decoded entries + chart samples for the
+        // next drain tick. No RunOnUiPost here — the worker thread is done
+        // with this frame and the UI picks the batch up on the ~30 Hz timer.
+        //
+        // 按 (Message, Signal) / 图表信号键覆盖合并：实时值表和图表都只消费
+        // 每个信号的最新值，中间帧没有观察者。合并后缓冲大小只跟信号种类数
+        // 有关，不随帧率或运行时长增长。
         lock (_pendingLock)
         {
-            _pending.Add(work);
+            foreach (var entry in pending)
+                _pendingEntries[(entry.Message, entry.Signal)] = entry;
+
+            if (samples is not null)
+            {
+                foreach (var sample in samples)
+                    _pendingChartSamples[sample.key] =
+                        new PendingChartSample(sample.physical, sample.ts);
+            }
         }
     }
 
@@ -182,8 +207,8 @@ public sealed partial class SignalViewModel
     private void OnDrainTick(object? sender, EventArgs e) => ((Action)DrainPending).RunOnUiPost();
 
     /// <summary>
-    /// Flush every batch queued since the last tick onto the UI
-    /// thread's <see cref="Latest"/> and the chart VM. Always runs
+    /// Flush every coalesced value queued since the last tick onto the
+    /// UI thread's <see cref="Latest"/> and the chart VM. Always runs
     /// on the UI thread (the timer fires there, and the test entry
     /// <c>DrainPendingForTest</c> is invoked by the test thread
     /// which xunit is using as the UI thread surrogate).
@@ -192,38 +217,38 @@ public sealed partial class SignalViewModel
     {
         DrainCount++;
 
-        PendingWork[] batch;
+        SignalEntry[] entries;
+        List<(string Key, double Physical, ulong TimestampMicroseconds)>? samples = null;
         lock (_pendingLock)
         {
-            if (_pending.Count == 0) return;
-            batch = _pending.ToArray();
-            _pending.Clear();
-        }
+            if (_pendingEntries.Count == 0 && _pendingChartSamples.Count == 0) return;
+            entries = _pendingEntries.Values.ToArray();
+            _pendingEntries.Clear();
 
-        // Coalesce: between two ticks many frames may carry the same
-        // (Message, Signal) — ApplyEntries' Upsert key takes care of
-        // de-dup, so we just concatenate. Order is preserved (newest
-        // last) which keeps the "last writer wins" semantics of
-        // Upsert natural for back-to-back same-key frames.
-        var allEntries = new List<SignalEntry>(batch.Length * 8);
-        for (var i = 0; i < batch.Length; i++)
-        {
-            allEntries.AddRange(batch[i].Entries);
-        }
-        ApplyEntries(allEntries);
-
-        if (_chartVm is not null)
-        {
-            for (var i = 0; i < batch.Length; i++)
+            if (_pendingChartSamples.Count > 0)
             {
-                var samples = batch[i].ChartSamples;
-                if (samples is null) continue;
-                for (var j = 0; j < samples.Count; j++)
-                {
-                    var s = samples[j];
-                    _chartVm.AppendSample(s.Key, s.Physical, s.TimestampMicroseconds);
-                }
+                samples = new List<(string Key, double Physical, ulong TimestampMicroseconds)>(
+                    _pendingChartSamples.Count);
+                foreach (var (key, sample) in _pendingChartSamples)
+                    samples.Add((key, sample.Physical, sample.TimestampMicroseconds));
+                _pendingChartSamples.Clear();
+
+                // 字典枚举序是"首次插入序"，而每个值带的是"最后一次出现"的
+                // 时间戳，两者不再同序。必须按时间升序交给图表：AppendSample
+                // 用 ulong 相减求相对时间，样本早于 _t0 会下溢成 1.8e13 秒，
+                // 把图表 X 轴撑爆。
+                samples.Sort(static (a, b) =>
+                    a.TimestampMicroseconds.CompareTo(b.TimestampMicroseconds));
+
             }
+        }
+
+        ApplyEntries(entries);
+
+        if (_chartVm is not null && samples is not null)
+        {
+            foreach (var (key, physical, timestamp) in samples)
+                _chartVm.AppendSample(key, physical, timestamp);
         }
     }
 
