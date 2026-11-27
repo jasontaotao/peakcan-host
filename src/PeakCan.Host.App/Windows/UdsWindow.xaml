@@ -211,7 +211,8 @@
                     </DockPanel.Resources>
                     <StackPanel DockPanel.Dock="Top" Margin="8">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <TextBlock Text="CAN-ID:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="CAN-ID（编程寻址，独立于诊断）：" VerticalAlignment="Center" Margin="0,0,8,0"
+                                       ToolTip="刷写副栈自己的寻址，随刷写配置保存；与「通信参数」页的诊断 CAN ID 各自配置（响应 ID 相同时同寻址守卫会拒绝 DLL 模式刷写）"/>
                             <TextBlock Text="请求 0x" VerticalAlignment="Center"/>
                             <TextBox Text="{Binding Flash.CurrentProfile.ProgrammingCanId.RequestId, StringFormat={}{0:X3}, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="0,0,4,0"/>
                             <TextBlock Text="响应 0x" VerticalAlignment="Center"/>
@@ -222,6 +223,10 @@
                                       IsChecked="{Binding Flash.CurrentProfile.ProgrammingCanId.IsExtendedFrame}"
                                       VerticalAlignment="Center" Margin="12,0,0,0"
                                       ToolTip="标准帧：11 位 CAN ID（0x000-0x7FF）。扩展帧：29 位 CAN ID。"/>
+                            <TextBlock Text="与诊断寻址独立，随刷写配置保存"
+                                       VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11"
+                                       Foreground="{StaticResource TextSecondary}"
+                                       ToolTip="P2/P2* 由 ECU 在会话切换时给出，不在这里配置"/>
                         </StackPanel>
                         <CheckBox Content="出错时自动重启 ECU（Fail-Safe Reset）" IsChecked="{Binding Flash.CurrentProfile.AutoResetOnFailure}"
                                   Margin="0,0,0,8" ToolTip="刷写失败时自动发 ECUReset（0x01）防止 ECU 半刷状态"/>
@@ -729,7 +734,7 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                                <TextBlock Text="诊断栈（当前生效）" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock Text="诊断主栈（当前生效 · 只读）" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                 <TextBlock Text="{Binding Params.DiagTransport, StringFormat='传输：{0}'}" Margin="0,1"/>
                                 <TextBlock Text="{Binding Params.DiagSession, StringFormat='会话：{0}'}" Margin="0,1"/>
                                 <TextBlock Text="{Binding Params.DiagP2, StringFormat='P2：{0}'}" Margin="0,1"/>
@@ -741,7 +746,7 @@
                                 <TextBlock Text="{Binding Params.DiagS3Failures, StringFormat='S3 保活失败：{0}'}" Margin="0,1"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Margin="16,0,0,0">
-                                <TextBlock Text="刷写副栈（当前生效）" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock Text="刷写副栈（当前生效 · 只读）" FontWeight="SemiBold" Margin="0,0,0,4"/>
                                 <TextBlock Text="{Binding Params.FlashRunState, StringFormat='状态：{0}'}" Margin="0,1"/>
                                 <TextBlock Text="{Binding Params.FlashTransport, StringFormat='传输：{0}'}" Margin="0,1"/>
                                 <TextBlock Text="{Binding Params.FlashSession, StringFormat='会话：{0}'}" Margin="0,1"/>
@@ -757,7 +762,10 @@
                         <Separator Margin="0,12"/>
 
                         <!-- 下半：可编辑。改完点「应用」立即生效（不重启）。 -->
-                        <TextBlock Text="诊断通讯参数（可编辑）" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock Text="诊断主栈通讯参数（可编辑）" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <TextBlock Text="本页下方参数只作用于诊断主栈（DID / 例程 / DTC / 会话）：P2/P2* 的生效值以「用户配置 / ECU 0x10 协商 / 本地默认」标注为准。刷写副栈的寻址在「刷写」页随刷写配置保存；刷写副栈的 P2/P2* 由 ECU 在会话切换时协商，不在此页设置。"
+                                   Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap"
+                                   FontSize="11" MaxWidth="720" HorizontalAlignment="Left" Margin="0,0,0,8"/>
                         <Grid MaxWidth="720" HorizontalAlignment="Left">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>

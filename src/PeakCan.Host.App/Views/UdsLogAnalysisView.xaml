@@ -59,8 +59,28 @@
                 <TextBlock Text="功能 ID" VerticalAlignment="Center"/>
                 <TextBox Text="{Binding FunctionalIdText, UpdateSourceTrigger=PropertyChanged}" Width="54" Margin="4,0,8,0"
                          ToolTip="功能寻址（广播）CAN ID，如 7DF。留空 = 不按功能寻址解析"/>
-                <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Width="150"
-                         Margin="8,0,0,0" ToolTip="按服务名/结果/NRC 过滤"/>
+                <Grid Margin="8,0,0,0">
+                    <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Width="150"
+                             ToolTip="按服务名/结果/NRC 过滤事务表"/>
+                    <!-- 空框提示：这里原来只有一个无标签的空框，唯一的说明藏在 ToolTip 里，
+                         用户不悬停就不知道它是筛选，会当成「功能 ID」后面的第二个地址框。
+                         开始输入后提示消失，否则会压在文字上。 -->
+                    <TextBlock Text="筛选：服务名 / 结果 / NRC" FontSize="11"
+                               Margin="5,0,0,0" VerticalAlignment="Center"
+                               Foreground="{StaticResource TextSecondary}"
+                               IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FilterText}" Value="">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
             </StackPanel>
             <!-- ODX 状态靠右：它是「当前报告的定义来源」，不是操作入口。
                  两个状态必须都显示：OdxStatusSummary 是「最近一次导入」，

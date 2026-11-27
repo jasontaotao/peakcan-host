@@ -182,4 +182,63 @@ public sealed class UdsWindowLayoutTests
         topExpanders.Should().NotContain("通信参数",
             "顶栏 Expander 展开后会压扁主区域；它必须是独立页签");
     }
+
+    /// <summary>
+    /// <b>通信参数页必须自己说清楚「哪块能改、哪块只是看」。</b>
+    /// <para>
+    /// 上半部分同时画了诊断主栈和刷写副栈的实时值（只读轮询），下半部分才是
+    /// 可编辑表单，而且只作用于诊断主栈。不标清楚时，用户会以为这里改的是
+    /// 全局参数，改完发现刷写寻址纹丝不动。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Comm_params_tab_labels_readonly_live_view_and_editable_scope()
+    {
+        var tab = UdsWindow().Descendants(P + "TabItem")
+            .Single(t => (string?)t.Attribute("Header") == "通信参数");
+        var texts = tab.Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Where(t => t is not null)
+            .ToList();
+
+        texts.Should().Contain(t => t!.Contains("诊断主栈", StringComparison.Ordinal)
+                                    && t.Contains("只读", StringComparison.Ordinal),
+            "诊断主栈实时值区必须标明只读");
+        texts.Should().Contain(t => t!.Contains("刷写副栈", StringComparison.Ordinal)
+                                    && t.Contains("只读", StringComparison.Ordinal),
+            "刷写副栈实时值区必须标明只读");
+        texts.Should().Contain(t => t!.Contains("诊断主栈", StringComparison.Ordinal)
+                                    && t.Contains("可编辑", StringComparison.Ordinal),
+            "可编辑表单必须标明只作用于诊断主栈");
+
+        // 必须有一句可见说明，指向刷写配置的实际位置，而不是让用户去猜。
+        // 只锁关键词，不锁标点：措辞可以改，语义不能丢。
+        texts.Should().Contain(t => t!.Contains("刷写", StringComparison.Ordinal)
+                                    && t.Contains("寻址", StringComparison.Ordinal),
+            "须说明刷写副栈的寻址在刷写页配置");
+
+        // 可编辑区的范围说明同样不能被删：删了之后用户仍会以为这里改的是全局参数。
+        texts.Should().Contain(t => t!.Contains("只作用于诊断主栈", StringComparison.Ordinal)
+                                    && t.Contains("生效值", StringComparison.Ordinal),
+            "可编辑表单必须说明只作用于诊断主栈，以及 P2/P2* 生效值的来源标注");
+    }
+
+    /// <summary>
+    /// 刷写页的 CAN-ID 行必须标明这是<b>编程寻址</b>，且与诊断寻址独立。
+    /// 否则用户会把它当成顶部通信参数里那组 CAN ID 的第二个输入框。
+    /// </summary>
+    [Fact]
+    public void Flashing_can_id_row_is_labelled_as_independent_programming_addressing()
+    {
+        var tab = UdsWindow().Descendants(P + "TabItem")
+            .Single(t => (string?)t.Attribute("Header") == "刷写");
+        var texts = tab.Descendants(P + "TextBlock")
+            .Select(t => (string?)t.Attribute("Text"))
+            .Where(t => t is not null)
+            .ToList();
+
+        texts.Should().Contain(t => t!.Contains("编程寻址", StringComparison.Ordinal)
+                                    && t.Contains("独立于诊断", StringComparison.Ordinal),
+            "刷写页 CAN-ID 行必须标明是编程寻址、与诊断寻址独立");
+    }
 }

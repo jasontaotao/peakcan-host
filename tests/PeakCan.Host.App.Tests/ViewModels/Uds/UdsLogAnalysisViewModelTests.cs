@@ -205,6 +205,44 @@ public sealed class UdsLogAnalysisViewModelTests
         vm.Report!.SourcePath.Should().Be("fast.asc");
     }
 
+    /// <summary>
+    /// 用户是按表格里看得见的文字搜的：结果列是中文（FinalKindDisplay），NRC 列带
+    /// <c>0x</c> 前缀。只匹配枚举名 / 裸 hex 时，输入「正响应」或「0x22」会得到空表，
+    /// 用户会以为筛选坏了。
+    /// </summary>
+    [Fact]
+    public async Task Filter_matches_the_text_the_table_displays()
+    {
+        var frames = new[]
+        {
+            Frame(0x7E0, 0x02, 0x10, 0x01),
+            Frame(0x7E8, 0x06, 0x50, 0x01, 0x00, 0x32, 0x01, 0xF4),
+            Frame(0x7E0, 0x03, 0x22, 0xF1, 0x90),
+            Frame(0x7E8, 0x03, 0x7F, 0x22, 0x22),
+        };
+        var vm = Vm(new FakeLoader(frames));
+        vm.FilePath = "fake.asc";
+        await vm.AnalyzeAsync();
+
+        vm.FilterText = "正响应";
+        vm.VisibleTransactions.Should().ContainSingle("结果列显示「正响应」，筛选必须按显示文本命中")
+            .Which.FinalKindDisplay.Should().Be("正响应");
+
+        vm.FilterText = "0x22";
+        vm.VisibleTransactions.Should().ContainSingle("NRC 列显示「0x22」，筛选必须接受带前缀的写法")
+            .Which.FinalNrc.Should().Be(0x22);
+
+        // 旧语义必须保留：英文枚举名与裸 hex 是既有用户已经在用的写法，
+        // 改判据时不能顺手删掉，否则他们会静默搜不到。
+        vm.FilterText = "Negative";
+        vm.VisibleTransactions.Should().ContainSingle("英文枚举名是旧写法，不能回归")
+            .Which.FinalNrc.Should().Be(0x22);
+
+        vm.FilterText = "22";
+        vm.VisibleTransactions.Should().ContainSingle("裸 hex 是旧写法，不能回归")
+            .Which.FinalNrc.Should().Be(0x22);
+    }
+
     [Fact]
     public async Task Filter_with_no_match_shows_a_distinct_hint()
     {

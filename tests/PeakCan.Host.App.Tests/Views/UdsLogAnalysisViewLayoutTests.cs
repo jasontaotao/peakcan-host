@@ -57,6 +57,36 @@ public sealed class UdsLogAnalysisViewLayoutTests
         (((string?)odx.Attribute("Visibility")) ?? "").Should().NotContain("IsOnlineTab");
     }
 
+    /// <summary>
+    /// 筛选框必须自带可见说明。
+    /// <para>
+    /// 它原来是一个无标签的空框，唯一的说明在 ToolTip 里——用户不悬停就不知道它
+    /// 是筛选，反而会当成「功能 ID」后面的第二个地址框。工具栏上其他输入框都有
+    /// 标签，只有这个没有，光秃秃的框就是误导。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Filter_box_explains_itself_without_hover()
+    {
+        var doc = LoadXaml("src", "PeakCan.Host.App", "Views", "UdsLogAnalysisView.xaml");
+
+        var filterBox = doc.Descendants(P + "TextBox")
+            .Single(t => ((string?)t.Attribute("Text"))?.Contains("FilterText") == true);
+
+        var hint = filterBox.Parent!.Descendants(P + "TextBlock")
+            .SingleOrDefault(t => ((string?)t.Attribute("Text"))
+                ?.StartsWith("筛选", System.StringComparison.Ordinal) == true);
+
+        hint.Should().NotBeNull("空框时必须显示可见提示，说明它能搜什么");
+
+        ((string?)hint!.Attribute("IsHitTestVisible")).Should().Be("False",
+            "提示覆盖在输入框上，不能抢点击或光标");
+
+        hint.Descendants(P + "DataTrigger").Should().Contain(dt =>
+                (((string?)dt.Attribute("Binding")) ?? "").Contains("FilterText", System.StringComparison.Ordinal),
+            "提示必须在开始输入后消失，否则会压在输入的文字上");
+    }
+
     [Fact]
     public void Analysis_view_exposes_required_commands()
     {

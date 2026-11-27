@@ -702,18 +702,41 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
 
         foreach (var transaction in Report.Transactions)
         {
-            if (FilterText.Length == 0
-                || (transaction.Interpretation?.ServiceDisplay.Contains(FilterText, StringComparison.OrdinalIgnoreCase) ?? false)
-                || transaction.FinalKind.ToString().Contains(FilterText, StringComparison.OrdinalIgnoreCase)
-                || (transaction.FinalNrc is { } nrc
-                    && nrc.ToString("X2", CultureInfo.InvariantCulture).Contains(FilterText, StringComparison.OrdinalIgnoreCase)))
-            {
+            if (FilterText.Length == 0 || MatchesFilter(transaction))
                 VisibleTransactions.Add(transaction);
-            }
         }
 
         OnPropertyChanged(nameof(FilterEmptyHint));
         OnPropertyChanged(nameof(IsFilterEmpty));
+    }
+
+    /// <summary>
+    /// 筛选判据：按<b>表格里看得见的文字</b>匹配，同时保留枚举名。
+    /// <para>
+    /// 原来只匹配 <c>FinalKind.ToString()</c>（Positive/Negative）和裸 hex（7F）。
+    /// 但结果列显示的是中文「正响应」，NRC 列显示 <c>0x22</c>——用户照着表里的值
+    /// 输入会得到空表，看起来像筛选坏了。现在两种写法都能命中：
+    /// 显示文本（含 NRC 含义列）优先，枚举名与裸 hex 作为兼容保留。
+    /// </para>
+    /// </summary>
+    private bool MatchesFilter(UdsOfflineTransaction transaction)
+    {
+        bool Contains(string? text) =>
+            !string.IsNullOrEmpty(text)
+            && text.Contains(FilterText, StringComparison.OrdinalIgnoreCase);
+
+        if (Contains(transaction.Interpretation?.ServiceDisplay)) return true;
+        if (Contains(transaction.FinalKindDisplay)) return true;
+        if (Contains(transaction.FinalKind.ToString())) return true;
+        if (Contains(transaction.NrcName)) return true;
+
+        if (transaction.FinalNrc is { } nrc)
+        {
+            var hex = nrc.ToString("X2", CultureInfo.InvariantCulture);
+            if (Contains(hex) || Contains("0x" + hex)) return true;
+        }
+
+        return false;
     }
 
     private UdsOfflineDiagnostics SnapshotDiagnostics() => new(
