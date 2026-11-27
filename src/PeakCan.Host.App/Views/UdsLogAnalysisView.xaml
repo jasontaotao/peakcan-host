@@ -9,42 +9,153 @@
              d:DataContext="{d:DesignInstance Type=vm:UdsLogAnalysisViewModel}">
     <UserControl.Resources>
         <conv:BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <!-- 本地声明转换器：UdsWindow 在部分测试里被单独构造（不加载 App.xaml），
+             依赖全局资源的 StaticResource 会在 XAML 解析阶段抛异常。
+             注意：下面的样式仍引用 Themes/Colors.xaml 的颜色 token，所以这
+             只是「少一层依赖」，不是「完全脱离 Application 也能解析」——
+             真要单独实例化本控件，仍需先加载 token 字典。 -->
+        <conv:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+        <conv:InverseNullToVisibilityConverter x:Key="InverseNullToVisibilityConverter"/>
+
+        <!-- 小标题：右栏各区块共用，避免每处手写 FontWeight/Margin。 -->
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,10,0,4"/>
+        </Style>
+        <Style x:Key="HintText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
     </UserControl.Resources>
 
     <DockPanel Margin="8">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
-            <Button Content="打开 ASC/BLF" Command="{Binding OpenLogCommand}" Padding="6,2"/>
-            <Button Content="重新分析" Command="{Binding AnalyzeCommand}" Padding="6,2" Margin="8,0,0,0"/>
-            <Button Content="取消" Command="{Binding CancelCommand}" Padding="6,2" Margin="8,0,0,0"/>
-            <Button Content="导出报告" Command="{Binding ExportCommand}" Padding="6,2" Margin="8,0,0,0"/>
-            <Button Content="在 AI 中解读选中事务" Command="{Binding InterpretSelectedCommand}" Padding="6,2" Margin="8,0,0,0"/>
-            <TextBlock Text="{Binding Status}" Margin="12,0,0,0" VerticalAlignment="Center"/>
-        </StackPanel>
+        <!-- ═══ 工具栏：一行放完。地址/筛选原本各占一整行，把表格挤到窗口下半部。 ═══ -->
+        <DockPanel DockPanel.Dock="Top">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                <Button Content="打开 ASC/BLF" Command="{Binding OpenLogCommand}" Padding="6,2"/>
+                <Button Content="重新分析" Command="{Binding AnalyzeCommand}" Padding="6,2" Margin="8,0,0,0"/>
+                <Button Content="取消" Command="{Binding CancelCommand}" Padding="6,2" Margin="8,0,0,0"/>
+                <Button Content="导出报告" Command="{Binding ExportCommand}" Padding="6,2" Margin="8,0,0,0"/>
+                <Button Content="在 AI 中解读选中事务" Command="{Binding InterpretSelectedCommand}"
+                        Padding="6,2" Margin="8,0,0,0"/>
+            </StackPanel>
+            <TextBlock Text="{Binding Status}" Margin="12,0,0,0" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"/>
+        </DockPanel>
 
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,6">
-            <TextBlock Text="通道" VerticalAlignment="Center"/>
-            <TextBox Text="{Binding ChannelText, UpdateSourceTrigger=PropertyChanged}" Width="40" Margin="4,0,8,0"/>
-            <TextBlock Text="请求 ID" VerticalAlignment="Center"/>
-            <TextBox Text="{Binding RequestIdText, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="4,0,8,0"/>
-            <TextBlock Text="响应 ID" VerticalAlignment="Center"/>
-            <TextBox Text="{Binding ResponseIdText, UpdateSourceTrigger=PropertyChanged}" Width="60" Margin="4,0,8,0"/>
-            <CheckBox Content="扩展帧" IsChecked="{Binding IsExtended}" Margin="8,0,0,0"/>
-            <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Width="160" Margin="16,0,0,0"
-                     ToolTip="按服务名/结果/NRC 过滤"/>
-            <TextBlock Text="离线只读；未连接硬件；发送 0 帧"
-                       Margin="16,0,0,0" VerticalAlignment="Center"
-                       Foreground="{StaticResource TextSecondary}"/>
-        </StackPanel>
+        <!-- 地址 + 筛选：压成一行。地址改了要重新分析，所以和分析按钮同区。 -->
+        <DockPanel DockPanel.Dock="Top" Margin="0,6,0,0">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                <TextBlock Text="通道" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding ChannelText, UpdateSourceTrigger=PropertyChanged}" Width="34" Margin="4,0,8,0"/>
+                <TextBlock Text="请求 ID" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding RequestIdText, UpdateSourceTrigger=PropertyChanged}" Width="54" Margin="4,0,8,0"/>
+                <TextBlock Text="响应 ID" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding ResponseIdText, UpdateSourceTrigger=PropertyChanged}" Width="54" Margin="4,0,8,0"/>
+                <CheckBox Content="扩展帧" IsChecked="{Binding IsExtended}" Margin="4,0,8,0" VerticalAlignment="Center"/>
+                <!-- 功能寻址：留空 = 不解析。不配的话测试仪用 7DF 发的请求会被当
+                     背景流量丢掉，而 ECU 的响应仍被收下 → 报告凭空多出「孤立响应」。 -->
+                <TextBlock Text="功能 ID" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding FunctionalIdText, UpdateSourceTrigger=PropertyChanged}" Width="54" Margin="4,0,8,0"
+                         ToolTip="功能寻址（广播）CAN ID，如 7DF。留空 = 不按功能寻址解析"/>
+                <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Width="150"
+                         Margin="8,0,0,0" ToolTip="按服务名/结果/NRC 过滤"/>
+            </StackPanel>
+            <!-- ODX 状态靠右：它是「当前报告的定义来源」，不是操作入口。
+                 两个状态必须都显示：OdxStatusSummary 是「最近一次导入」，
+                 IsOdxLoaded 是「当前这份报告的快照」——刚导入 ODX 时两者不同，
+                 合并成一句会让用户以为旧报告已经用上新定义了（spec §11.4）。 -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <TextBlock Text="{Binding OdxStatusSummary}" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextSecondary}"/>
+                <TextBlock Text="{Binding IsOdxLoaded, StringFormat='｜当前报告 ODX 已加载：{0}'}"
+                           VerticalAlignment="Center" Margin="4,0,0,0"
+                           Foreground="{StaticResource TextSecondary}"/>
+                <TextBlock Text="{Binding OdxReloadHint}" VerticalAlignment="Center" Margin="8,0,0,0"
+                           Foreground="{StaticResource WarnText}"/>
+                <TextBlock Text="｜离线只读，发送 0 帧" VerticalAlignment="Center" Margin="8,0,0,0"
+                           Foreground="{StaticResource TextSecondary}"/>
+            </StackPanel>
+        </DockPanel>
 
-        <!-- ODX / 定义来源状态：离线页看不到在线输出日志，这里必须显式显示。 -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,4,0,0">
-            <TextBlock Text="{Binding OdxStatusSummary}" VerticalAlignment="Center"/>
-            <TextBlock Text="｜" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}"/>
-            <TextBlock Text="{Binding IsOdxLoaded, StringFormat='当前报告 ODX 已加载：{0}'}"
-                       VerticalAlignment="Center" Margin="4,0,0,0"/>
-            <TextBlock Text="{Binding OdxReloadHint}" Margin="12,0,0,0" VerticalAlignment="Center"
-                       Foreground="{StaticResource WarnText}"/>
-        </StackPanel>
+        <!-- 报告不完整：必须醒目，不能只藏在 Status 里 -->
+        <Border DockPanel.Dock="Top" Margin="0,4,0,0" Padding="6,3"
+                Background="{StaticResource WarnBg}"
+                Visibility="{Binding PartialBanner, Converter={StaticResource NullToVisibilityConverter}}">
+            <TextBlock Text="{Binding PartialBanner}" Foreground="{StaticResource WarnText}" TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- ═══ 结论带 ═══
+             固定 MaxHeight + 内部滚动。刷写日志的结论能到十几条，若让它自然撑开，
+             下面的表格会被推到窗口外——那就等于没改。 -->
+        <Expander DockPanel.Dock="Top" Margin="0,6,0,0" IsExpanded="True"
+                  Visibility="{Binding HasReportForConclusions, Converter={StaticResource BoolToVis}}">
+            <Expander.Header>
+                <TextBlock FontWeight="SemiBold">
+                    <Run Text="结论"/>
+                    <Run Text="{Binding ConclusionHeader, Mode=OneWay}"
+                         Foreground="{StaticResource TextSecondary}" FontWeight="Normal"/>
+                </TextBlock>
+            </Expander.Header>
+            <Border Padding="8,6" MaxHeight="220"
+                    Background="{StaticResource SurfaceSubtle}"
+                    BorderBrush="{StaticResource Border}" BorderThickness="1">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <TextBlock Text="{Binding SessionSummary}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding FlashSummary}" TextWrapping="Wrap"
+                                   Visibility="{Binding FlashSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <TextBlock Text="{Binding TimingSummary}" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextSecondary}"/>
+
+                        <!-- 无异常时也要有占位，留空会被读成「分析失败」 -->
+                        <TextBlock Text="{Binding NoFindingsHint}" Margin="0,4,0,0"
+                                   Foreground="{StaticResource Ok}"
+                                   Visibility="{Binding NoFindingsHint, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                        <ItemsControl ItemsSource="{Binding FindingRows}" Margin="0,4,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,2" Padding="6,4"
+                                            BorderBrush="{StaticResource Divider}" BorderThickness="0,0,0,1">
+                                        <StackPanel>
+                                            <TextBlock TextWrapping="Wrap">
+                                                <Run Text="{Binding Severity, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                <Run Text="  "/>
+                                                <Run Text="{Binding Message, Mode=OneWay}"/>
+                                            </TextBlock>
+                                            <!-- 「错误方是谁」由这一行回答：只陈述观测到的动作 -->
+                                            <TextBlock Text="{Binding ObservedActionText, StringFormat='直接动作：{0}'}"
+                                                       TextWrapping="Wrap"
+                                                       Visibility="{Binding ObservedActionText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                            <TextBlock Text="{Binding SuspectText}" TextWrapping="Wrap"
+                                                       Foreground="{StaticResource WarnText}"/>
+                                            <!-- 推断必须标出来，否则看起来和实测一样确定 -->
+                                            <TextBlock Text="（本条为推断，不是直接观测）"
+                                                       FontSize="11" Foreground="{StaticResource TextSecondary}"
+                                                       Visibility="{Binding IsInference, Converter={StaticResource BoolToVis}}"/>
+                                            <TextBlock Text="{Binding SuggestedNextCheck, StringFormat='下一步：{0}'}"
+                                                       TextWrapping="Wrap"
+                                                       Visibility="{Binding SuggestedNextCheck, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                            <ItemsControl ItemsSource="{Binding Unknowns}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding StringFormat='不可判定：{0}'}"
+                                                                   TextWrapping="Wrap" FontSize="11"
+                                                                   Foreground="{StaticResource TextSecondary}"/>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Expander>
 
         <!-- 筛选无命中：与“无匹配事务”区分（spec §11.4）。 -->
         <TextBlock DockPanel.Dock="Top" Margin="0,4,0,0"
@@ -52,94 +163,297 @@
                    Foreground="{StaticResource TextSecondary}"
                    Visibility="{Binding IsFilterEmpty, Converter={StaticResource BoolToVis}}"/>
 
-        <Grid>
+        <!-- ═══ 主从两栏 ═══
+             左：事务表。右：选中事务详情 / 报告统计两个 Tab。
+             改前右栏是一根长滚动条，报告统计和事务详情混在一起——
+             点一条事务要滚过 5 个无关区块才看得到详情。 -->
+        <Grid Margin="0,6,0,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="340"/>
+                <ColumnDefinition Width="*" MinWidth="320"/>
+                <ColumnDefinition Width="Auto"/>
+                <!-- 右栏可拖：固定宽度在窄屏放不下、宽屏又浪费。
+                     默认 340：再宽会挤掉左栏「服务」列的可用宽度。 -->
+                <ColumnDefinition Width="340" MinWidth="240" MaxWidth="1000"/>
             </Grid.ColumnDefinitions>
 
             <DataGrid ItemsSource="{Binding VisibleTransactions}"
                       SelectedItem="{Binding SelectedTransaction}"
-                      AutoGenerateColumns="False" IsReadOnly="True">
+                      AutoGenerateColumns="False" IsReadOnly="True"
+                      Grid.Column="0">
+                <!-- 列宽预算：固定列合计必须 < 左栏可用宽度（默认窗口 1100 − 右栏 340 − splitter）。
+                     超了会把「服务」列压到 MinWidth，最关键的一列反而不可读。
+                     DID / 降级原因 / 未知服务 不在这里重复——右栏「选中事务」已有完整信息。 -->
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="服务" Binding="{Binding Interpretation.ServiceDisplay}"/>
-                    <DataGridTextColumn Header="结果" Binding="{Binding FinalKind}"/>
-                    <DataGridTextColumn Header="pending" Binding="{Binding PendingCount}"/>
-                    <DataGridTextColumn Header="NRC" Binding="{Binding FinalNrc, StringFormat=0x{0:X2}}"/>
-                    <DataGridTextColumn Header="首次(ms)" Binding="{Binding FirstResponseMs, StringFormat=F3}"/>
-                    <DataGridTextColumn Header="总(ms)" Binding="{Binding TotalMs, StringFormat=F3}"/>
-                    <DataGridTextColumn Header="P2超限" Binding="{Binding ExceedsP2}"/>
-                    <DataGridTextColumn Header="歧义" Binding="{Binding IsAmbiguous}"/>
-                    <DataGridTextColumn Header="重复最终响应" Binding="{Binding HasDuplicateFinalResponse}"/>
-                    <DataGridTextColumn Header="DID" Binding="{Binding Interpretation.DidName}"/>
-                    <DataGridTextColumn Header="降级" Binding="{Binding Interpretation.DegradeReason}"/>
-                    <DataGridTextColumn Header="未知服务" Binding="{Binding Interpretation.IsUnknownService}"/>
+                    <DataGridTextColumn Header="时间(s)" Binding="{Binding FirstTimestamp, StringFormat=F3}" Width="64"/>
+                    <DataGridTextColumn Header="服务" Binding="{Binding Interpretation.ServiceDisplay}"
+                                        Width="*" MinWidth="90"/>
+                    <DataGridTextColumn Header="对象" Binding="{Binding TargetDisplay}" Width="80"/>
+                    <DataGridTextColumn Header="结果" Binding="{Binding FinalKindDisplay}" Width="72"/>
+                    <DataGridTextColumn Header="pending" Binding="{Binding PendingCount}" Width="52"/>
+                    <DataGridTextColumn Header="NRC" Binding="{Binding FinalNrc, StringFormat=0x{0:X2}}" Width="44"/>
+                    <!-- NRC 含义：光有 hex 用户不知道 0x33 和 0x22 的区别 -->
+                    <DataGridTextColumn Header="NRC 含义" Binding="{Binding NrcName}" Width="130"/>
+                    <DataGridTextColumn Header="首次(ms)" Binding="{Binding FirstResponseMs, StringFormat=F3}" Width="64"/>
+                    <DataGridTextColumn Header="总(ms)" Binding="{Binding TotalMs, StringFormat=F3}" Width="60"/>
+                    <!-- 三个布尔标记合成一列短码 + ToolTip：省宽度且不丢信息 -->
+                    <DataGridTextColumn Header="标记" Binding="{Binding FlagsDisplay}" Width="64">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="ToolTip" Value="{Binding FlagsTooltip}"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <!-- 未知服务 ≠ 异常（服务表不全），但必须能一眼分辨，否则会被当成失败 -->
+                    <DataGridTextColumn Header="未知服务" Binding="{Binding Interpretation.IsUnknownService}" Width="58"/>
                 </DataGrid.Columns>
             </DataGrid>
 
-            <ScrollViewer Grid.Column="1" Margin="8,0,0,0" VerticalScrollBarVisibility="Auto">
-            <StackPanel>
-                <TextBlock Text="计数（闭合等式）" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                <TextBlock Text="{Binding Report.Counts.Input, StringFormat='输入帧 {0}'}"/>
-                <TextBlock Text="{Binding Report.Counts.MatchedDiagnostic, StringFormat='匹配诊断 {0}'}"/>
-                <TextBlock Text="{Binding Report.Counts.NonDiagnostic, StringFormat='非诊断 {0}'}"/>
-                <TextBlock Text="{Binding Report.Counts.Noise, StringFormat='噪声 {0}'}"/>
-                <TextBlock Text="{Binding Report.Counts.UnsupportedInput, StringFormat='未支持 {0}'}"/>
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch" ResizeBehavior="PreviousAndNext"
+                          Background="{StaticResource Divider}"
+                          ShowsPreview="True"/>
 
-                <TextBlock Text="噪声（按 CAN ID）" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                <ItemsControl ItemsSource="{Binding Noise.TopIds}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock>
-                                <Run Text="0x"/><Run Text="{Binding Id, StringFormat=X3, Mode=OneWay}"/>
-                                <Run Text=" × "/><Run Text="{Binding Count, Mode=OneWay}"/>
-                            </TextBlock>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <TextBlock Text="聚合已截断（Top-N 不是全部 ID）"
-                           Foreground="{StaticResource WarnText}"
-                           Visibility="{Binding Noise.AggregationTruncated, Converter={StaticResource BoolToVis}}"/>
+            <!-- 右栏：两个 Tab，各自独立滚动。
+                 不再套外层 ScrollViewer——那会让 DataGrid 失去虚拟化。 -->
+            <TabControl Grid.Column="2" Margin="4,0,0,0" BorderThickness="1"
+                        BorderBrush="{StaticResource Border}">
+                <TabItem Header="选中事务">
+                    <Grid>
+                        <!-- 未选中时的空态：留白会被读成「详情加载失败」 -->
+                        <TextBlock Text="从左侧选择一条事务查看详情"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextSecondary}" FontStyle="Italic"
+                                   Visibility="{Binding SelectedTransaction, Converter={StaticResource InverseNullToVisibilityConverter}}"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      Visibility="{Binding SelectedTransaction, Converter={StaticResource NullToVisibilityConverter}}">
+                            <StackPanel Margin="8">
+                                <TextBlock Text="{Binding SelectedTransaction.Interpretation.ServiceDisplay}"
+                                           FontWeight="SemiBold" FontSize="14" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding SelectedTransaction.TargetDisplay, StringFormat='对象：{0}'}"
+                                           TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                <TextBlock Text="{Binding SelectedConclusion}" TextWrapping="Wrap"
+                                           Foreground="{StaticResource WarnText}" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding SelectedSessionAtTime, StringFormat='发生时会话：{0}'}"
+                                           TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                <!-- 可选字段一律绑「自带标签、空则 null」的 VM 属性。
+                                     用 StringFormat 拼标签时，null 会被格式化成
+                                     「最终 NRC：0x」或光秃秃的「DID：」——像加载失败。 -->
+                                <TextBlock Text="{Binding SelectedNrcLine}" TextWrapping="Wrap"
+                                           Visibility="{Binding SelectedNrcLine, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <TextBlock Text="{Binding SelectedNrcNameLine}" TextWrapping="Wrap"
+                                           Visibility="{Binding SelectedNrcNameLine, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <TextBlock Text="{Binding SelectedPendingLine}" TextWrapping="Wrap"
+                                           Visibility="{Binding SelectedPendingLine, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <TextBlock Text="{Binding SelectedTransaction.EchoCheckDisplay, StringFormat='校验强度：{0}'}"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding SelectedTransaction.TimingSource, StringFormat='时序来源：{0}'}"
+                                           TextWrapping="Wrap"/>
 
-                <TextBlock Text="无法成帧原因" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                <ItemsControl ItemsSource="{Binding Noise.Reasons}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock>
-                                <Run Text="{Binding Reason, Mode=OneWay}"/>
-                                <Run Text=" × "/><Run Text="{Binding Count, Mode=OneWay}"/>
-                            </TextBlock>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                                <!-- 「解释」标题只在有内容时出现：下面四行全为 null 时
+                                     留一个空标题等于暗示「解释加载失败」。 -->
+                                <TextBlock Text="解释" Style="{StaticResource SectionHeader}"
+                                           Visibility="{Binding SelectedDidNameLine, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <TextBlock Text="{Binding SelectedDidNameLine}" TextWrapping="Wrap"
+                                           Visibility="{Binding SelectedDidNameLine, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <TextBlock Text="{Binding SelectedDecodedValueLine}" TextWrapping="Wrap"
+                                           Visibility="{Binding SelectedDecodedValueLine, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <TextBlock Text="{Binding SelectedDegradeReasonLine}" TextWrapping="Wrap"
+                                           Visibility="{Binding SelectedDegradeReasonLine, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                <TextBlock Text="{Binding SelectedDegradeDetailLine}" TextWrapping="Wrap"
+                                           Visibility="{Binding SelectedDegradeDetailLine, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-                <TextBlock Text="响应校验失败 / 重复最终响应" Margin="0,8,0,0"/>
-                <TextBlock Text="{Binding Noise.ResponseValidationFailed}"/>
-                <TextBlock Text="{Binding Noise.DuplicateFinalResponses}"/>
-                <TextBlock Text="{Binding Report.OrphanResponses.Count, StringFormat='孤立响应 {0}'}"/>
+                                <TextBlock Text="不可判定项">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource SectionHeader}">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding SelectedTransaction.HasUnknowns}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <ItemsControl ItemsSource="{Binding SelectedTransaction.Unknowns}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding StringFormat='· {0}'}"
+                                                       Style="{StaticResource HintText}" Margin="0,1"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
 
-                <TextBlock Text="选中事务解释" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                <TextBlock Text="{Binding SelectedConclusion}" TextWrapping="Wrap"
-                           Foreground="{StaticResource WarnText}"/>
-                <TextBlock Text="{Binding SelectedTransaction.Interpretation.DidName, StringFormat='DID：{0}'}"
-                           TextWrapping="Wrap"/>
-                <TextBlock Text="{Binding SelectedTransaction.Interpretation.DecodedValue, StringFormat='解码值：{0}'}"
-                           TextWrapping="Wrap"/>
-                <TextBlock Text="{Binding SelectedTransaction.Interpretation.DegradeReason, StringFormat='降级原因：{0}'}"
-                           TextWrapping="Wrap"/>
-                <TextBlock Text="{Binding SelectedTransaction.Interpretation.DegradeDetail, StringFormat='降级详情：{0}'}"
-                           TextWrapping="Wrap"/>
+                                <TextBlock Text="原始证据" Style="{StaticResource SectionHeader}"/>
+                                <ItemsControl ItemsSource="{Binding SelectedEvidence}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <!-- 方向与分类必须显示：只看 hex 分不出哪条是请求、
+                                                 也看不出这条为什么进了噪声桶。 -->
+                                            <Grid Margin="0,1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Display}" FontFamily="Consolas"
+                                                           FontSize="11" TextWrapping="Wrap" Grid.Column="0"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </TabItem>
 
-                <TextBlock Text="原始证据" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                <ListBox ItemsSource="{Binding SelectedEvidence}" Height="160">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Display}" FontFamily="Consolas" FontSize="11"/>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </StackPanel>
-            </ScrollViewer>
+                <TabItem Header="报告">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="8">
+                            <TextBlock Text="计数（闭合等式）" Style="{StaticResource SectionHeader}" Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding Report.Counts.Input, StringFormat='输入帧 {0}'}"/>
+                            <TextBlock Text="{Binding Report.Counts.MatchedDiagnostic, StringFormat='匹配诊断 {0}'}"/>
+                            <TextBlock Text="{Binding Report.Counts.NonDiagnostic, StringFormat='非诊断 {0}'}"/>
+                            <TextBlock Text="{Binding Report.Counts.Noise, StringFormat='噪声 {0}'}"/>
+                            <TextBlock Text="{Binding Report.Counts.UnsupportedInput, StringFormat='未支持 {0}'}"/>
+                            <TextBlock Text="{Binding Report.Counts.Closes, StringFormat='闭合：{0}'}"
+                                       Foreground="{StaticResource TextSecondary}" FontSize="11"/>
+
+                            <!-- 问题帧：地址匹配但拼不成 PDU。这才是真正的「噪声」。 -->
+                            <TextBlock Text="问题帧（地址匹配但不可用）" Style="{StaticResource SectionHeader}"
+                                       Visibility="{Binding HasProblemFrames, Converter={StaticResource BoolToVis}}"/>
+                            <ItemsControl ItemsSource="{Binding ProblemFrameReasons}"
+                                          Visibility="{Binding HasProblemFrames, Converter={StaticResource BoolToVis}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock>
+                                            <Run Text="{Binding Reason, Mode=OneWay}"/>
+                                            <Run Text=" × "/><Run Text="{Binding Count, Mode=OneWay}"/>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- 背景流量：其它 ECU 的正常报文。默认收起——它不是问题，
+                                 但用户需要时能确认「总线当时忙不忙、有没有异常流量」。 -->
+                            <Expander Margin="0,8,0,0" IsExpanded="False"
+                                      Visibility="{Binding HasBusTraffic, Converter={StaticResource BoolToVis}}">
+                                <Expander.Header>
+                                    <StackPanel>
+                                        <TextBlock Text="其它 ECU 报文（背景流量）" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding BusTrafficSummary}"
+                                                   Foreground="{StaticResource TextSecondary}"
+                                                   FontSize="11" TextWrapping="Wrap"/>
+                                        <!-- 总线静默：刷写期间其它 ECU 报文集体消失，这是现象不是噪声 -->
+                                        <TextBlock Text="{Binding BusSilenceSummary}"
+                                                   Foreground="{StaticResource WarnText}"
+                                                   FontSize="11" TextWrapping="Wrap"
+                                                   Visibility="{Binding HasBusSilence, Converter={StaticResource BoolToVis}}"/>
+                                    </StackPanel>
+                                </Expander.Header>
+                                <ItemsControl ItemsSource="{Binding BusTrafficRows}" Margin="0,4,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,2">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="88"/>
+                                                    <ColumnDefinition Width="34"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding IdText}" FontFamily="Consolas" FontSize="11"/>
+                                                <!-- 断档或偶发用警告色：这两种才值得看 -->
+                                                <TextBlock Grid.Column="1" Text="{Binding PatternText}" FontSize="11">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding NeedsAttention}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{StaticResource WarnText}"/>
+                                                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <!-- 有断档时这里是分段明细，不是「首–末」概括 -->
+                                                <TextBlock Grid.Column="2" Text="{Binding Detail}" FontSize="11"
+                                                           TextWrapping="Wrap">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasGaps}" Value="True">
+                                                                    <Setter Property="Foreground" Value="{StaticResource WarnText}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Expander>
+
+                            <TextBlock Text="响应校验失败 / 重复最终响应 / 孤立响应"
+                                       Style="{StaticResource SectionHeader}"/>
+                            <TextBlock Text="{Binding Noise.ResponseValidationFailed}"/>
+                            <TextBlock Text="{Binding Noise.DuplicateFinalResponses}"/>
+                            <TextBlock Text="{Binding Report.OrphanResponses.Count, StringFormat='孤立响应 {0}'}"/>
+
+                            <!-- 孤立响应明细：只有计数说不清「是哪几条、什么时候来的」。 -->
+                            <TextBlock Text="孤立响应明细" Style="{StaticResource SectionHeader}"
+                                       Visibility="{Binding HasOrphanResponses, Converter={StaticResource BoolToVis}}"/>
+                            <ItemsControl ItemsSource="{Binding OrphanResponseRows}"
+                                          Visibility="{Binding HasOrphanResponses, Converter={StaticResource BoolToVis}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Display}" FontFamily="Consolas" FontSize="11"
+                                                   TextWrapping="Wrap"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- 重复最终响应明细：同一请求的第二个最终响应。 -->
+                            <TextBlock Text="重复最终响应明细" Style="{StaticResource SectionHeader}"
+                                       Visibility="{Binding HasDuplicateFinalResponses, Converter={StaticResource BoolToVis}}"/>
+                            <ItemsControl ItemsSource="{Binding DuplicateFinalResponseRows}"
+                                          Visibility="{Binding HasDuplicateFinalResponses, Converter={StaticResource BoolToVis}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Display}" FontFamily="Consolas" FontSize="11"
+                                                   TextWrapping="Wrap"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- 校验失败明细：只给总数等于没说清「哪里错了」 -->
+                            <TextBlock Text="校验失败明细" Style="{StaticResource SectionHeader}"
+                                       Visibility="{Binding HasValidationFailures, Converter={StaticResource BoolToVis}}"/>
+                            <ItemsControl ItemsSource="{Binding ValidationFailureRows}"
+                                          Visibility="{Binding HasValidationFailures, Converter={StaticResource BoolToVis}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Display}" TextWrapping="Wrap" FontSize="11"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- 传输警告明细：此前只在导出文件里有 -->
+                            <TextBlock Text="传输警告" Style="{StaticResource SectionHeader}"
+                                       Visibility="{Binding HasWarnings, Converter={StaticResource BoolToVis}}"/>
+                            <ItemsControl ItemsSource="{Binding WarningRows}"
+                                          Visibility="{Binding HasWarnings, Converter={StaticResource BoolToVis}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <!-- 必须绑 Display。绑 {Binding} 会对对象调 ToString()，
+                                             WarningSummaryRow 没重写它 → 用户看到的是类名重复 N 行。 -->
+                                        <TextBlock Text="{Binding Display}" TextWrapping="Wrap" FontSize="11"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
         </Grid>
     </DockPanel>
 </UserControl>

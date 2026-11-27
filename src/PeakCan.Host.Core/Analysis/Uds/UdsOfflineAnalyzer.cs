@@ -59,6 +59,21 @@ public sealed class UdsOfflineAnalyzer
             .ToArray();
         stages.Add("interpret");
 
+        // diagnose 之前再看一次取消：这一阶段会产出结论，半成品结论比没有更危险
+        // （用户会拿它当完整分析）。设计文档 §5 要求这条路径可达。
+        if (ct.IsCancellationRequested)
+            return Partial(request, ordered, classes, stages, "cancelled before diagnose", logStart, logEnd);
+
+        // diagnose：把「每个事务发生了什么」变成「这段诊断有几个问题」。
+        // 放在 interpret 之后、噪声归并之前——它只消费已解释的事务，
+        // 不改变帧分类，因此计数闭合等式不受影响。
+        // logEnd 与 ECU 时序决定未闭合请求的归因：日志在请求后还记了多久，
+        // 是区分「ECU 没回」与「日志没记到」的唯一可靠信号。
+        var diagnosis = new UdsFindingGenerator().Generate(interpreted, logEnd, timing);
+        var sessionTimeline = new UdsSessionStateTracker().Track(interpreted);
+        var flashFlow = new UdsFlashFlowAnalyzer().Analyze(interpreted);
+        stages.Add("diagnose");
+
         // 运输层用不了的帧必须在计数闭合前回填为噪声，但原因要区分：
         // 校验失败 → ResponseValidationFailed；孤儿/序号错误 → 运输原因本身。
         var validationFrames = new HashSet<int>(build.ValidationFailures.SelectMany(p => p.Evidence));
@@ -90,6 +105,10 @@ public sealed class UdsOfflineAnalyzer
 
         var counts = UdsFrameCounts.From(finalClasses, ordered.Length);
 
+        // 背景流量画像：把「其它 ECU 的正常周期报文」和「地址匹配但拼不成 PDU
+        // 的问题帧」分开。两者混在同一个 Top-20 列表里，用户看不出哪个该管。
+        var busTraffic = new UdsBusTrafficProfiler().Profile(ordered, finalClasses);
+
         return new UdsOfflineReport(
             request.ReportId,
             request.SourceId,
@@ -110,6 +129,14 @@ public sealed class UdsOfflineAnalyzer
             stages)
         {
             Timing = timing,
+            SessionTimeline = sessionTimeline,
+            FlashFlow = flashFlow.LooksLikeFlash ? flashFlow : null,
+            Observations = diagnosis.Observations,
+            Findings = diagnosis.Findings,
+            FindingLinks = diagnosis.Links,
+            ValidationFailures = build.ValidationFailureDetails,
+            DuplicateFinalResponsePdus = build.DuplicateFinalResponses,
+            BusTraffic = busTraffic,
         };
     }
 

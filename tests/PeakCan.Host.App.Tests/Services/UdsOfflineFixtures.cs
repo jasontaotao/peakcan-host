@@ -20,6 +20,33 @@ internal static class UdsOfflineFixtures
     /// <summary>无 ODX 的普通报告（AI 提示词测试用）。</summary>
     public static UdsOfflineReport ReportNoOdx() => Report();
 
+    /// <summary>
+    /// 用任意事务构造一份完整报告（导出 / 提示词测试要挑服务时用）。
+    /// 计数与噪声刻意保持闭合，避免这些测试被无关口径问题干扰。
+    /// </summary>
+    public static UdsOfflineReport BuildForTest(params UdsOfflineTransaction[] transactions)
+        => Build(transactions, isPartial: false, partialReason: null);
+
+    /// <summary>
+    /// 构造一份「非诊断 ID 列表被截断」的报告（spec §6.6 / §15.2 的标注测试用）。
+    /// </summary>
+    public static UdsOfflineReport BuildWithTruncation(bool truncated, int distinctIds)
+        => Build(Array.Empty<UdsOfflineTransaction>(), isPartial: false, partialReason: null)
+            with { Noise = Noise(truncated, distinctIds) };
+
+    private static UdsNoiseSummary Noise(bool truncated, int distinctIds)
+        => new(
+            TopIds: new[]
+            {
+                new UdsNoiseIdCount(0x200, false, 10, 0, 9),
+                new UdsNoiseIdCount(0x300, false, 5, 10, 14),
+            },
+            Reasons: Array.Empty<UdsNoiseReasonCount>(),
+            ResponseValidationFailed: 0,
+            DuplicateFinalResponses: 0,
+            AggregationTruncated: truncated,
+            DistinctNonDiagnosticIds: distinctIds);
+
     public static UdsOfflineReport ReportWithSensitiveData()
         => Build(
             transactions: new[] { SecurityAccessTransaction(), ReadDidTransaction() },
@@ -57,6 +84,47 @@ internal static class UdsOfflineFixtures
             transactions: Array.Empty<UdsOfflineTransaction>(),
             isPartial: true,
             partialReason: "cancelled at pair");
+
+    private static readonly UdsSessionInterval[] FindingsTimeline =
+    {
+        new(null, UdsSessionObservation.UnknownAtLogStart, 0.0, 0, 0.5, 1),
+        new(0x03, UdsSessionObservation.Confirmed, 0.5, 1, null, null),
+    };
+
+    private static readonly int[] FirstObservation = { 0 };
+
+    private static readonly UdsObservation[] FindingsObservations =
+    {
+        new("negative_response", 0, 2, 3, 0.2,
+            new UdsOperationFacts(0x2E, "WriteDataByIdentifier", null, null, null,
+                0xF190, null, null, null, 0x33, "SecurityAccessDenied"),
+            "WriteDataByIdentifier → 0x33"),
+    };
+
+    private static readonly string[] EcuRejectionUnknowns = { "ECU 拒绝该请求不证明拒绝不合理" };
+
+    private static readonly UdsFinding[] FindingsList =
+    {
+        new(
+            Code: "NEGATIVE_RESPONSE",
+            Severity: UdsFindingSeverity.Warn,
+            Message: "#1 WriteDataByIdentifier DID 0xF190 被拒绝：0x33 SecurityAccessDenied",
+            ObservedAction: UdsObservedAction.EcuRejected,
+            Suspect: UdsSuspect.ClientSequencing,
+            ObservationIndexes: FirstObservation,
+            SuggestedNextCheck: "检查此前同安全等级的 0x27 是否已完成",
+            IsInference: false,
+            Unknowns: EcuRejectionUnknowns),
+    };
+
+    /// <summary>带结论与会话时间线的报告（AI 提示词必须携带这两块）。</summary>
+    public static UdsOfflineReport ReportWithFindings()
+        => Report() with
+        {
+            SessionTimeline = FindingsTimeline,
+            Observations = FindingsObservations,
+            Findings = FindingsList,
+        };
 
     private static UdsOfflineReport Build(
         IReadOnlyList<UdsOfflineTransaction> transactions,

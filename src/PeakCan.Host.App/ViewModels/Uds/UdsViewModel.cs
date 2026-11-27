@@ -40,13 +40,29 @@ public sealed partial class UdsViewModel : ObservableObject
     /// <summary>Shared UDS log; all panels append here.</summary>
     public ObservableCollection<UdsLogLine> OutputLog { get; } = new();
 
-    /// <summary>「日志分析」页签在 TabControl 中的索引（DID/例程/DTC/刷写之后）。</summary>
-    public const int LogAnalysisTabIndex = 4;
+    /// <summary>
+    /// 「日志分析」页签在 TabControl 中的索引（DID/例程/DTC/刷写/通信参数之后）。
+    /// <para>
+    /// <b>这是硬编码索引，加/删页签会静默失效</b>（IsOnlineTab 会算错，在线控件
+    /// 在离线页仍然显示，且没有任何报错）。<c>UdsWindowLayoutTests</c> 有一条
+    /// 守卫测试按 XAML 里的实际顺序核对这个常量，移位时必然变红。
+    /// </para>
+    /// </summary>
+    public const int LogAnalysisTabIndex = 5;
+
+    /// <summary>「通信参数」页签索引。同样受上面那条守卫测试保护。</summary>
+    public const int TransportParamsTabIndex = 4;
 
     [ObservableProperty]
     private int _selectedTabIndex;
 
-    /// <summary>当前是否停留在在线页签。XAML 用它隐藏会话/安全访问/TesterPresent/通信参数/在线日志。</summary>
+    /// <summary>
+    /// 当前是否停留在在线页签。XAML 用它隐藏会话/安全访问/TesterPresent/在线日志。
+    /// <para>
+    /// 通信参数页签也算「在线」——它配的是在线诊断栈的地址与时序，
+    /// 在离线分析页没有意义，但也不是离线页，所以不隐藏它自己。
+    /// </para>
+    /// </summary>
     public bool IsOnlineTab => SelectedTabIndex != LogAnalysisTabIndex;
 
     public bool IsLogAnalysisTab => SelectedTabIndex == LogAnalysisTabIndex;

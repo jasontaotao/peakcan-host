@@ -37,7 +37,10 @@
 
 首版不包含：
 
-- 功能寻址、多 ECU 并行分析、CAN FD ISO-TP、DoIP。
+- ~~功能寻址~~、多 ECU 并行分析、CAN FD ISO-TP、DoIP。
+  <br/>**2026-11-27 更新：功能寻址已支持**（`UdsOfflineAddress.FunctionalId`），
+  见 [2026-11-26-uds-offline-diagnosis-depth-design.md](2026-11-26-uds-offline-diagnosis-depth-design.md) §8.5。
+  多 ECU 并行分析仍不支持——一份报告只描述一个请求/响应对。
 - 扩展/混合 UDS 寻址；首版仅支持 normal addressing。本文“扩展帧”仅指 29 位 CAN ID。
 - 大日志流式分析基础设施改造。
 - DTC 快照、扩展数据和完整 DTC 语义深读。
@@ -703,4 +706,6 @@ Handoff 载荷至少包含：
 - **共享 ODX**：当前报告不随共享数据库热更新；用户通过重新分析显式采用新定义。
 - **敏感日志**：SecurityAccess、DID 和刷写数据可能经多帧重组泄露，脱敏必须覆盖完整事务和原始帧输出，而非只替换界面摘要。
 - **AI 上下文串联**：复用现有对话并不等于可以复用其它日志证据；Handoff 必须携带报告身份，系统提示必须隔离无关 trace/DBC/NM 上下文。
-- **协议扩展**：功能寻址、多 ECU、CAN FD 和 DoIP 都需要各自独立的配对/重组规则与验收夹具，不在首版通过条件分支假装支持。
+- **协议扩展**：多 ECU、CAN FD 和 DoIP 都需要各自独立的配对/重组规则与验收夹具，不在首版通过条件分支假装支持。
+  <br/>**2026-11-27 更新**：功能寻址已单独落地（`UdsOfflineAddress.FunctionalId` + 分类器 `IsFunctional` 判定），
+  不再属于「假装支持」——它有独立契约和验收测试。多 ECU 仍不做。

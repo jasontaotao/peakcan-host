@@ -51,7 +51,10 @@ public sealed class UdsSessionTimingTracker
         if (tx.FinalKind != UdsFinalKind.Positive || tx.Responses.Count == 0) return false;
 
         var res = tx.Responses[^1].Payload;
-        if (res.Length < 6 || res[0] != SessionControlPositiveSid || res[1] != tx.Request.Payload[1])
+        // 回显比对用子功能低 7 位：请求 10 83（抑制位）的合法回显是 50 03。
+        // 用原始字节比会让这类请求学不到 P2/P2*，与校验器的口径也不一致。
+        var requested = (byte)(tx.Request.Payload[1] & UdsSubFunction.SubFunctionMask);
+        if (res.Length < 6 || res[0] != SessionControlPositiveSid || res[1] != requested)
             return false;
 
         var p2 = (res[2] << 8) | res[3];
