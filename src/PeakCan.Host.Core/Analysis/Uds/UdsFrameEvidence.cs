@@ -18,6 +18,28 @@ public sealed record UdsFrameEvidence(
     byte Dlc,
     byte[] Data)
 {
+    /// <summary>
+    /// 日志记录的方向。<c>null</c> = 日志没标（不是「未知就算请求」）。
+    /// spec §6.2 要求证据行保留它：只看 hex 分不出哪条是请求、哪条是响应。
+    /// </summary>
+    public string DirectionText => IsTransmit switch
+    {
+        true => "TX",
+        false => "RX",
+        null => "—",
+    };
+
+    /// <summary>
+    /// 最终分类桶。噪声帧要同时给出原因，否则「为什么这条不能用」又得回头猜。
+    /// </summary>
+    public string ClassText => Class switch
+    {
+        UdsFrameClass.MatchedDiagnostic => "诊断",
+        UdsFrameClass.Noise => NoiseReason is { } r ? $"噪声（{r}）" : "噪声",
+        UdsFrameClass.UnsupportedInput => "未支持",
+        _ => "非诊断",
+    };
+
     public string Display =>
-        $"{Index}  {Timestamp:F6}  ch{Channel}  0x{Id:X3}  {FrameKind}  {Convert.ToHexString(Data)}";
+        $"{Index}  {Timestamp:F6}  ch{Channel}  {DirectionText}  0x{Id:X3}  {ClassText}  {FrameKind}  {Convert.ToHexString(Data)}";
 }

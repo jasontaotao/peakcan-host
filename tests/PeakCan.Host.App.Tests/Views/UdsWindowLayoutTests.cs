@@ -139,4 +139,47 @@ public sealed class UdsWindowLayoutTests
             .ToString()
             .Should().NotContain(remnant, $"旧英文文案必须清理：{remnant}");
     }
+
+    /// <summary>
+    /// <b>页签索引守卫。</b>
+    /// <para>
+    /// <c>UdsViewModel.LogAnalysisTabIndex</c> 是硬编码数字，<c>IsOnlineTab</c> 全靠它。
+    /// 加/删/挪页签时它不会报错——只会静默变成「离线页仍显示在线控件」，
+    /// 或者在离线页发诊断请求。这条测试按 XAML 里的<b>实际顺序</b>核对常量，
+    /// 移位必然变红，逼着改的人同步更新。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Tab_index_constants_match_the_actual_tab_order()
+    {
+        var headers = UdsWindow().Descendants(P + "TabControl").Single()
+            .Elements(P + "TabItem")
+            .Select(t => (string?)t.Attribute("Header"))
+            .ToList();
+
+        headers.Should().NotBeEmpty();
+        UdsViewModel.LogAnalysisTabIndex.Should().BeLessThan(headers.Count,
+            "日志分析页签索引超出页签数量 = IsOnlineTab 永远算错");
+        headers[UdsViewModel.LogAnalysisTabIndex].Should()
+            .Be("日志分析", "LogAnalysisTabIndex 必须指向日志分析页签");
+
+        UdsViewModel.TransportParamsTabIndex.Should().BeLessThan(headers.Count);
+        headers[UdsViewModel.TransportParamsTabIndex].Should()
+            .Be("通信参数", "TransportParamsTabIndex 必须指向通信参数页签");
+    }
+
+    /// <summary>
+    /// 通信参数不能回到顶部 Expander：展开时它会把整个 TabControl 压扁。
+    /// </summary>
+    [Fact]
+    public void Transport_params_is_not_a_top_docked_expander()
+    {
+        var topExpanders = UdsWindow().Descendants(P + "Expander")
+            .Where(e => ((string?)e.Attribute("DockPanel.Dock")) == "Top")
+            .Select(e => (string?)e.Attribute("Header"))
+            .ToList();
+
+        topExpanders.Should().NotContain("通信参数",
+            "顶栏 Expander 展开后会压扁主区域；它必须是独立页签");
+    }
 }
