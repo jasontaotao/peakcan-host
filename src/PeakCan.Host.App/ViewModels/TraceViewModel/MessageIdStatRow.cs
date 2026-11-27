@@ -17,9 +17,14 @@ public sealed partial class MessageIdStatRow : ObservableObject
     [ObservableProperty]
     private string? _dbcName;
 
-    /// <summary>帧计数。</summary>
-    public long Count { get; init; }
+    /// <summary>
+    /// 帧计数。可变：统计面板刷新时若 ID 集合未变，原地更新数值而不是重建整表
+    /// （重建会产生 Clear + N 次 Add 的集合通知，5 Hz 下是纯浪费）。
+    /// </summary>
+    [ObservableProperty]
+    private long _count;
 
-    /// <summary>占总帧数百分比（0..100）。</summary>
-    public double Percent { get; init; }
+    /// <summary>占总帧数百分比（0..100）。可变理由同 <see cref="Count"/>。</summary>
+    [ObservableProperty]
+    private double _percent;
 }

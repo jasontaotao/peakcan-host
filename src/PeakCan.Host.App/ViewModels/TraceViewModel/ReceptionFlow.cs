@@ -77,7 +77,14 @@ public sealed partial class TraceViewModel
     {
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher == null) return Task.CompletedTask;
-        return dispatcher.InvokeAsync(() => AppendBatchCore(batch)).Task;
+
+        // 2026-11-27 P0：用 Background(4) 而不是默认 Normal(9) 投递。
+        // WPF 优先级 Normal(9) > Render(7) > Input(5) > Background(4)：
+        // 数据摄入若以 Normal 排队，会持续压过输入与绘制——用户点击进不来、
+        // 画面不刷新，表现就是"界面卡住但 CPU 不低"。降到 Background 后，
+        // 输入和渲染始终先得到处理；接收本身有 10k 有界通道兜底，晚一批无妨。
+        return dispatcher.InvokeAsync(() => AppendBatchCore(batch),
+            System.Windows.Threading.DispatcherPriority.Background).Task;
     }
 
     /// <summary>
@@ -90,6 +97,16 @@ public sealed partial class TraceViewModel
     /// </summary>
     internal void AppendBatchCore(IReadOnlyList<CanFrame> batch)
     {
+        // 2026-11-27 P0：先在普通列表里组装整批，最后**一次性**应用到 Entries。
+        //
+        // 旧实现每帧 Entries.Add + 淘汰时逐条 RemoveAt(0)，500 fps 下每批约 200 次
+        // CollectionChanged。DataGrid 每次都在 UI 线程同步做视图维护，而这些通知以
+        // DispatcherPriority.Normal 投递，优先级高于 Input(5)/Render(7)，于是输入与
+        // 绘制被长期饿死——"界面点不动、画面不刷新，但 CPU 单核繁忙"。
+        // 现在整批只发一条 Reset，通知次数与帧率解耦。
+        var appended = new List<TraceEntry>(batch.Count);
+        var pendingKeys = new List<TraceEntryKey>(batch.Count);
+
         foreach (var f in batch)
         {
             // Track per-message-ID counts (before any display filtering).
@@ -129,48 +146,77 @@ public sealed partial class TraceViewModel
             };
             // 新帧入列即按当前高亮规则求色（无规则 → -1）。
             entry.HighlightColorIndex = EvaluateHighlight(entry);
-            Entries.Add(entry);
-            // v1.2.11: register the just-appended entry so DbcDecodeBackgroundService
-            // can fill Decoded when it looks up the same CanFrame in DBC.
-            var pendingKey = new TraceEntryKey(
+            appended.Add(entry);
+            pendingKeys.Add(new TraceEntryKey(
                 f.Id.Raw,
                 f.Timestamp.TotalMicroseconds,
-                f.Channel.Handle);
-            _pendingDecode.GetOrAdd(pendingKey, _ => new System.Collections.Concurrent.ConcurrentQueue<TraceEntry>()).Enqueue(Entries[^1]);
-        }
-        while (Entries.Count > MaxRows)
-        {
-            var removed = Entries[0];
-            var removedKey = new TraceEntryKey(
-                removed.Id.Raw,
-                removed.Timestamp.TotalMicroseconds,
-                removed.Channel.Handle);
-            // FIFO 出列时同步清 pending map，避免长跑内存泄漏。
-            // 与 worker 的 TryCompletePending（同 _pendingPurgeGate 锁）互斥，
-            // 且仅当队头仍指向被移除行时才出列，防止同 key 后续帧被误删。
-            if (_pendingDecode.TryGetValue(removedKey, out var pendingQueue))
-            {
-                lock (_pendingPurgeGate)
-                {
-                    if (pendingQueue.TryPeek(out var pending) && ReferenceEquals(pending, removed))
-                    {
-                        pendingQueue.TryDequeue(out _);
-                        if (pendingQueue.IsEmpty)
-                            _pendingDecode.TryRemove(
-                                new KeyValuePair<TraceEntryKey, System.Collections.Concurrent.ConcurrentQueue<TraceEntry>>(removedKey, pendingQueue));
-                    }
-                }
-            }
-            // 标记已淘汰：解码 worker 看到后不再为这一行排队回填。
-            removed.MarkEvicted();
-            Entries.RemoveAt(0);
+                f.Channel.Handle));
         }
 
-        // 批次末：统计面板若展开则刷；状态文本重算。
-        if (StatsExpanded) RefreshStats();
+        // 淘汰数：入列后总数超出上限的部分，从**合并序列的头部**移除。
+        // 先消耗既有行；不足的部分再裁掉本批新追加的头部（单批就超限的场景，
+        // 例如 MaxRows=2 却一次来了 3 帧）。
+        var projectedCount = Entries.Count + appended.Count;
+        var removeCount = projectedCount > MaxRows ? projectedCount - MaxRows : 0;
+        var fromExisting = Math.Min(removeCount, Entries.Count);
+        var fromAppended = removeCount - fromExisting;
+
+        // 淘汰既有行的 pending 清理必须在移除前做（需要读到即将离开的行对象）。
+        for (var i = 0; i < fromExisting; i++)
+            PurgePendingFor(Entries[i]);
+
+        // 本批内被立即裁掉的头部帧：从未进入 Entries，直接丢弃即可。
+        // pendingKeys 与 appended 必须同步裁剪，否则后面的注册会错位。
+        if (fromAppended > 0)
+        {
+            appended.RemoveRange(0, fromAppended);
+            pendingKeys.RemoveRange(0, fromAppended);
+        }
+
+        // 一次性应用：头部移除 + 尾部追加，只发一条 Reset。
+        Entries.ApplyBatch(fromExisting, appended);
+
+        // v1.2.11: register the just-appended entries so DbcDecodeBackgroundService
+        // can fill Decoded when it looks up the same CanFrame in DBC.
+        for (var i = 0; i < appended.Count; i++)
+            _pendingDecode.GetOrAdd(pendingKeys[i], _ => new System.Collections.Concurrent.ConcurrentQueue<TraceEntry>())
+                .Enqueue(appended[i]);
+
+        // 批次末：统计面板若展开则刷（限流到 2 Hz，见 StatsFlow）；状态文本重算。
+        if (StatsExpanded) RefreshStatsThrottled();
         UpdateStatusText();
 
         // 视图的自动滚动入口：每批一次，而不是每行一次。
         BatchAppended?.Invoke();
+    }
+
+    /// <summary>
+    /// 从 <see cref="_pendingDecode"/> 里清掉一条即将被 FIFO 淘汰的行。
+    /// 与 worker 的 <see cref="TryCompletePending"/>（同 <c>_pendingPurgeGate</c> 锁）
+    /// 互斥，且仅当队头仍指向该行时才出列，防止同 key 后续帧被误删。
+    /// </summary>
+    private void PurgePendingFor(TraceEntry removed)
+    {
+        var removedKey = new TraceEntryKey(
+            removed.Id.Raw,
+            removed.Timestamp.TotalMicroseconds,
+            removed.Channel.Handle);
+
+        if (_pendingDecode.TryGetValue(removedKey, out var pendingQueue))
+        {
+            lock (_pendingPurgeGate)
+            {
+                if (pendingQueue.TryPeek(out var pending) && ReferenceEquals(pending, removed))
+                {
+                    pendingQueue.TryDequeue(out _);
+                    if (pendingQueue.IsEmpty)
+                        _pendingDecode.TryRemove(
+                            new KeyValuePair<TraceEntryKey, System.Collections.Concurrent.ConcurrentQueue<TraceEntry>>(removedKey, pendingQueue));
+                }
+            }
+        }
+
+        // 标记已淘汰：解码 worker 看到后不再为这一行排队回填。
+        removed.MarkEvicted();
     }
 }

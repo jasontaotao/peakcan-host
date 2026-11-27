@@ -20,10 +20,34 @@ public sealed partial class TraceViewModel
     /// 每行经 DBC 解析 <see cref="MessageIdStatRow.DbcName"/>（无则空）。
     /// 收起不刷；展开即刷；批次末（StatsExpanded 时）由 <c>AppendBatchCore</c> 调用。
     /// </summary>
+    /// <summary>
+    /// 统计面板最短刷新间隔。面板是给人看的 Top-20 榜单，5 Hz（每批）重建毫无意义：
+    /// 每次都要对全部不同 ID 排序 + Clear + 最多 20 次 Add（21 条集合通知）。
+    /// 500 ms 已是人眼可辨的实时感上限。
+    /// </summary>
+    private static readonly TimeSpan StatsRefreshInterval = TimeSpan.FromMilliseconds(500);
+
+    private DateTime _lastStatsRefreshUtc = DateTime.MinValue;
+
     private void RefreshStats()
     {
         var doc = _dbcService?.Current;
         var stats = GetMessageIdStats(topN: 20);
+
+        // ① ID 集合与顺序都没变 → 只原地更新数值，不碰集合（零集合通知）。
+        //    这是稳态下的常见路径：Top-20 榜单在几百毫秒内通常完全不变。
+        if (StatsRows.Count == stats.Count && SameIdsInOrder(stats))
+        {
+            for (var i = 0; i < stats.Count; i++)
+            {
+                var row = StatsRows[i];
+                row.Count = stats[i].Count;
+                row.Percent = stats[i].Percent;
+            }
+            return;
+        }
+
+        // ② 集合变了（新 ID 上榜 / 排序变化）→ 重建。这条路只在真正需要时走。
         StatsRows.Clear();
         foreach (var s in stats)
         {
@@ -40,6 +64,29 @@ public sealed partial class TraceViewModel
                 Percent = s.Percent,
             });
         }
+    }
+
+    /// <summary>统计行的 ID 序列是否与最新快照逐一对应（顺序敏感，因为榜单按计数排序）。</summary>
+    private bool SameIdsInOrder(IReadOnlyList<MessageIdStat> stats)
+    {
+        for (var i = 0; i < stats.Count; i++)
+        {
+            if (!string.Equals(StatsRows[i].IdHex, stats[i].IdHex, StringComparison.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// 批次末调用：限流到 <see cref="StatsRefreshInterval"/>。
+    /// 面板收起时直接不刷（原行为），展开时也不超过 2 Hz。
+    /// </summary>
+    private void RefreshStatsThrottled()
+    {
+        var now = DateTime.UtcNow;
+        if (now - _lastStatsRefreshUtc < StatsRefreshInterval) return;
+        _lastStatsRefreshUtc = now;
+        RefreshStats();
     }
 
     /// <summary>底栏 Expander 展开瞬间立即刷一次。</summary>

@@ -78,7 +78,7 @@ public sealed partial class TraceViewModel : ObservableObject
     /// <see cref="AppendBatchAsync"/>; reads from any thread are safe
     /// because the DataGrid marshals binding reads to the UI thread.
     /// </summary>
-    public ObservableCollection<TraceEntry> Entries { get; } = new();
+    public BatchObservableCollection<TraceEntry> Entries { get; } = new();
 
     /// <summary>
     /// FIFO trim threshold. When <see cref="Entries"/>.Count exceeds this

@@ -137,7 +137,14 @@ internal static class DispatcherExtensions
             {
                 // Discard the DispatcherOperation: the caller is
                 // fire-and-forget by design.
-                _ = appDispatcher.InvokeAsync(action);
+                //
+                // 2026-11-27 P0：显式用 Background(4) 而非默认 Normal(9)。
+                // 本方法是所有 ~30Hz 数据刷新（SignalViewModel / DBC 解码回填 /
+                // J1939 事件 / 统计）的统一入口。以 Normal 排队时，持续的数据
+                // 任务会压过 Input(5) 与 Render(7)——界面点不动、画面不刷新。
+                // 这些刷新都是"尽力而为"的最新值覆盖，晚一个滴答无副作用。
+                _ = appDispatcher.InvokeAsync(action,
+                    System.Windows.Threading.DispatcherPriority.Background);
                 return;
             }
         }
