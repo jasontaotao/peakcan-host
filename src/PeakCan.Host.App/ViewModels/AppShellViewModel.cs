@@ -78,12 +78,15 @@ public sealed partial class AppShellViewModel : ObservableObject, IConnectSettin
             {
                 return AvailableChannels[0].Handle;
             }
-            // 遍历所有 provider，取第一个有默认值的 handle
+            // 遍历所有 provider，取第一个非零的默认 handle。
+            // 0 表示"该厂商无设备"，不能因为排在前面就短路掉后面的厂商。
             foreach (var provider in _deviceProviders)
             {
-                var devices = provider.EnumerateDevices();
-                if (devices.Count > 0)
-                    return devices[0].DefaultHandle;
+                foreach (var device in provider.EnumerateDevices())
+                {
+                    if (device.DefaultHandle != 0)
+                        return device.DefaultHandle;
+                }
             }
             return 0; // 无可用硬件
         }

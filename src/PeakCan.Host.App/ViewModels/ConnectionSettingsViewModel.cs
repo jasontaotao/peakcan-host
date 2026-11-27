@@ -82,7 +82,10 @@ public partial class ConnectionSettingsViewModel : ObservableObject
         _logger = logger ?? NullLogger<ConnectionSettingsViewModel>.Instance;
 
         Devices = providers.SelectMany(p => p.EnumerateDevices()).ToList();
-        if (Devices.Count > 0)
+        // 默认选中真正有通道的设备。provider 顺序是 PEAK 在前，
+        // 直接取第一项会让只插 ZLG 的用户默认落在空 PEAK 上。
+        SelectedDevice = Devices.FirstOrDefault(d => d.Channels.Count > 0);
+        if (SelectedDevice is null && Devices.Count > 0)
         {
             SelectedDevice = Devices[0];
         }

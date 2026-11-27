@@ -114,6 +114,16 @@ public sealed class ZlgChannelEnumerator : IChannelEnumerator
             _logger.LogWarning(ex, "ZLG enumeration failed unexpectedly");
         }
 
+        if (result.Count == 0 && LastDiagnostic is null)
+        {
+            // 空结果本身是正常状态，但对用户没有可操作性：区分"没插""被占用"
+            // "驱动/插件缺失"需要现场提示，否则只能看到一句"没有设备"。
+            LastDiagnostic =
+                "未发现 ZLG 设备：请确认 USB 已连接、ZLG 驱动已安装，"
+                + "并完全退出 ZCANPRO/CANTest 等会占用设备的程序；"
+                + "若已占用，重启本程序后再试。";
+        }
+
         _logger.LogInformation("ZLG enumeration complete: {Count} channels", result.Count);
         return result;
     }

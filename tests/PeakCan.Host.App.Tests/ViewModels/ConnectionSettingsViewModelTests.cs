@@ -70,6 +70,29 @@ public sealed class ConnectionSettingsViewModelTests
     }
 
     [Fact]
+    public void Ctor_SelectsFirstDeviceWithChannels_WhenLeadingDeviceHasNone()
+    {
+        var sink = Substitute.For<IConnectSettingsSink>();
+        sink.AvailableChannels.Returns(Array.Empty<ChannelInfo>());
+        var empty = FakeDevice() with
+        {
+            Id = "peak-usb-fd",
+            Channels = Array.Empty<ChannelDescriptor>(),
+            DefaultHandle = 0,
+        };
+        var present = FakeDevice() with { Id = "zlg-usbcan-fd" };
+
+        var vm = new ConnectionSettingsViewModel(
+            new ICanDeviceProvider[] { new FakeProvider(empty), new FakeProvider(present) },
+            sink,
+            NullLogger<ConnectionSettingsViewModel>.Instance);
+
+        vm.SelectedDevice!.Id.Should().Be("zlg-usbcan-fd",
+            "the user has a ZLG box plugged in; selecting an absent PEAK entry " +
+            "initializes the PEAK driver and blocks ZLG");
+    }
+
+    [Fact]
     public void ChannelHint_IsNull_WhenChannelsExist()
     {
         var sink = Substitute.For<IConnectSettingsSink>();

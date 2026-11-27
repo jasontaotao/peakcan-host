@@ -6,58 +6,81 @@ using PeakCan.Host.Core;
 namespace PeakCan.Host.Infrastructure.Peak;
 
 /// <summary>
-/// PEAK-SDK implementation of <see cref="IChannelEnumerator"/>. Probes
-/// PCAN-USB channels 1–16 (handles 0x51–0x60) and returns those that
-/// responded to <c>PCANBasic.Initialize</c>.
+/// PEAK-SDK implementation of <see cref="IChannelEnumerator"/>. Asks the
+/// driver which channels are attached via <c>PCAN_ATTACHED_CHANNELS</c>.
 /// <para>
-/// <b>Why 16?</b> PEAK supports up to 16 USB channels per driver
-/// instance. The MVP only uses channel 1 (0x51), but enumerating all
-/// 16 future-proofs the UI for multi-channel setups.
+/// <b>Never call <c>PCANBasic.Initialize</c> here.</b> Field observation:
+/// after a PEAK channel has been initialized in this process, the ZLG
+/// kernel plugin reports no device (<c>ZCAN_OpenDevice</c> returns 0) until
+/// the app restarts. Enumerating is therefore kept read-only so opening the
+/// connection dialog cannot trigger that state. The exact driver-level
+/// mechanism is not proven; the read-only rule is the safe invariant either way.
 /// </para>
 /// </summary>
 public sealed partial class PeakChannelEnumerator : IChannelEnumerator
 {
-    private readonly ILogger<PeakChannelEnumerator> _logger;
+    /// <summary>PCAN supports at most 16 attached channels per query.</summary>
+    private const int MaxAttachedChannels = 16;
 
-    /// <summary>
-    /// PEAK PCAN-USB channel handles. 0x51 = PCAN_USBBUS1, 0x52 =
-    /// PCAN_USBBUS2, ..., 0x60 = PCAN_USBBUS16.
-    /// </summary>
-    private static readonly ushort[] UsbHandles =
-        Enumerable.Range(0x51, 16).Select(h => (ushort)h).ToArray();
+    private readonly ILogger<PeakChannelEnumerator> _logger;
 
     public PeakChannelEnumerator(ILogger<PeakChannelEnumerator> logger)
     {
         _logger = logger;
     }
 
+    /// <inheritdoc />
+    public string? LastDiagnostic { get; private set; }
+
     public IReadOnlyList<ChannelInfo> Enumerate()
     {
+        LastDiagnostic = null;
         var result = new List<ChannelInfo>();
-        foreach (var handle in UsbHandles)
+        try
         {
-            try
+            var attached = new TPCANChannelInformation[MaxAttachedChannels];
+            var status = PCANBasic.GetValue(
+                PCANBasic.PCAN_NONEBUS, TPCANParameter.PCAN_ATTACHED_CHANNELS, attached);
+            if (!PeakErrorMapper.IsOk((uint)status))
             {
-                var status = PCANBasic.Initialize(handle, TPCANBaudrate.PCAN_BAUD_1M);
-                if (PeakErrorMapper.IsOk((uint)status))
+                // 老驱动可能不支持 PCAN_ATTACHED_CHANNELS；此时 PEAK 会"看不到设备"。
+                // 把原因交给 UI，而不是静默返回空列表。
+                LastDiagnostic = $"PEAK 通道查询失败（{status}）：请确认 PEAK 驱动版本";
+                LogQueryFailed(_logger, status.ToString());
+                return result;
+            }
+
+            foreach (var channel in attached)
+            {
+                if (channel.channel_handle == 0) break;
+
+                // 0 = unavailable, 2 = occupied by another application.
+                // 1 = available, 3 = open in PCAN-View (still initiable).
+                if (channel.channel_condition is PCANBasic.PCAN_CHANNEL_UNAVAILABLE
+                    or PCANBasic.PCAN_CHANNEL_OCCUPIED)
                 {
-                    result.Add(new ChannelInfo(handle, $"PCAN-USB {handle - 0x50}"));
-                    // Uninitialize immediately so we don't hold the channel.
-                    try { PCANBasic.Uninitialize(handle); }
-                    catch { /* best-effort */ }
+                    continue;
                 }
+
+                var name = string.IsNullOrWhiteSpace(channel.device_name)
+                    ? $"PCAN-USB {channel.channel_handle - 0x50}"
+                    : channel.device_name;
+                result.Add(new ChannelInfo(channel.channel_handle, name));
             }
-            catch (Exception ex)
-            {
-                // DllNotFound, EntryPointNotFound, etc. on machines
-                // without the PEAK driver. Log once and stop probing.
-                LogProbeFailed(_logger, handle, ex);
-                break;
-            }
+        }
+        catch (Exception ex)
+        {
+            // DllNotFound, EntryPointNotFound, etc. on machines without the
+            // PEAK driver. Report once; the provider still emits its device entry.
+            LastDiagnostic = $"PEAK 枚举失败：{ex.GetType().Name}（可能未安装 PEAK 驱动）";
+            LogProbeFailed(_logger, ex);
         }
         return result;
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Channel probe failed on handle 0x{Handle:X2}, stopping enumeration")]
-    private static partial void LogProbeFailed(ILogger logger, ushort handle, Exception error);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "PEAK attached-channel query returned {Status}; treating as no hardware")]
+    private static partial void LogQueryFailed(ILogger logger, string status);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "PEAK enumeration failed; treating as no hardware")]
+    private static partial void LogProbeFailed(ILogger logger, Exception error);
 }

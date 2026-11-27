@@ -36,7 +36,11 @@ public partial class AppHostBuilder
         services.AddSingleton<WindowHostService>(sp =>
             new WindowHostService(sp.GetRequiredService<WindowStateStore>()));
         // P1-1: device providers — one per supported CAN-box family (PEAK + ZLG).
-        services.AddSingleton<ICanDeviceProvider, PeakCanDeviceProvider>();
+        // 显式绑定 PeakChannelEnumerator：不能让它解析到复合枚举器，
+        // 否则 ZLG 通道会被算进 PEAK 设备，只插 ZLG 时界面仍默认选 PEAK。
+        services.AddSingleton<ICanDeviceProvider>(sp => new PeakCanDeviceProvider(
+            sp.GetRequiredService<PeakChannelEnumerator>(),
+            sp.GetRequiredService<ILogger<PeakCanDeviceProvider>>()));
         // 显式绑定具体 ZlgChannelEnumerator：ZlgCanDeviceProvider 只需要 ZLG 自己的通道，
         // 不能解析复合枚举器（否则会把 PEAK 通道也列进 ZLG 设备）。
         services.AddSingleton<ICanDeviceProvider>(sp => new ZlgCanDeviceProvider(

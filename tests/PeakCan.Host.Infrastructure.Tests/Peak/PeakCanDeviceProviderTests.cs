@@ -67,8 +67,9 @@ public sealed class PeakCanDeviceProviderTests
         // Assert
         devices.Should().HaveCount(1);
         devices[0].Channels.Should().BeEmpty();
-        devices[0].DefaultHandle.Should().Be(PeakCanDeviceProvider.PcanUsbFdFirstHandle,
-            "with no enumerated hardware the provider falls back to the first PEAK handle");
+        devices[0].DefaultHandle.Should().Be(0,
+            "no enumerated hardware must not advertise a usable handle; " +
+            "a fake 0x51 makes the ZLG-only user think a PEAK box is connected");
     }
 
     [Fact]
