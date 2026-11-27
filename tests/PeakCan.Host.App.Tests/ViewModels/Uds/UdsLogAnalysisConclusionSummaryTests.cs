@@ -57,7 +57,8 @@ public sealed class UdsLogAnalysisConclusionSummaryTests
     }
 
     private static UdsLogAnalysisViewModel Vm(params ReplayFrame[] frames)
-        => new(new StubLoader(frames),
+    {
+        var vm = new UdsLogAnalysisViewModel(new StubLoader(frames),
             new UdsOfflineAnalyzer(),
             new NoopHandoff(),
             new NoopDialogs(),
@@ -65,6 +66,10 @@ public sealed class UdsLogAnalysisConclusionSummaryTests
             new DidDatabase(userJsonPath: null),
             new RoutineDatabase(userJsonPath: null),
             new OdxImportViewModel(new NoopOdxService()));
+        // 产品默认通道为空（必须显式选择）；本文件用例统一按通道 1 跑。
+        vm.ChannelText = "1";
+        return vm;
+    }
 
     private static ReplayFrame Frame(double ts, uint id, params byte[] data)
         => new(ts, id, (byte)data.Length, data, FrameFlags.None, IsExtended: false,

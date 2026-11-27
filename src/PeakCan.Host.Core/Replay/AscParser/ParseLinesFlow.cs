@@ -1,6 +1,7 @@
 // src/PeakCan.HIL.Core/Replay/AscParser/ParseLinesFlow.cs — v3.49.0 MINOR (T2 of 3)
-// Q3: TryParseDateHeader + LineIsSectionDelimiter delegate 到 AscFormat；
-// 主 for-loop 保留在自己 (拥有 50%-malformed invariant + sort + frames list collection)。
+// Q3: TryParseDateHeader + LineIsSectionDelimiter delegate 到 AscFormat。
+// 流式改造：不再先把整个文件读成 List<string>（68MB 的日志会多占约 140MB
+// 托管内存，32 位宿主里直接把峰值推到 GC 抖动区），改为边读边解析。
 
 using System.Globalization;
 
@@ -8,39 +9,36 @@ namespace PeakCan.Host.Core.Replay;
 
 public static partial class AscParser
 {
-    // Flow B: ParseLines dispatcher + main pass with section-delimiter skip
-    // (v1.4.0 MINOR + v3.18.0 PATCH + earlier).
-    // v3.49.0 Q3: Date 解析与 section-delimiter 识别 delegate 到 AscFormat。
-    private static (List<ReplayFrame> frames, DateTime? origin, bool timestampsAreAbsolute) ParseLines(
-        List<string> lines)
+    // Flow B: 单遍流式解析。date/base 头与数据行在同一遍里处理，
+    // 语义与旧的两遍实现一致（旧实现先扫一遍只为了拿 header）。
+    private static async Task<(List<ReplayFrame> frames, DateTime? origin, bool timestampsAreAbsolute)>
+        ParseStreamAsync(StreamReader reader, int capacityHint, CancellationToken ct)
     {
-        var frames = new List<ReplayFrame>(capacity: lines.Count);
+        var frames = new List<ReplayFrame>(capacity: capacityHint);
         int malformedCount = 0;
         int dataLineCount = 0;
 
         DateTime? origin = null;
         bool timestampsAreAbsolute = false;
-        for (int i = 0; i < lines.Count; i++)
-        {
-            var line = lines[i].Trim();
-            if (line.StartsWith("date ", StringComparison.Ordinal))
-            {
-                origin = AscFormat.TryParseDateHeader(line);
-            }
-            else if (line.StartsWith("base ", StringComparison.Ordinal))
-            {
-                timestampsAreAbsolute = line.Contains("absolute", StringComparison.OrdinalIgnoreCase);
-            }
-        }
+        var lineNumber = 0;
 
-        for (int i = 0; i < lines.Count; i++)
+        string? raw;
+        while ((raw = await reader.ReadLineAsync(ct).ConfigureAwait(false)) != null)
         {
-            var raw = lines[i];
+            lineNumber++;
             var line = raw.Trim();
             if (line.Length == 0) continue;
             if (line.StartsWith("//", StringComparison.Ordinal)) continue;
-            if (line.StartsWith("date ", StringComparison.Ordinal)) continue;
-            if (line.StartsWith("base ", StringComparison.Ordinal)) continue;
+            if (line.StartsWith("date ", StringComparison.Ordinal))
+            {
+                origin = AscFormat.TryParseDateHeader(line);
+                continue;
+            }
+            if (line.StartsWith("base ", StringComparison.Ordinal))
+            {
+                timestampsAreAbsolute = line.Contains("absolute", StringComparison.OrdinalIgnoreCase);
+                continue;
+            }
             if (line.StartsWith("internal events", StringComparison.Ordinal)) continue;
             if (AscFormat.LineIsSectionDelimiter(line)) continue;
 
@@ -52,7 +50,7 @@ public static partial class AscParser
             else
             {
                 malformedCount++;
-                LogSkippedLine(_logger, i + 1, raw, reason);
+                LogSkippedLine(_logger, lineNumber, raw, reason);
             }
         }
 
@@ -69,5 +67,16 @@ public static partial class AscParser
 
         frames.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
         return (frames, origin, timestampsAreAbsolute);
+    }
+
+    /// <summary>
+    /// 预估帧数用于预分配。按每帧约 100 字节估算，上限 200 万帧，
+    /// 避免超大/畸形文件一次预分配过大数组。
+    /// </summary>
+    private static int EstimateFrameCapacity(Stream stream)
+    {
+        if (!stream.CanSeek) return 1024;
+        var guess = stream.Length / 100;
+        return (int)Math.Clamp(guess, 16, 2_000_000);
     }
 }

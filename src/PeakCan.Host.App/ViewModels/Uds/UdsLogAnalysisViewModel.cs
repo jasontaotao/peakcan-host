@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PeakCan.Host.App.Services.Uds;
 using PeakCan.Host.Core.Analysis.Uds;
+using PeakCan.Host.Core.Replay;
 using PeakCan.Host.Core.Uds.Database;
 using PeakCan.HIL.Core;
 
@@ -133,7 +134,15 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     /// </para>
     /// </summary>
     [ObservableProperty] private string _functionalIdText = "";
-    [ObservableProperty] private string _channelText = "1";
+    /// <summary>
+    /// 通道输入。默认留空——必须显式选择。
+    /// <para>
+    /// 默认填 1 会静默按通道 1 解析：真实日志的诊断流量在通道 2 时，
+    /// 结果是 0 事务且全部进背景流量，用户完全看不出是通道选错了。
+    /// 留空时第一次分析只读取日志、填充下拉选项并提示选择，不产生结论。
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private string _channelText = "";
     [ObservableProperty] private bool _isExtended;
     [ObservableProperty] private string _status = "未选择文件";
     [ObservableProperty] private bool _isBusy;
@@ -142,7 +151,35 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     [ObservableProperty] private UdsOfflineTransaction? _selectedTransaction;
     [ObservableProperty] private string _filterText = "";
 
+    /// <summary>
+    /// 零事务时「地址/通道可能填错」的可执行提示。
+    /// <para>
+    /// 真实案例：正向刷写日志的 63 万帧全在通道 2，界面按通道 1 解析，
+    /// 结果 0 事务、全部进背景流量——用户完全看不出是通道选错了。
+    /// </para>
+    /// <para>
+    /// <b>只陈述事实并提供一键切换，不自动改用户输入：</b>自动换通道等于替用户
+    /// 猜测他要分析哪条总线，切错了比不切更难发现。
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private string? _addressHint;
+
+    /// <summary>建议切换到的通道（字符串，直接可填入输入框）。</summary>
+    [ObservableProperty] private string? _suggestedChannelText;
+
+    public string? SuggestedChannelAction
+        => SuggestedChannelText is null ? null : $"改用通道 {SuggestedChannelText} 重新分析";
+
+    partial void OnSuggestedChannelTextChanged(string? value)
+        => OnPropertyChanged(nameof(SuggestedChannelAction));
+
     public ObservableCollection<UdsOfflineTransaction> VisibleTransactions { get; } = new();
+
+    /// <summary>
+    /// 日志里实际出现的通道（加载后填充，供通道下拉选择）。
+    /// 选项只来自文件事实；仍允许手动输入，兼容只分析其中一个通道的场景。
+    /// </summary>
+    public ObservableCollection<string> AvailableChannels { get; } = new();
     public ObservableCollection<UdsFrameEvidence> SelectedEvidence { get; } = new();
 
     public UdsNoiseSummary? Noise => Report?.Noise;
@@ -488,6 +525,15 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     [RelayCommand]
     private Task Analyze() => AnalyzeAsync();
 
+    /// <summary>按提示切换通道并立即重新分析（用户点击即显式同意，不是静默改动）。</summary>
+    [RelayCommand]
+    private async Task ApplySuggestedChannel()
+    {
+        if (SuggestedChannelText is null) return;
+        ChannelText = SuggestedChannelText;
+        await AnalyzeAsync();
+    }
+
     [RelayCommand]
     private void Cancel() => _cts?.Cancel();
 
@@ -516,6 +562,8 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         SelectedEvidence.Clear();
         IsBusy = true;
         IsPartial = false;
+        AddressHint = null;
+        SuggestedChannelText = null;
         Status = "分析中…";
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
@@ -523,10 +571,28 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         try
         {
             var path = FilePath;
-            var address = ParseAddress();
             Status = "读取文件中…";
-            var frames = await _loader.LoadAsync(path, cts.Token).ConfigureAwait(true);
+            // 解析必须显式放到线程池：File.OpenRead 打开的是同步 FileStream，
+            // ReadLineAsync 可能整段同步完成，于是几十 MB 的解析会一直占用调用线程——
+            // WPF 里就是 UI 线程，界面卡死数秒、CPU 单核跑满，用户看到的就是「系统卡死」。
+            // 注意：不要给 Task.Run 传 token——预取消时它会直接返回取消任务，
+            // 跳过加载，后面就得不到「部分报告」（分析器本身才会按取消语义出 partial）。
+            var frames = await Task.Run(() => _loader.LoadAsync(path, cts.Token))
+                .ConfigureAwait(true);
             if (generation != _analysisGeneration) return;
+            UpdateAvailableChannels(frames.Frames);
+
+            // 通道未选：只读日志、列出实际通道，不出结论。
+            // 不能退回默认通道 1——那正是「通道 2 有数据、界面静默 0 事务」的来源。
+            if (string.IsNullOrWhiteSpace(ChannelText))
+            {
+                Status = frames.Frames.Count == 0
+                    ? "日志为空：没有任何 CAN 帧"
+                    : $"已读取日志：通道 {string.Join("、", AvailableChannels)}。请选择通道后再分析。";
+                return;
+            }
+
+            var address = ParseAddress();
             Status = "分析中…";
             var request = new UdsOfflineAnalysisRequest(
                 Guid.NewGuid(),
@@ -548,6 +614,7 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
             Report = report;
             IsPartial = report.IsPartial;
             RefreshVisible();
+            UpdateAddressHint(address, frames.Frames, report);
             Status = report.IsPartial
                 ? $"部分报告：{report.PartialReason}"
                 : report.Transactions.Count == 0
@@ -626,6 +693,9 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         IsPartial = false;
         IsBusy = false;
         FilterText = "";
+        AddressHint = null;
+        SuggestedChannelText = null;
+        AvailableChannels.Clear();
         Status = "未选择文件";
     }
 
@@ -693,6 +763,86 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
             .ToHashSet();
         foreach (var evidence in Report.Evidence.Where(e => indices.Contains(e.Index)))
             SelectedEvidence.Add(evidence);
+    }
+
+    /// <summary>
+    /// 用日志里出现的通道刷新下拉选项。内容不变时不重填。
+    /// <para>
+    /// <b>必须保留用户已输入的通道：</b>可编辑 ComboBox 在 ItemsSource 重建时
+    /// 会把 Text 清空并通过双向绑定写回 VM——打开另一份通道集合不同的日志时，
+    /// 用户选好的通道会凭空消失，本次分析直接变成「请选择通道」。
+    /// </para>
+    /// </summary>
+    private void UpdateAvailableChannels(IReadOnlyList<ReplayFrame> frames)
+    {
+        var channels = frames
+            .Select(f => f.Channel)
+            .Distinct()
+            .OrderBy(c => c)
+            .Select(c => c.ToString(CultureInfo.InvariantCulture))
+            .ToArray();
+
+        if (AvailableChannels.SequenceEqual(channels)) return;
+
+        var current = ChannelText;
+        AvailableChannels.Clear();
+        foreach (var channel in channels)
+            AvailableChannels.Add(channel);
+        // 控件清空 Text 后可能已把 ChannelText 写回空串，这里恢复用户的输入。
+        if (ChannelText != current)
+            ChannelText = current;
+    }
+
+    /// <summary>
+    /// 零事务时归因「是不是通道选错了」。
+    /// <para>
+    /// 判据不是「哪个通道帧最多」（多总线录制时最忙的往往是背景流量），而是
+    /// <b>你填的这几个 ID 实际出现在哪个通道</b>——这是事实，不受流量分布影响。
+    /// </para>
+    /// <list type="bullet">
+    /// <item>只有一个通道出现这些 ID 且不是当前通道 → 提示 + 一键切换；</item>
+    /// <item>多个通道都出现 → 只列事实，不建议切换（可能是多路录制，换错总线更难发现）；</item>
+    /// <item>部分报告（用户取消）→ 不提示：事务为空是因为分析没跑完，不是通道选错。</item>
+    /// </list>
+    /// </summary>
+    private void UpdateAddressHint(
+        UdsOfflineAddress address,
+        IReadOnlyList<ReplayFrame> frames,
+        UdsOfflineReport report)
+    {
+        AddressHint = null;
+        SuggestedChannelText = null;
+        if (report.IsPartial || report.Transactions.Count > 0) return;
+
+        var ids = new HashSet<uint> { address.RequestId, address.ResponseId };
+        if (address.FunctionalId is { } fid) ids.Add(fid);
+
+        var hits = new Dictionary<ushort, int>();
+        foreach (var frame in frames)
+        {
+            if (frame.IsExtended != address.IsExtended || !ids.Contains(frame.Id)) continue;
+            hits[frame.Channel] = hits.GetValueOrDefault(frame.Channel) + 1;
+        }
+
+        if (hits.Count == 0) return;
+
+        if (hits.Count == 1)
+        {
+            var (channel, count) = hits.Single();
+            if (channel == address.Channel) return;
+            AddressHint =
+                $"未识别到诊断事务：你填的地址只在通道 {channel} 上出现（{count:N0} 帧），"
+                + $"当前按通道 {address.Channel} 解析。";
+            SuggestedChannelText = channel.ToString(CultureInfo.InvariantCulture);
+            return;
+        }
+
+        var detail = string.Join("、", hits
+            .OrderByDescending(kv => kv.Value)
+            .Select(kv => $"通道 {kv.Key}（{kv.Value:N0} 帧）"));
+        AddressHint =
+            $"未识别到诊断事务：你填的地址出现在 {detail}；当前按通道 {address.Channel} 解析，"
+            + "请确认要分析的是哪一路总线。";
     }
 
     private void RefreshVisible()

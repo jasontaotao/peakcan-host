@@ -132,4 +132,56 @@ public sealed class UdsOfflineAnalyzerTests
         report.LogStart.Should().Be(0);
         report.LogEnd.Should().Be(0);
     }
+
+    // ---------- 29 位扩展帧 ----------
+
+    private static ReplayFrame ExtFrameAt(double ts, uint id, params byte[] data)
+        => new(ts, id, (byte)data.Length, data, PeakCan.HIL.Core.FrameFlags.None,
+               IsExtended: true, Channel: 1, IsTransmit: null);
+
+    private static UdsOfflineAnalysisRequest ExtRequest(UdsOfflineAddress addr, params ReplayFrame[] frames)
+        => new(Guid.NewGuid(), "src", "C:/logs/ext.asc", frames, addr, DefaultDiag(), "test-engine");
+
+    [Fact]
+    public void Extended_29bit_physical_request_response_pairing_works()
+    {
+        // 典型 29 位诊断对：18DA10F1（测试仪 → ECU）/ 18DAF110（ECU → 测试仪）
+        var addr = new UdsOfflineAddress(Channel: 1, RequestId: 0x18DA10F1,
+            ResponseId: 0x18DAF110, IsExtended: true);
+        var report = new UdsOfflineAnalyzer().Analyze(ExtRequest(addr,
+            ExtFrameAt(0, 0x18DA10F1, 0x02, 0x10, 0x01),
+            ExtFrameAt(0.01, 0x18DAF110, 0x06, 0x50, 0x01, 0x00, 0x32, 0x01, 0xF4)));
+
+        report.Counts.NonDiagnostic.Should().Be(0);
+        report.Transactions.Should().ContainSingle();
+        report.Transactions[0].FinalKind.Should().Be(UdsFinalKind.Positive);
+    }
+
+    [Fact]
+    public void Extended_29bit_functional_request_pairs_with_physical_response()
+    {
+        // 广播请求 18DB33F1（TesterPresent），ECU 在物理响应 ID 上回答。
+        var addr = new UdsOfflineAddress(Channel: 1, RequestId: 0x18DA10F1,
+            ResponseId: 0x18DAF110, IsExtended: true, FunctionalId: 0x18DB33F1);
+        var report = new UdsOfflineAnalyzer().Analyze(ExtRequest(addr,
+            ExtFrameAt(0, 0x18DB33F1, 0x02, 0x3E, 0x00),
+            ExtFrameAt(0.01, 0x18DAF110, 0x02, 0x7E, 0x00)));
+
+        report.Counts.NonDiagnostic.Should().Be(0, "功能寻址请求不能被当成背景流量");
+        report.Transactions.Should().ContainSingle();
+        report.Transactions[0].FinalKind.Should().Be(UdsFinalKind.Positive);
+    }
+
+    [Fact]
+    public void Same_numeric_id_on_standard_frame_is_not_matched_to_29bit_address()
+    {
+        // 数值相同但帧格式不同就是另一条报文；地址匹配必须同时看 IsExtended。
+        var addr = new UdsOfflineAddress(Channel: 1, RequestId: 0x18DA10F1,
+            ResponseId: 0x18DAF110, IsExtended: true);
+        var report = new UdsOfflineAnalyzer().Analyze(ExtRequest(addr,
+            FrameAt(0, 0x18DA10F1, 0x02, 0x10, 0x01))); // IsExtended: false
+
+        report.Counts.NonDiagnostic.Should().Be(1);
+        report.Transactions.Should().BeEmpty();
+    }
 }

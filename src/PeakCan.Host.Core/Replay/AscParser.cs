@@ -73,24 +73,18 @@ public static partial class AscParser
             ? stream
             : new CountingStream(stream, options.MaxFileSizeBytes);
 
-        // Read all lines
-        var lines = new List<string>();
+        // 单遍流式解析：不再把整个文件读成 List<string>。
         try
         {
             using var reader = new StreamReader(effective, leaveOpen: true);
-            string? line;
-            while ((line = await reader.ReadLineAsync(ct).ConfigureAwait(false)) != null)
-            {
-                lines.Add(line);
-            }
+            var (frames, _, _) = await ParseStreamAsync(reader, EstimateFrameCapacity(effective), ct)
+                .ConfigureAwait(false);
+            return frames;
         }
         catch (Exception ex) when (ex is not ReplayException)
         {
             throw new ReplayLoadException("Failed to read ASC stream", ex);
         }
-
-        var (frames, _, _) = ParseLines(lines);
-        return frames;
     }
 
     /// <summary>
@@ -149,23 +143,17 @@ public static partial class AscParser
             ? stream
             : new CountingStream(stream, options.MaxFileSizeBytes);
 
-        var lines = new List<string>();
         try
         {
             using var reader = new StreamReader(effective, leaveOpen: true);
-            string? line;
-            while ((line = await reader.ReadLineAsync(ct).ConfigureAwait(false)) != null)
-            {
-                lines.Add(line);
-            }
+            var (frames, origin, absolute) = await ParseStreamAsync(
+                reader, EstimateFrameCapacity(effective), ct).ConfigureAwait(false);
+            return new AscParseResult(frames, origin, absolute);
         }
         catch (Exception ex) when (ex is not ReplayException)
         {
             throw new ReplayLoadException("Failed to read ASC stream", ex);
         }
-
-        var (frames, origin, absolute) = ParseLines(lines);
-        return new AscParseResult(frames, origin, absolute);
     }
 
     private static readonly char[] WhitespaceSeparators = { ' ', '\t' };

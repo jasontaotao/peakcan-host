@@ -48,16 +48,20 @@
         <DockPanel DockPanel.Dock="Top" Margin="0,6,0,0">
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
                 <TextBlock Text="通道" VerticalAlignment="Center"/>
-                <TextBox Text="{Binding ChannelText, UpdateSourceTrigger=PropertyChanged}" Width="34" Margin="4,0,8,0"/>
+                <!-- 可编辑下拉：选项来自加载后统计到的实际通道，也允许手动输入。 -->
+                <ComboBox Text="{Binding ChannelText, UpdateSourceTrigger=PropertyChanged}"
+                          ItemsSource="{Binding AvailableChannels}" IsEditable="True"
+                          Width="60" Margin="4,0,8,0"
+                          ToolTip="日志里实际出现的通道；也可直接输入"/>
                 <TextBlock Text="请求 ID" VerticalAlignment="Center"/>
-                <TextBox Text="{Binding RequestIdText, UpdateSourceTrigger=PropertyChanged}" Width="54" Margin="4,0,8,0"/>
+                <TextBox Text="{Binding RequestIdText, UpdateSourceTrigger=PropertyChanged}" Width="72" Margin="4,0,8,0"/>
                 <TextBlock Text="响应 ID" VerticalAlignment="Center"/>
-                <TextBox Text="{Binding ResponseIdText, UpdateSourceTrigger=PropertyChanged}" Width="54" Margin="4,0,8,0"/>
+                <TextBox Text="{Binding ResponseIdText, UpdateSourceTrigger=PropertyChanged}" Width="72" Margin="4,0,8,0"/>
                 <CheckBox Content="扩展帧" IsChecked="{Binding IsExtended}" Margin="4,0,8,0" VerticalAlignment="Center"/>
                 <!-- 功能寻址：留空 = 不解析。不配的话测试仪用 7DF 发的请求会被当
                      背景流量丢掉，而 ECU 的响应仍被收下 → 报告凭空多出「孤立响应」。 -->
                 <TextBlock Text="功能 ID" VerticalAlignment="Center"/>
-                <TextBox Text="{Binding FunctionalIdText, UpdateSourceTrigger=PropertyChanged}" Width="54" Margin="4,0,8,0"
+                <TextBox Text="{Binding FunctionalIdText, UpdateSourceTrigger=PropertyChanged}" Width="72" Margin="4,0,8,0"
                          ToolTip="功能寻址（广播）CAN ID，如 7DF。留空 = 不按功能寻址解析"/>
                 <Grid Margin="8,0,0,0">
                     <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Width="150"
@@ -98,6 +102,24 @@
                            Foreground="{StaticResource TextSecondary}"/>
             </StackPanel>
         </DockPanel>
+
+        <!-- 零事务且通道明显选错：点名数据实际所在的通道，并给一键切换。
+             不自动改用户输入——切错总线比不切更难发现。 -->
+        <Border DockPanel.Dock="Top" Margin="0,4,0,0" Padding="6,3"
+                Background="{StaticResource WarnBg}"
+                BorderBrush="{StaticResource WarnBorder}" BorderThickness="1"
+                Visibility="{Binding AddressHint, Converter={StaticResource NullToVisibilityConverter}}">
+            <!-- 用 DockPanel 而不是横向 StackPanel：横向 StackPanel 以无限宽度测量，
+                 TextWrapping 失效，窗口变窄时按钮会被裁到可视区外。 -->
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="{Binding SuggestedChannelAction}"
+                        Command="{Binding ApplySuggestedChannelCommand}"
+                        Padding="6,2" Margin="12,0,0,0" VerticalAlignment="Center"
+                        Visibility="{Binding SuggestedChannelText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                <TextBlock Text="{Binding AddressHint}" Foreground="{StaticResource WarnText}"
+                           TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
 
         <!-- 报告不完整：必须醒目，不能只藏在 Status 里 -->
         <Border DockPanel.Dock="Top" Margin="0,4,0,0" Padding="6,3"

@@ -87,6 +87,75 @@ public sealed class UdsLogAnalysisViewLayoutTests
             "提示必须在开始输入后消失，否则会压在输入的文字上");
     }
 
+    /// <summary>
+    /// 通道必须是可编辑下拉框（选项来自日志实际通道），不是纯手敲输入框。
+    /// </summary>
+    [Fact]
+    public void Channel_input_is_an_editable_combo_box()
+    {
+        var doc = LoadXaml("src", "PeakCan.Host.App", "Views", "UdsLogAnalysisView.xaml");
+
+        var combo = doc.Descendants(P + "ComboBox")
+            .SingleOrDefault(c => (((string?)c.Attribute("Text")) ?? "")
+                .Contains("ChannelText", System.StringComparison.Ordinal));
+
+        combo.Should().NotBeNull("通道输入必须提供下拉选择");
+        ((string?)combo!.Attribute("IsEditable")).Should().Be("True", "同时要允许手动输入未出现过的通道");
+        ((string?)combo.Attribute("ItemsSource")).Should().Be("{Binding AvailableChannels}",
+            "选项来自加载后统计到的实际通道");
+    }
+
+    /// <summary>
+    /// 地址输入框必须容纳 8 位十六进制（29 位扩展帧）。
+    /// 54px 时最后一个字符会被裁掉，用户会以为输入没生效或只支持 11 位。
+    /// </summary>
+    [Fact]
+    public void Address_id_boxes_fit_eight_hex_digits()
+    {
+        var doc = LoadXaml("src", "PeakCan.Host.App", "Views", "UdsLogAnalysisView.xaml");
+        string[] bindings = { "RequestIdText", "ResponseIdText", "FunctionalIdText" };
+
+        var boxes = doc.Descendants(P + "TextBox")
+            .Where(t => bindings.Any(b => (((string?)t.Attribute("Text")) ?? "")
+                .Contains(b, System.StringComparison.Ordinal)))
+            .ToList();
+
+        boxes.Should().HaveCount(3, "请求/响应/功能 ID 三个输入框都必须检查");
+
+        foreach (var box in boxes)
+        {
+            var width = double.Parse((string?)box.Attribute("Width") ?? "0",
+                System.Globalization.CultureInfo.InvariantCulture);
+            width.Should().BeGreaterThanOrEqualTo(72,
+                "29 位 ID 是 8 位十六进制，输入框至少要显示完整 8 个字符");
+        }
+    }
+
+    /// <summary>
+    /// 通道误配提示条必须用 DockPanel：横向 StackPanel 以无限宽度测量，
+    /// <c>TextWrapping</c> 失效，窗口收窄时右侧的一键切换按钮会被裁掉。
+    /// </summary>
+    [Fact]
+    public void Address_hint_banner_wraps_text_and_keeps_the_action_visible()
+    {
+        var doc = LoadXaml("src", "PeakCan.Host.App", "Views", "UdsLogAnalysisView.xaml");
+
+        var hint = doc.Descendants(P + "TextBlock")
+            .Single(t => (((string?)t.Attribute("Text")) ?? "").Contains("AddressHint", System.StringComparison.Ordinal));
+
+        ((string?)hint.Attribute("TextWrapping")).Should().Be("Wrap",
+            "提示文案较长，窗口变窄时必须能换行");
+
+        var panel = hint.Ancestors(P + "DockPanel").First();
+        var button = panel.Elements(P + "Button")
+            .SingleOrDefault(b => (((string?)b.Attribute("Command")) ?? "")
+                .Contains("ApplySuggestedChannelCommand", System.StringComparison.Ordinal));
+
+        button.Should().NotBeNull("一键切换按钮必须在提示条内，且命令名与 VM 一致");
+        ((string?)button!.Attribute("DockPanel.Dock")).Should().Be("Right",
+            "按钮固定在右侧，文字换行不会把它挤出可视区");
+    }
+
     [Fact]
     public void Analysis_view_exposes_required_commands()
     {
@@ -96,6 +165,8 @@ public sealed class UdsLogAnalysisViewLayoutTests
         commands.Should().Contain("{Binding OpenLogCommand}");
         commands.Should().Contain("{Binding AnalyzeCommand}");
         commands.Should().Contain(c => c != null && c.Contains("Export"));
+        // 通道误配提示的按钮：命令名写错时 WPF 静默失败，点了没反应。
+        commands.Should().Contain("{Binding ApplySuggestedChannelCommand}");
     }
 
     [Fact]

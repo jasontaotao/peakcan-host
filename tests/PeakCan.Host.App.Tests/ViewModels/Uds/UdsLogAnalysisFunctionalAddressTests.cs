@@ -58,7 +58,8 @@ public sealed class UdsLogAnalysisFunctionalAddressTests
             IsExtended: false, Channel: 1, IsTransmit: true);
 
     private static UdsLogAnalysisViewModel Vm(UdsTransportSettingsStore? settings, params ReplayFrame[] frames)
-        => new(new StubLoader(frames),
+    {
+        var vm = new UdsLogAnalysisViewModel(new StubLoader(frames),
             new UdsOfflineAnalyzer(),
             new NoopHandoff(),
             new NoopDialogs(),
@@ -67,6 +68,10 @@ public sealed class UdsLogAnalysisFunctionalAddressTests
             new RoutineDatabase(userJsonPath: null),
             new OdxImportViewModel(new NoopOdxService()),
             settings);
+        // 产品默认通道为空（必须显式选择）；本文件用例统一按通道 1 跑。
+        vm.ChannelText = "1";
+        return vm;
+    }
 
     /// <summary>
     /// 不配功能 ID 时，功能广播请求被丢掉、它的响应变成孤儿——这是**已知的**行为，
