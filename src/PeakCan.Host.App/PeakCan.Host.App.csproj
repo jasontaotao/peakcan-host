@@ -149,6 +149,19 @@
     <Error Text="zlgcan.dll is x86-only; publish with -r win-x86 (got '$(RuntimeIdentifier)')." />
   </Target>
 
+  <!-- 单文件发布也必须保留松散的 ZLG 原生运行库；否则插件 DLL 被打进 bundle，
+       dll_cfg.ini 却留在发布目录，ZCAN_OpenDevice 会再次找不到型号插件。 -->
+  <Target Name="VerifyZlgPublishRuntime" AfterTargets="Publish">
+    <Error Condition="!Exists('$(PublishDir)zlgcan.dll')"
+           Text="ZLG publish layout is broken: missing loose zlgcan.dll beside the app." />
+    <Error Condition="!Exists('$(PublishDir)kerneldlls\dll_cfg.ini')"
+           Text="ZLG publish layout is broken: missing kerneldlls/dll_cfg.ini." />
+    <Error Condition="!Exists('$(PublishDir)kerneldlls\USBCANFD.dll')"
+           Text="ZLG publish layout is broken: missing kerneldlls/USBCANFD.dll." />
+    <Error Condition="!Exists('$(PublishDir)zlgcan License.txt')"
+           Text="ZLG publish layout is broken: missing the vendor license." />
+  </Target>
+
   <!-- Task 17: ship GB/T 27930 node templates (charger + BMS) with the app.
        Content (not None) so the items flow transitively through
        ProjectReference into test/CLI outputs — NodeConfigLibrary loads them

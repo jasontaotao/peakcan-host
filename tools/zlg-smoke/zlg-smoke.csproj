@@ -18,7 +18,16 @@
     <Compile Include="..\..\src\PeakCan.Host.Infrastructure\Zlg\ZlgNative.cs" Link="ZlgNative.cs" />
     <None Include="..\..\src\PeakCan.Host.Infrastructure\zlgcan.dll"
           Link="zlgcan.dll"
-          CopyToOutputDirectory="PreserveNewest" />
+          CopyToOutputDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true" />
+    <None Include="..\..\src\PeakCan.Host.Infrastructure\kerneldlls\**"
+          Link="kerneldlls\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true" />
+    <None Include="..\..\src\PeakCan.Host.Infrastructure\zlgcan License.txt"
+          Link="zlgcan License.txt"
+          CopyToOutputDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true" />
   </ItemGroup>
 
 </Project>

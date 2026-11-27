@@ -5,15 +5,20 @@ PeakCan-Host WPF app.
 
 ## Files
 
-- `PeakCan.Host.exe` — single-file self-contained Windows binary
-  (~64 MB compressed, v0.2.0; was ~66 MB at v0.1.0). The .NET 10
-  runtime is embedded; no separate runtime install is required.
+- `PeakCan.Host.exe` — managed single-file self-contained Windows binary.
+  The .NET 10 runtime is embedded; no separate runtime install is required.
+- `zlgcan.dll` and `kerneldlls/` — ZLG native runtime, deliberately kept
+  outside the single-file bundle via `ExcludeFromSingleFile`. The complete
+  directory is required: `ZCAN_OpenDevice` reads `kerneldlls/dll_cfg.ini`
+  and loads the model-specific kernel DLL beside it.
+- `zlgcan License.txt` — required vendor redistribution notice.
 - `PeakCan.Host.pdb` — debug symbols (sourcelink + portable PDB)
   for crash analysis. Not needed at runtime.
 - `PeakCan.Host.Core.pdb` / `PeakCan.Host.Infrastructure.pdb` —
   debug symbols for the support assemblies. The actual Core /
-  Infrastructure DLLs are bundled inside `PeakCan.Host.exe` via
-  `IncludeNativeLibrariesForSelfExtract`.
+  Infrastructure managed DLLs are bundled inside `PeakCan.Host.exe`.
+
+Distribute the complete publish directory, not only `PeakCan.Host.exe`.
 
 ## Build command
 

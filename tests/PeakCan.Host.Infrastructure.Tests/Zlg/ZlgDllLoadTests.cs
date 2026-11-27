@@ -63,6 +63,38 @@ public sealed class ZlgDllLoadTests
         }
     }
 
+    [Fact]
+    public void BundledKernelDlls_Contain200URuntime()
+    {
+        var kernelDir = Path.Combine(AppContext.BaseDirectory, "kerneldlls");
+        var configPath = Path.Combine(kernelDir, "dll_cfg.ini");
+
+        File.Exists(configPath).Should().BeTrue(
+            "ZCAN_OpenDevice(41, ...) requires the vendor kernel-plugin configuration");
+        File.Exists(Path.Combine(kernelDir, "USBCANFD.dll")).Should().BeTrue(
+            "device type 41 maps to kerneldlls/USBCANFD.dll");
+        File.Exists(Path.Combine(kernelDir, "devices_property", "usbcanfd-200u.xml")).Should().BeTrue(
+            "the matching device-property payload must ship with the kernel plugin");
+        File.ReadAllText(configPath).Should().Contain(
+            "USBCANFD.dll 41 32 1", "the vendor config must map USBCANFD-200U to its kernel DLL");
+    }
+
+    [Fact]
+    public void BundledUsbCanFdKernelDll_IsX86()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "kerneldlls", "USBCANFD.dll");
+        File.Exists(path).Should().BeTrue($"expected bundled kernel DLL at {path}");
+        ReadPeMachine(path).Should().Be(0x014C, "USBCANFD.dll must match the x86 host");
+    }
+
+    [Fact]
+    public void BundledZlgLicense_Exists()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "zlgcan License.txt");
+        File.Exists(path).Should().BeTrue(
+            "the vendor binary-redistribution license must ship beside zlgcan.dll");
+    }
+
     private static ushort ReadPeMachine(string path)
     {
         using var stream = File.OpenRead(path);

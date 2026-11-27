@@ -8,8 +8,9 @@
 1. 已安装 ZLG USBCANFD 驱动（设备管理器里能看到设备）。
 2. 设备已插好，总线已接好（监听需要有其他节点发帧才能看到数据）。
 3. 关闭 PeakCan.Host 以及其他占用该 CAN 盒的程序。
-4. 只需要 `zlg-smoke.exe`（32 位单文件，已内嵌 `zlgcan.dll`）。
-   如需替换 DLL，把 x86 的 `zlgcan.dll` 放到同目录，会优先使用同目录文件。
+4. 必须保留完整发布目录：`zlg-smoke.exe`、`zlgcan.dll`、`kerneldlls\` 和
+   `zlgcan License.txt`。`ZCAN_OpenDevice` 会按 `kerneldlls\dll_cfg.ini` 加载型号插件，
+   只复制 exe 或 `zlgcan.dll` 会导致设备打开失败。
 
 ## 运行
 
@@ -63,12 +64,23 @@ zlg-smoke.exe --type 41 --dev 0 --idx 0 --fd --listen 5s > smoke3.txt 2>&1
 ```bash
 dotnet publish tools/zlg-smoke -c Release -r win-x86 \
     --self-contained true \
-    -p:PublishSingleFile=true \
-    -p:IncludeNativeLibrariesForSelfExtract=true \
+    -p:PublishSingleFile=false \
     -o artifacts/zlg-smoke/
 ```
 
-发布产物是单个 `zlg-smoke.exe`（`zlgcan.dll` 已内嵌，运行时自解压）。
+发布产物是目录形式。分发时必须打包整个目录，保留 `zlgcan.dll` 与
+`kerneldlls\` 的相对位置；不要只分发 `zlg-smoke.exe`。
+
+## 运行库来源与配对
+
+当前匹配运行库来自 `BmsDUC-v2.5`：其 `zlgcan.dll` 与 Host 原有文件完全一致，
+因此只补入配套插件，没有混用新版 DLL。关键文件指纹：
+
+- `zlgcan.dll`（2024-06-06）SHA256：`BA3CF47DC56443F55EA4968C991F9E733273C89D5B4CBDCB8E7097D38BBCAD60`
+- `kerneldlls/USBCANFD.dll`（2024-12-19）SHA256：`661CB18B7C588A8F8B6DF88D752802392C8C0B18766B6707235A67DAB7F44A9A`
+
+`zlgcan.dll` 与 `kerneldlls` 必须作为一套运行库同步更新；不要从不同版本包中
+单独替换其中一个文件。官方许可必须随二进制一起分发。
 
 ## 输出示例（正常枚举到 200U）
 

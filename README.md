@@ -156,7 +156,9 @@ dotnet publish src/PeakCan.Host.App -c Release -r win-x86 \
 artifacts/win-x86/PeakCan.Host.exe
 ```
 
-输出是一个约 66 MB 的单个 `.exe`，包含 .NET 10 运行时。详见 [artifacts/README.md](artifacts/README.md)。
+输出为包含 .NET 10 运行时的托管单文件 `.exe`，以及必须保持松散的 ZLG 原生运行库
+（`zlgcan.dll`、`kerneldlls\`、`zlgcan License.txt`）。分发时必须带上整个
+`artifacts/win-x86/` 目录，不能只复制 `.exe`。详见 [artifacts/README.md](artifacts/README.md)。
 
 > **必须用 `win-x86`**：随包 `zlgcan.dll` 是 32 位库，`-r win-x64` 产出的进程无法加载它
 > （`BadImageFormatException`，ZLG 通道会静默为空）。`PeakCan.Host.App.csproj` 的

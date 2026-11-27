@@ -32,9 +32,12 @@
     <InternalsVisibleTo Include="peakcan-hil" />
   </ItemGroup>
 
-  <!-- ZLG zlgcan.dll 原生驱动：构建时自动复制到输出目录 -->
+  <!-- ZLG 原生运行库：zlgcan.dll 会按 dll_cfg.ini 加载 kerneldlls 中的型号插件，
+       必须保留完整目录结构，否则 DLL 可加载但 ZCAN_OpenDevice 仍返回空句柄。 -->
   <ItemGroup>
-    <None Include="zlgcan.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="zlgcan.dll" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <None Include="kerneldlls\**" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <None Include="zlgcan License.txt" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
 </Project>
