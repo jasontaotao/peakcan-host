@@ -12,6 +12,10 @@ public sealed class UdsTransactionBuilder
     private const byte PendingNrc = 0x78;
     private const byte PositiveResponseOffset = 0x40;
 
+    private const byte RequestDownloadSid = 0x34;
+    private const byte TransferDataSid = 0x36;
+    private const byte RequestTransferExitSid = 0x37;
+
     private sealed class OpenTx
     {
         public required UdsOfflinePdu Request { get; init; }
@@ -42,6 +46,12 @@ public sealed class UdsTransactionBuilder
         /// </summary>
         public bool ExpectsNoPositiveResponse;
 
+        /// <summary>
+        /// 被后续请求作废的原因（例如新的 <c>RequestDownload</c> 开始了另一轮传输）。
+        /// 有值时这条事务不可能再闭合，但仍要报出——静默丢弃会让「传输中丢了一块」消失。
+        /// </summary>
+        public string? SupersededBy;
+
         public UdsOfflineTransaction ToTransaction() => new(
             Request, Responses, Final, PendingCount, Nrc,
             IsOrphan: false, IsAmbiguous: Ambiguous,
@@ -51,6 +61,7 @@ public sealed class UdsTransactionBuilder
             // 归因需要计数本身，不能只靠 Unknowns 文案——文案改动会让归因静默失效。
             ValidationFailedResponses = ValidationFailedResponses,
             IncompleteResponses = IncompleteResponses,
+            SupersededBy = SupersededBy,
         };
 
         /// <summary>
@@ -63,6 +74,18 @@ public sealed class UdsTransactionBuilder
         private IReadOnlyList<string> BuildUnknowns()
         {
             if (Final != UdsFinalKind.None) return Array.Empty<string>();
+
+            // 被后续 RequestDownload 作废：这不是「日志截断 / 记录缺失」那种不可知，
+            // 而是协议上不可能再有响应。再并列「无法区分是日志截断还是地址不符」
+            // 会把用户引去查一个已确定不存在的东西。
+            if (SupersededBy is { } later)
+            {
+                return new[]
+                {
+                    $"后续的 {later} 请求发起了新的下载，本请求不可能再收到响应",
+                    "无法判断 ECU 是没收到这一块，还是回了响应但没进日志",
+                };
+            }
 
             var list = new List<string>(3);
 
@@ -118,6 +141,14 @@ public sealed class UdsTransactionBuilder
                 // 所以它必须留在等待队列里（否则 `7F 31 22` 会变成孤立响应，NRC 丢失，
                 // 刷写还会把它判成成功）；只是标记「不接受正响应闭合」，让正响应
                 // 落不到它头上——否则它会吃掉下一条同 SID 请求的响应。
+                // 新的 RequestDownload 开始另一轮传输：上一轮的 TransferData /
+                // RequestTransferExit 在协议上已不可能再收到响应。留在 open 里的话，
+                // 之后所有同 SID 响应都会先落到这条僵尸请求上（见下方配对逻辑），
+                // 真正的请求全部变成「未闭合」——生产刷写日志 245.6 s 后成片的
+                // TransferData「未闭合」正是这么来的。
+                if (pdu.Payload[0] == RequestDownloadSid)
+                    RetireOpenTransferRequests(open, closed);
+
                 var sameSidOpen = open.FirstOrDefault(x => x.Sid == pdu.Payload[0]);
                 if (sameSidOpen is not null) sameSidOpen.Ambiguous = true;
                 open.Add(new OpenTx
@@ -167,11 +198,48 @@ public sealed class UdsTransactionBuilder
             // 抑制了正响应的请求不接受正响应闭合：正响应属于后来的同 SID 请求。
             // 若把它配给抑制请求，真正的请求会「未闭合」——这正是生产日志里
             // `3E 80` 吃掉 `3E 00` 响应的那个错配。
-            var target = open.FirstOrDefault(x => x.Sid == expectedReqSid && !x.ExpectsNoPositiveResponse);
+            //
+            // 多个同 SID 请求同时打开时，<b>按回显证据挑归属，不按「谁开得早」</b>：
+            // 一个 ECU 始终没回的请求会永远留在 open 里，只取 FirstOrDefault 的话，
+            // 之后每条同 SID 响应都先撞上它，块序号/标识符对不上 → 全部记成
+            // 「回显校验失败」，而真正的新请求一条也闭合不了（级联误报）。
+            // 校验通过者优先；一个都对不上时仍归最早的那条，走原有的失败计数。
+            var candidates = open
+                .Where(x => x.Sid == expectedReqSid && !x.ExpectsNoPositiveResponse)
+                .ToList();
+
+            var target = candidates
+                .FirstOrDefault(x => pdu.IsComplete
+                                     && UdsResponseValidator.TryValidate(x.Request, pdu, out _));
+
+            // 被 RequestDownload 作废的事务仍可能收到迟到响应（ECU 比测试仪的超时更慢）。
+            // 按回显把它还给原请求并闭合——否则要么被当成「重复最终响应」塞进一条
+            // Final=None 的事务（文案会说「只见 0x78」），要么算到新请求头上，
+            // 复刻刚修掉的那种级联误报。
+            if (target is null && pdu.IsComplete)
+            {
+                var late = closed.LastOrDefault(x => x.SupersededBy is not null
+                    && x.Final == UdsFinalKind.None
+                    && x.Sid == expectedReqSid
+                    && UdsResponseValidator.TryValidate(x.Request, pdu, out _));
+                if (late is not null)
+                {
+                    late.Responses.Add(pdu);
+                    late.Final = UdsFinalKind.Positive;
+                    continue;
+                }
+            }
+
+            target ??= candidates.Count > 0 ? candidates[0] : null;
             if (target is null)
             {
                 // 已闭合事务再收到最终响应：不能静默变成“孤立响应”。
-                var closedTarget = closed.LastOrDefault(x => x.Sid == expectedReqSid && !x.Duplicate);
+                // 只认真正的最终状态（Positive/Negative）——被作废但从未闭合的事务
+                // 不能当宿主，否则会造出 Final=None + 有响应 的怪状态。
+                var closedTarget = closed.LastOrDefault(x =>
+                    x.Sid == expectedReqSid
+                    && !x.Duplicate
+                    && x.Final is UdsFinalKind.Positive or UdsFinalKind.Negative);
                 if (closedTarget is not null)
                 {
                     closedTarget.Responses.Add(pdu);
@@ -226,5 +294,27 @@ public sealed class UdsTransactionBuilder
         {
             ValidationFailureDetails = failures,
         };
+    }
+
+    /// <summary>
+    /// 新的 <c>RequestDownload</c> 开始另一轮传输：上一轮还开着的
+    /// <c>TransferData</c> / <c>RequestTransferExit</c> 不可能再收到响应。
+    /// <para>
+    /// <b>不 retire 的后果：</b>这条僵尸请求会一直排在 open 队首，之后每条同 SID
+    /// 响应都先与它比对——块序号对不上就记成「回显校验失败」，真正的新请求
+    /// 全部报「未闭合」。生产刷写日志里一整段 TransferData 误报就是这么产生的。
+    /// </para>
+    /// </summary>
+    private static void RetireOpenTransferRequests(List<OpenTx> open, List<OpenTx> closed)
+    {
+        for (var i = open.Count - 1; i >= 0; i--)
+        {
+            var tx = open[i];
+            if (tx.Sid is not (TransferDataSid or RequestTransferExitSid)) continue;
+
+            tx.SupersededBy = "RequestDownload";
+            open.RemoveAt(i);
+            closed.Add(tx);
+        }
     }
 }

@@ -57,6 +57,34 @@ public sealed class UdsFindingGeneratorTests
         Generate(Ok(0.0, 0x22, 0xF1, 0x90)).Should().BeEmpty();
     }
 
+    /// <summary>
+    /// 被后续 RequestDownload 作废的传输块必须有自己的归因。
+    /// <para>
+    /// 走通用「未闭合」分支时，同一 finding 会一边说「不可能再收到响应」，
+    /// 一边建议「延长记录时间重新抓一份」——后者永远无效，用户会去重录一份
+    /// 结果完全一样的日志。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Superseded_transfer_block_gets_its_own_attribution()
+    {
+        var transaction = new UdsTransactionBuilder().Build(new[]
+        {
+            Pdu(UdsDirectionRole.Request, 0, 0x36, 0x82, 0xAA),
+            Pdu(UdsDirectionRole.Request, 1, 0x34, 0x00, 0x44, 0x00),
+        }).Transactions.Single(t => t.Request.Payload[0] == 0x36);
+
+        transaction.SupersededBy.Should().NotBeNull();
+
+        // 另有一条 FLASH_INCOMPLETE（刷写流程维度）是合理的独立结论，这里只看事务维度。
+        var finding = Generate(transaction).Single(f => f.Code == "UNCLOSED_REQUEST");
+        finding.Message.Should().Contain("新的下载");
+        finding.SuggestedNextCheck.Should().NotContain("延长记录时间",
+            "作废之后不可能再有响应，重录日志是无效建议");
+        finding.Unknowns.Should().NotContain(u => u.Contains("日志截断"),
+            "作废原因已确定，不该再并列「无法区分是否日志截断」");
+    }
+
     [Fact]
     public void Negative_response_produces_a_finding_with_suspect_side()
     {

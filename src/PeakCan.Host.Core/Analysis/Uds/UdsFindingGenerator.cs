@@ -150,6 +150,16 @@ public sealed class UdsFindingGenerator
         return new(observations, findings, Array.Empty<UdsFindingLink>());
     }
 
+    /// <summary>
+    /// 结论里 <c>#N</c> 用的报告序号。
+    /// <para>
+    /// 优先取 <see cref="UdsOfflineTransaction.Index"/>（分析器统一编号，界面事务表首列同源）；
+    /// 脱离报告单独构造的事务没有编号，退回本方法内的排序位置。
+    /// </para>
+    /// </summary>
+    private static int ReportNumber(UdsOfflineTransaction tx, int index)
+        => tx.Index > 0 ? tx.Index : index + 1;
+
     private static UdsObservation NegativeObservation(
         int index, UdsOfflineTransaction tx, UdsOperationFacts facts)
     {
@@ -176,7 +186,7 @@ public sealed class UdsFindingGenerator
         return new(
             Code: "NEGATIVE_RESPONSE",
             Severity: UdsFindingSeverity.Warn,
-            Message: $"#{index + 1} {facts.ServiceName} {TargetOf(facts)} 被拒绝：{desc.Display}",
+            Message: $"#{ReportNumber(tx, index)} {facts.ServiceName} {TargetOf(facts)} 被拒绝：{desc.Display}",
             ObservedAction: UdsObservedAction.EcuRejected,
             Suspect: desc.Suspect,
             ObservationIndexes: new[] { observationIndex },
@@ -226,6 +236,26 @@ public sealed class UdsFindingGenerator
         var requestEnd = tx.Request.LastTimestamp;
         var unknowns = tx.Unknowns.Count > 0 ? tx.Unknowns : UnclosedFallbackUnknown;
 
+        // ── 0. 被后续 RequestDownload 作废 ──────────────────────────────
+        // 协议上不可能再有响应。不能走下面的时间/等待归因：那些分支会建议
+        // 「延长记录时间」「检查 ECU 是否可响应」，在这条路径上永远无效，
+        // 且与同一 finding 的「不可能再收到响应」自相矛盾。
+        if (tx.SupersededBy is { } superseder)
+        {
+            return new(
+                Code: "UNCLOSED_REQUEST",
+                Severity: UdsFindingSeverity.Warn,
+                Message: $"#{ReportNumber(tx, index)} 请求未闭合：后续的 {superseder} 请求发起了新的下载，" +
+                          "本请求不可能再收到响应",
+                ObservedAction: UdsObservedAction.ClientStopped,
+                Suspect: UdsSuspect.Indeterminate,
+                ObservationIndexes: new[] { observationIndex },
+                SuggestedNextCheck: "确认这一块是否真的写进 ECU：新下载的块序号从 01 重新计数，" +
+                                    "对比刷写后的校验和 / 版本号，或单独重放这一块",
+                IsInference: false,
+                Unknowns: unknowns);
+        }
+
         // ── 1. 收到过响应但校验失败 ──────────────────────────────────────
         // 总线上确实有东西。说「ECU 没响应」会让用户去查一台回过话的 ECU。
         if (tx.ValidationFailedResponses > 0)
@@ -233,7 +263,7 @@ public sealed class UdsFindingGenerator
             return new(
                 Code: "UNCLOSED_REQUEST",
                 Severity: UdsFindingSeverity.Warn,
-                Message: $"#{index + 1} 请求未闭合：收到 {tx.ValidationFailedResponses} 个响应但未通过回显校验，" +
+                Message: $"#{ReportNumber(tx, index)} 请求未闭合：收到 {tx.ValidationFailedResponses} 个响应但未通过回显校验，" +
                           "无法确认它们回给的是本请求",
                 ObservedAction: UdsObservedAction.RecordingInvalid,
                 Suspect: UdsSuspect.Indeterminate,
@@ -250,7 +280,7 @@ public sealed class UdsFindingGenerator
             return new(
                 Code: "UNCLOSED_REQUEST",
                 Severity: UdsFindingSeverity.Warn,
-                Message: $"#{index + 1} 请求未闭合：收到 {tx.IncompleteResponses} 个响应但 ISO-TP 重组不完整" +
+                Message: $"#{ReportNumber(tx, index)} 请求未闭合：收到 {tx.IncompleteResponses} 个响应但 ISO-TP 重组不完整" +
                           "（多帧未拼完或序列中断）",
                 ObservedAction: UdsObservedAction.RecordingIncomplete,
                 Suspect: UdsSuspect.Indeterminate,
@@ -277,10 +307,10 @@ public sealed class UdsFindingGenerator
                 Code: "UNCLOSED_REQUEST",
                 Severity: pendingWindowExceeded ? UdsFindingSeverity.Warn : UdsFindingSeverity.Info,
                 Message: pendingWindowExceeded
-                    ? $"#{index + 1} 请求未闭合：最后一次 0x78 pending 之后日志又记录了 " +
+                    ? $"#{ReportNumber(tx, index)} 请求未闭合：最后一次 0x78 pending 之后日志又记录了 " +
                       $"{sincePendingSeconds:F1}s（超过 P2* {silenceWindow.TotalSeconds:F1}s），" +
                       "ECU 未在承诺窗口内给出最终响应"
-                    : $"#{index + 1} 请求未闭合：收到 {tx.PendingCount} 次 0x78 pending，" +
+                    : $"#{ReportNumber(tx, index)} 请求未闭合：收到 {tx.PendingCount} 次 0x78 pending，" +
                       "日志结束前未见最终响应",
                 // 动作值必须跟着判据走：只有真超窗才是「响应超时」，
                 // 未超窗时 ECU 只是还在处理——说它超窗会与上面的「延长记录时间」建议矛盾。
@@ -312,7 +342,7 @@ public sealed class UdsFindingGenerator
                 return new(
                     Code: "UNCLOSED_REQUEST",
                     Severity: UdsFindingSeverity.Info,
-                    Message: $"#{index + 1} 请求未闭合：测试仪在 {gapSeconds * 1000:F0} ms 后就发出了下一条请求" +
+                    Message: $"#{ReportNumber(tx, index)} 请求未闭合：测试仪在 {gapSeconds * 1000:F0} ms 后就发出了下一条请求" +
                               $"（{next.Interpretation?.ServiceDisplay ?? "其它服务"}），" +
                               // P2 未知时 50ms 是自造阈值，不能以「ECU 声明的 P2」口吻陈述。
                               (timingKnown
@@ -342,7 +372,7 @@ public sealed class UdsFindingGenerator
             return new(
                 Code: "UNCLOSED_REQUEST",
                 Severity: UdsFindingSeverity.Warn,
-                Message: $"#{index + 1} 请求未闭合：{why}，无法判断 ECU 是否还会响应",
+                Message: $"#{ReportNumber(tx, index)} 请求未闭合：{why}，无法判断 ECU 是否还会响应",
                 ObservedAction: UdsObservedAction.RecordingIncomplete,
                 Suspect: UdsSuspect.LogIntegrity,
                 ObservationIndexes: new[] { observationIndex },
@@ -366,7 +396,7 @@ public sealed class UdsFindingGenerator
             return new(
                 Code: "UNCLOSED_REQUEST",
                 Severity: UdsFindingSeverity.Info,
-                Message: $"#{index + 1} 请求未闭合：该请求（t={tx.Request.FirstTimestamp:F3}s）之后" +
+                Message: $"#{ReportNumber(tx, index)} 请求未闭合：该请求（t={tx.Request.FirstTimestamp:F3}s）之后" +
                           $"测试仪未再发送任何报文（日志继续记录到 {logEnd:F3}s，共 {testerIdleSeconds:F1}s）",
                 ObservedAction: UdsObservedAction.ClientStopped,
                 Suspect: UdsSuspect.ClientSequencing,
@@ -380,7 +410,7 @@ public sealed class UdsFindingGenerator
         return new(
             Code: "UNCLOSED_REQUEST",
             Severity: UdsFindingSeverity.Warn,
-            Message: $"#{index + 1} 请求未闭合：测试仪在请求后仍继续工作，" +
+            Message: $"#{ReportNumber(tx, index)} 请求未闭合：测试仪在请求后仍继续工作，" +
                       $"日志又记录了 {ecuWindowSeconds:F1}s，ECU 未在 P2*（{silenceWindow.TotalSeconds:F1}s）内响应",
             ObservedAction: UdsObservedAction.RecordingIncomplete,
             Suspect: UdsSuspect.EcuInternalState,

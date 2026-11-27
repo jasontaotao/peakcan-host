@@ -40,6 +40,18 @@ public sealed record UdsOfflineTransaction(
     public double FirstTimestamp => Request.FirstTimestamp;
 
     /// <summary>
+    /// 本事务在报告里的序号（从 1 起，按请求时间排序）。
+    /// <para>
+    /// <b>这是「结论里的 #N ↔ 事务表哪一行」的唯一关联键。</b>
+    /// <see cref="UdsFindingGenerator"/> 拼进结论文案的 <c>#N</c>、导出报告里的
+    /// 编号、以及界面事务表首列都必须是这一个值——否则用户拿着结论里的
+    /// 数字到表里数行，筛过之后必然对不上。
+    /// </para>
+    /// <para><c>0</c> = 未编号（脱离报告单独构造的事务，只出现在测试里）。</para>
+    /// </summary>
+    public int Index { get; init; }
+
+    /// <summary>
     /// 收到过、但没通过回显校验的响应个数。
     /// <para>
     /// <b>归因要用它，不能靠解析 <see cref="Unknowns"/> 的文案：</b>文案是给人看的，
@@ -51,6 +63,17 @@ public sealed record UdsOfflineTransaction(
 
     /// <summary>收到过、但 ISO-TP 重组不完整的响应个数（与「没响应」是两回事）。</summary>
     public int IncompleteResponses { get; init; }
+
+    /// <summary>
+    /// 这条请求被后续请求作废的原因。当前只有 <c>RequestDownload</c>：新的下载开始了，
+    /// 上一轮的 <c>TransferData</c> / <c>RequestTransferExit</c> 在协议上不可能再有响应。
+    /// <para>
+    /// <b>必须是结构化字段，不能只写进 <see cref="Unknowns"/>：</b>归因与建议要能
+    /// 区分这条路径——否则会给出「延长记录时间重新抓一份」这类永远无效的建议，
+    /// 与同一行的「不可能再收到响应」自相矛盾。
+    /// </para>
+    /// </summary>
+    public string? SupersededBy { get; init; }
 
     /// <summary>请求结束到首个响应的毫秒数；没有响应时为 null。</summary>
     public double? FirstResponseMs { get; init; }
