@@ -26,12 +26,13 @@ public static partial class AscParser
         while ((raw = await reader.ReadLineAsync(ct).ConfigureAwait(false)) != null)
         {
             lineNumber++;
-            var line = raw.Trim();
-            if (line.Length == 0) continue;
+            // 用 span 判头/去空白：每行 Trim 会为 63 万行分配 63 万个新字符串。
+            var line = raw.AsSpan().Trim();
+            if (line.IsEmpty) continue;
             if (line.StartsWith("//", StringComparison.Ordinal)) continue;
             if (line.StartsWith("date ", StringComparison.Ordinal))
             {
-                origin = AscFormat.TryParseDateHeader(line);
+                origin = AscFormat.TryParseDateHeader(line.ToString());
                 continue;
             }
             if (line.StartsWith("base ", StringComparison.Ordinal))

@@ -577,10 +577,21 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
             // WPF 里就是 UI 线程，界面卡死数秒、CPU 单核跑满，用户看到的就是「系统卡死」。
             // 注意：不要给 Task.Run 传 token——预取消时它会直接返回取消任务，
             // 跳过加载，后面就得不到「部分报告」（分析器本身才会按取消语义出 partial）。
-            var frames = await Task.Run(() => _loader.LoadAsync(path, cts.Token))
-                .ConfigureAwait(true);
+            // 通道列表也在这里算完：63 万帧的 Distinct/OrderBy 放在 UI 线程上，
+            // VS 调试器下会多卡一秒量级。
+            var (frames, channels) = await Task.Run(async () =>
+            {
+                var result = await _loader.LoadAsync(path, cts.Token).ConfigureAwait(false);
+                var distinct = result.Frames
+                    .Select(f => f.Channel)
+                    .Distinct()
+                    .OrderBy(c => c)
+                    .Select(c => c.ToString(CultureInfo.InvariantCulture))
+                    .ToArray();
+                return (result, distinct);
+            }).ConfigureAwait(true);
             if (generation != _analysisGeneration) return;
-            UpdateAvailableChannels(frames.Frames);
+            UpdateAvailableChannels(channels);
 
             // 通道未选：只读日志、列出实际通道，不出结论。
             // 不能退回默认通道 1——那正是「通道 2 有数据、界面静默 0 事务」的来源。
@@ -773,15 +784,8 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     /// 用户选好的通道会凭空消失，本次分析直接变成「请选择通道」。
     /// </para>
     /// </summary>
-    private void UpdateAvailableChannels(IReadOnlyList<ReplayFrame> frames)
+    private void UpdateAvailableChannels(IReadOnlyList<string> channels)
     {
-        var channels = frames
-            .Select(f => f.Channel)
-            .Distinct()
-            .OrderBy(c => c)
-            .Select(c => c.ToString(CultureInfo.InvariantCulture))
-            .ToArray();
-
         if (AvailableChannels.SequenceEqual(channels)) return;
 
         var current = ChannelText;

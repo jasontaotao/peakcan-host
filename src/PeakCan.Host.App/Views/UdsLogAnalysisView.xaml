@@ -218,9 +218,17 @@
                 <ColumnDefinition Width="340" MinWidth="240" MaxWidth="1000"/>
             </Grid.ColumnDefinitions>
 
+            <!-- 大日志动辄上千行；Standard 虚拟化滚动时会反复创建/销毁行，
+                 回收模式让行容器被复用，列也做虚拟化，滚动才跟手。 -->
             <DataGrid ItemsSource="{Binding VisibleTransactions}"
                       SelectedItem="{Binding SelectedTransaction}"
                       AutoGenerateColumns="False" IsReadOnly="True"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      VirtualizingPanel.ScrollUnit="Pixel"
+                      ScrollViewer.CanContentScroll="True"
                       Grid.Column="0">
                 <!-- 列宽预算：固定列合计必须 < 左栏可用宽度（默认窗口 1100 − 右栏 340 − splitter）。
                      超了会把「服务」列压到 MinWidth，最关键的一列反而不可读。

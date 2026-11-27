@@ -112,126 +112,123 @@ public static class AscFormat
     /// 1-char single-hex + N*N 2-char hex + 奇数长度 malformed + Length/BitCount/ID metadata 终止。
     /// </summary>
     public static bool TryParseDataLine(string line, out ReplayFrame frame, out string reason)
+        => TryParseDataLine(line.AsSpan(), out frame, out reason);
+
+    /// <summary>
+    /// Span 重载——解析热路径用它：不再为每行 Split 出字符串数组，
+    /// 63 万行的日志能省下数百万次短生命期分配。语义与字符串重载完全一致。
+    /// </summary>
+    public static bool TryParseDataLine(ReadOnlySpan<char> line, out ReplayFrame frame, out string reason)
     {
         frame = default!;
         reason = string.Empty;
-        var tokens = line.Split(WhitespaceSeparators, StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length < 4)
+
+        var tokens = new AscLineTokens(line);
+
+        if (!tokens.Next(out var tsToken) || !tokens.Next(out var channelToken)
+            || !tokens.Next(out var idToken))
         {
-            reason = $"expected >=4 tokens (timestamp channel id dlc), got {tokens.Length}";
+            reason = "expected >=4 tokens (timestamp channel id dlc)";
             return false;
         }
 
-        if (!double.TryParse(tokens[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var ts))
+        if (!TryParseAscTimestamp(tsToken, out var ts))
         {
-            reason = $"invalid timestamp '{tokens[0]}'";
+            reason = $"invalid timestamp '{tsToken.ToString()}'";
             return false;
         }
 
-        if (!ushort.TryParse(tokens[1], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var channel))
+        if (!ushort.TryParse(channelToken, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var channel))
         {
-            reason = "invalid channel '" + tokens[1] + "'";
+            reason = "invalid channel '" + channelToken.ToString() + "'";
             return false;
         }
 
-        var idToken = tokens[2];
+        var idRaw = idToken;
         // Vector ASC spec: an `x` suffix marks the ID as 29-bit extended.
-        var isExtended = idToken.EndsWith("x", StringComparison.OrdinalIgnoreCase);
+        var isExtended = idRaw.Length > 0 && (idRaw[^1] == 'x' || idRaw[^1] == 'X');
         if (isExtended)
+            idRaw = idRaw[..^1];
+        if (!TryParseHexUInt32(idRaw, out var id))
         {
-            idToken = idToken.Substring(0, idToken.Length - 1);
-        }
-        if (!uint.TryParse(idToken, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var id))
-        {
-            reason = $"invalid CAN id '{tokens[2]}'";
+            reason = $"invalid CAN id '{idToken.ToString()}'";
             return false;
         }
-        // 兜底：无 x 后缀但数值 > 0x7FF 也判扩展（兼容无 x 标记的不规范 ASC 文件
-        // + 现有测试 fixture 18FEF100 无 x）。真实扩展帧 ID 必然 > 0x7FF。
+        // 兜底：无 x 后缀但数值 > 0x7FF 也判扩展（兼容无 x 标记的不规范 ASC 文件）。
         if (!isExtended && id > 0x7FFu) isExtended = true;
 
-        int dataStartIndex = 4;
-        byte dlc;
-        FrameFlags flags = FrameFlags.None;
+        var flags = FrameFlags.None;
         bool? isTransmit = null;
-        int scan = 3;
-        while (scan < tokens.Length &&
-               (tokens[scan].Equals("rx", StringComparison.OrdinalIgnoreCase) ||
-                tokens[scan].Equals("tx", StringComparison.OrdinalIgnoreCase) ||
-                tokens[scan].Equals("fd", StringComparison.OrdinalIgnoreCase) ||
-                tokens[scan].Equals("rtr", StringComparison.OrdinalIgnoreCase)))
+        var hasToken = tokens.Next(out var token);
+
+        // 方向/帧型标记预扫描（原实现在这里把 "fd" 也一并吃掉，位置语义交给数据段）。
+        while (hasToken)
         {
-            if (tokens[scan].Equals("tx", StringComparison.OrdinalIgnoreCase)) isTransmit = true;
-            else if (tokens[scan].Equals("rx", StringComparison.OrdinalIgnoreCase)) isTransmit = false;
-            else if (tokens[scan].Equals("rtr", StringComparison.OrdinalIgnoreCase)) flags |= FrameFlags.Rtr;
-            scan++;
+            if (IsMarkerToken(token, "rx")) isTransmit = false;
+            else if (IsMarkerToken(token, "tx")) isTransmit = true;
+            else if (IsMarkerToken(token, "fd")) { }
+            else if (IsMarkerToken(token, "rtr")) flags |= FrameFlags.Rtr;
+            else break;
+            hasToken = tokens.Next(out token);
         }
-        if (scan + 1 < tokens.Length &&
-            (tokens[scan].Equals("d", StringComparison.OrdinalIgnoreCase) ||
-             tokens[scan].Equals("l", StringComparison.OrdinalIgnoreCase) ||
-             tokens[scan].Equals("fd", StringComparison.OrdinalIgnoreCase)))
+
+        byte dlc;
+        if (hasToken && IsDlcMarkerToken(token))
         {
-            if (!byte.TryParse(tokens[scan + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out dlc))
+            if (!tokens.Next(out var dlcToken)
+                || !byte.TryParse(dlcToken, NumberStyles.Integer, CultureInfo.InvariantCulture, out dlc))
             {
-                reason = $"invalid DLC after Vector 'd/l/fd' marker '{tokens[scan + 1]}'";
+                reason = "invalid DLC after Vector 'd/l/fd' marker";
                 return false;
             }
             // 'l' 和 'fd' 标记都表示 CAN FD 帧
-            if (tokens[scan].Equals("l", StringComparison.OrdinalIgnoreCase) ||
-                tokens[scan].Equals("fd", StringComparison.OrdinalIgnoreCase))
-            {
+            if (IsMarkerToken(token, "l") || IsMarkerToken(token, "fd"))
                 flags |= FrameFlags.Fd;
+            hasToken = tokens.Next(out token);
+        }
+        else if (hasToken)
+        {
+            if (!byte.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out dlc))
+            {
+                reason = $"invalid DLC '{token.ToString()}'";
+                return false;
             }
-            dataStartIndex = scan + 2;
-        }
-        else if (scan < tokens.Length &&
-                 byte.TryParse(tokens[scan], NumberStyles.Integer, CultureInfo.InvariantCulture, out dlc))
-        {
-            dataStartIndex = scan + 1;
-        }
-        else if (scan < tokens.Length)
-        {
-            reason = $"invalid DLC '{tokens[scan]}'";
-            return false;
+            hasToken = tokens.Next(out token);
         }
         else
         {
             // 无方向/帧型标记且 token 已耗尽 = 无数据帧（如 RTR）。
             dlc = 0;
-            dataStartIndex = scan;
         }
 
-        var data = new List<byte>(capacity: Math.Max((int)dlc, 8));
-        for (int i = dataStartIndex; i < tokens.Length; i++)
+        // 数据字节放栈上，避免每行分配 List；合法 CAN FD 上限 64 字节。
+        Span<byte> dataBuffer = stackalloc byte[64];
+        var dataCount = 0;
+
+        while (hasToken)
         {
-            var t = tokens[i];
-            switch (t.ToLowerInvariant())
+            var t = token;
+
+            if (IsMarkerToken(t, "fd"))
             {
-                case "fd":
-                    // 位置消歧：数据未凑满行内声明 DLC 时，"FD" 是数据字节 0xFD
-                    // （逐字节方言 PCAN/CANoe 的合法数据 token）；凑满后才是
-                    // CAN-FD flag（自家 writer 尾部标记）。
-                    if (data.Count < dlc) break;
-                    flags |= FrameFlags.Fd; continue;
-                case "brs":
-                    flags |= FrameFlags.BitRateSwitch; continue;
-                case "esi":
-                    flags |= FrameFlags.ErrorStateIndicator; continue;
-                case "error":
-                    flags |= FrameFlags.ErrFrame; continue;
-                case "rx": isTransmit ??= false; continue;
-                case "tx": isTransmit ??= true; continue;
-                case "rtr": flags |= FrameFlags.Rtr; continue;
-                default:
-                    if (t.Contains('=') ||
-                        t.Equals("Length", StringComparison.OrdinalIgnoreCase) ||
-                        t.Equals("BitCount", StringComparison.OrdinalIgnoreCase) ||
-                        t.Equals("ID", StringComparison.OrdinalIgnoreCase))
-                    {
-                        goto EndDataBytes;
-                    }
-                    break;
+                // 位置消歧：数据未凑满行内声明 DLC 时，"FD" 是数据字节 0xFD。
+                if (dataCount >= dlc) { flags |= FrameFlags.Fd; hasToken = tokens.Next(out token); continue; }
             }
+            else if (IsMarkerToken(t, "brs")) { flags |= FrameFlags.BitRateSwitch; hasToken = tokens.Next(out token); continue; }
+            else if (IsMarkerToken(t, "esi")) { flags |= FrameFlags.ErrorStateIndicator; hasToken = tokens.Next(out token); continue; }
+            else if (IsMarkerToken(t, "error")) { flags |= FrameFlags.ErrFrame; hasToken = tokens.Next(out token); continue; }
+            else if (IsMarkerToken(t, "rx")) { isTransmit ??= false; hasToken = tokens.Next(out token); continue; }
+            else if (IsMarkerToken(t, "tx")) { isTransmit ??= true; hasToken = tokens.Next(out token); continue; }
+            else if (IsMarkerToken(t, "rtr")) { flags |= FrameFlags.Rtr; hasToken = tokens.Next(out token); continue; }
+
+            if (t.IndexOf('=') >= 0
+                || t.Equals("Length", StringComparison.OrdinalIgnoreCase)
+                || t.Equals("BitCount", StringComparison.OrdinalIgnoreCase)
+                || t.Equals("ID", StringComparison.OrdinalIgnoreCase))
+            {
+                break; // 元数据开始，后续不再是数据字节
+            }
+
             if (t.Length == 0)
             {
                 reason = "empty data token";
@@ -239,45 +236,154 @@ public static class AscFormat
             }
             if (t.Length == 1)
             {
-                if (!byte.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var b))
+                var nibble = HexNibble(t[0]);
+                if (nibble < 0)
                 {
-                    reason = $"invalid single-hex byte '{t}'";
+                    reason = $"invalid single-hex byte '{t.ToString()}'";
                     return false;
                 }
-                data.Add(b);
+                var single = (byte)nibble;
+                if (dataCount == dataBuffer.Length)
+                {
+                    reason = "data too long (max 64 for CAN FD)";
+                    return false;
+                }
+                dataBuffer[dataCount++] = single;
             }
             else if (t.Length % 2 != 0)
             {
-                reason = $"odd-length hex token '{t}' (length {t.Length})";
+                reason = $"odd-length hex token '{t.ToString()}' (length {t.Length})";
                 return false;
             }
             else
             {
-                for (int j = 0; j < t.Length; j += 2)
+                for (var j = 0; j < t.Length; j += 2)
                 {
-                    if (!byte.TryParse(t.AsSpan(j, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var b))
+                    var hi = HexNibble(t[j]);
+                    var lo = HexNibble(t[j + 1]);
+                    if (hi < 0 || lo < 0)
                     {
-                        reason = $"invalid hex pair in '{t}' at offset {j}";
+                        reason = $"invalid hex pair in '{t.ToString()}' at offset {j}";
                         return false;
                     }
-                    data.Add(b);
+                    var b = (byte)((hi << 4) | lo);
+                    if (dataCount == dataBuffer.Length)
+                    {
+                        reason = "data too long (max 64 for CAN FD)";
+                        return false;
+                    }
+                    dataBuffer[dataCount++] = b;
                 }
             }
-        }
-        EndDataBytes:;
 
-        // 放宽 DLC 匹配：BLF 转 ASC 时 CAN FD 帧的 DLC 可能是 CAN 协议值
-        // (9-15) 而非实际字节数 (12-64)，导致 data.Count != dlc。
-        // 用实际数据长度作为 DLC，不丢弃帧。DLC=0（无数据）也是合法 CAN 帧。
-        if (data.Count > 64)
-        {
-            reason = $"data too long ({data.Count} bytes, max 64 for CAN FD)";
-            return false;
+            hasToken = tokens.Next(out token);
         }
 
-        frame = new ReplayFrame(ts, id, (byte)data.Count, data.ToArray(), flags, isExtended, channel, isTransmit);
+        frame = new ReplayFrame(ts, id, (byte)dataCount, dataBuffer[..dataCount].ToArray(),
+            flags, isExtended, channel, isTransmit);
         return true;
     }
+
+    /// <summary>
+    /// ASC 时间戳解析：形如 <c>123.456789</c>。手写逐字符解析比
+    /// <see cref="double.TryParse(ReadOnlySpan{char}, NumberStyles, IFormatProvider, out double)"/>
+    /// 快一个量级；遇到任何非预期字符就回退到框架解析，保证兼容性。
+    /// </summary>
+    private static bool TryParseAscTimestamp(ReadOnlySpan<char> t, out double value)
+    {
+        value = 0;
+        if (t.IsEmpty) return false;
+
+        long whole = 0;
+        long frac = 0;
+        var fracDigits = 0;
+        var dot = false;
+        var anyDigit = false;
+
+        for (var i = 0; i < t.Length; i++)
+        {
+            var c = t[i];
+            if (c == '.')
+            {
+                if (dot) return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+                dot = true;
+                continue;
+            }
+            if (c < '0' || c > '9')
+                return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+
+            anyDigit = true;
+            if (!dot)
+            {
+                if (whole > 1_000_000_000L)
+                    return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+                whole = whole * 10 + (c - '0');
+            }
+            else if (fracDigits < 9)
+            {
+                frac = frac * 10 + (c - '0');
+                fracDigits++;
+            }
+        }
+
+        if (!anyDigit) return false;
+        value = fracDigits == 0 ? whole : whole + frac / Math.Pow(10, fracDigits);
+        return true;
+    }
+
+    /// <summary>十六进制 nibble；非法返回 -1。热路径手写比 NumberStyles 解析快得多。</summary>
+    private static int HexNibble(char c) => c switch
+    {
+        >= '0' and <= '9' => c - '0',
+        >= 'a' and <= 'f' => c - 'a' + 10,
+        >= 'A' and <= 'F' => c - 'A' + 10,
+        _ => -1,
+    };
+
+    private static bool TryParseHexUInt32(ReadOnlySpan<char> text, out uint value)
+    {
+        value = 0;
+        if (text.Length == 0 || text.Length > 8) return false;
+        foreach (var c in text)
+        {
+            var nibble = HexNibble(c);
+            if (nibble < 0) { value = 0; return false; }
+            value = (value << 4) | (uint)nibble;
+        }
+        return true;
+    }
+
+    /// <summary>顺序分词器：按空格/Tab 逐个切出 token，不分配、不预分配数组。</summary>
+    private ref struct AscLineTokens
+    {
+        private ReadOnlySpan<char> _rest;
+
+        public AscLineTokens(ReadOnlySpan<char> line) => _rest = line;
+
+        public bool Next(out ReadOnlySpan<char> token)
+        {
+            var s = _rest;
+            var i = 0;
+            while (i < s.Length && (s[i] == ' ' || s[i] == '\t')) i++;
+            if (i >= s.Length)
+            {
+                token = default;
+                _rest = default;
+                return false;
+            }
+            var start = i;
+            while (i < s.Length && s[i] != ' ' && s[i] != '\t') i++;
+            token = s.Slice(start, i - start);
+            _rest = s[i..];
+            return true;
+        }
+    }
+
+    private static bool IsMarkerToken(ReadOnlySpan<char> token, string marker)
+        => token.Equals(marker, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsDlcMarkerToken(ReadOnlySpan<char> token)
+        => IsMarkerToken(token, "d") || IsMarkerToken(token, "l") || IsMarkerToken(token, "fd");
 
     /// <summary>
     /// 解析 ASC `date Wed Jul 1 08:32:01.000 2026` header。Vector 24h 或 12h 格式都支持。
@@ -303,7 +409,10 @@ public static class AscFormat
     /// <summary>
     /// 检测当前行是否为 Vector CANoe 的 section 分隔符 (Begin/End TriggerBlock 等 6 种)。
     /// </summary>
-    public static bool LineIsSectionDelimiter(string line)
+    public static bool LineIsSectionDelimiter(string line) => LineIsSectionDelimiter(line.AsSpan());
+
+    /// <inheritdoc cref="LineIsSectionDelimiter(string)"/>
+    public static bool LineIsSectionDelimiter(ReadOnlySpan<char> line)
     {
         return line.StartsWith("begin triggerblock", StringComparison.OrdinalIgnoreCase)
             || line.StartsWith("end triggerblock", StringComparison.OrdinalIgnoreCase)

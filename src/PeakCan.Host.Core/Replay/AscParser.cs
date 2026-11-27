@@ -76,7 +76,9 @@ public static partial class AscParser
         // 单遍流式解析：不再把整个文件读成 List<string>。
         try
         {
-            using var reader = new StreamReader(effective, leaveOpen: true);
+            // 64 KB 缓冲：默认 1 KB 在 68 MB 日志上会产生几十万次小读。
+            using var reader = new StreamReader(effective, System.Text.Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: true, bufferSize: 64 * 1024, leaveOpen: true);
             var (frames, _, _) = await ParseStreamAsync(reader, EstimateFrameCapacity(effective), ct)
                 .ConfigureAwait(false);
             return frames;
@@ -145,7 +147,9 @@ public static partial class AscParser
 
         try
         {
-            using var reader = new StreamReader(effective, leaveOpen: true);
+            // 64 KB 缓冲：默认 1 KB 在 68 MB 日志上会产生几十万次小读。
+            using var reader = new StreamReader(effective, System.Text.Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: true, bufferSize: 64 * 1024, leaveOpen: true);
             var (frames, origin, absolute) = await ParseStreamAsync(
                 reader, EstimateFrameCapacity(effective), ct).ConfigureAwait(false);
             return new AscParseResult(frames, origin, absolute);

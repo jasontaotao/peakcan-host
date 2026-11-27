@@ -132,6 +132,29 @@ public sealed class UdsLogAnalysisViewLayoutTests
     }
 
     /// <summary>
+    /// 事务表必须是回收模式虚拟化，且不能被无界高度容器包住。
+    /// <para>
+    /// 大日志（上千行）滚动卡顿的根因：Standard 模式每次滚动都重建行容器，
+    /// 而虚拟化一旦遇到外层 ScrollViewer / StackPanel（无限高度）直接失效，
+    /// 会把全部行都实例化出来——那就是滚动卡死的来源。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Transaction_grid_virtualizes_with_recycling()
+    {
+        var doc = LoadXaml("src", "PeakCan.Host.App", "Views", "UdsLogAnalysisView.xaml");
+        var grid = doc.Descendants(P + "DataGrid")
+            .Single(d => ((string?)d.Attribute("ItemsSource"))?.Contains("VisibleTransactions") == true);
+
+        ((string?)grid.Attribute("EnableRowVirtualization")).Should().Be("True");
+        ((string?)grid.Attribute("EnableColumnVirtualization")).Should().Be("True");
+        ((string?)grid.Attribute("VirtualizingPanel.VirtualizationMode")).Should().Be("Recycling",
+            "Standard 模式滚动时会反复创建/销毁行容器");
+        grid.Ancestors(P + "ScrollViewer").Should().BeEmpty(
+            "外层 ScrollViewer 会给 DataGrid 无限高度，虚拟化直接失效");
+    }
+
+    /// <summary>
     /// 通道误配提示条必须用 DockPanel：横向 StackPanel 以无限宽度测量，
     /// <c>TextWrapping</c> 失效，窗口收窄时右侧的一键切换按钮会被裁掉。
     /// </summary>
