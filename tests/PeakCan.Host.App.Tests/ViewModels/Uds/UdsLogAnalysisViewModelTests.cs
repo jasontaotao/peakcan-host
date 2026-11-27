@@ -618,6 +618,173 @@ public sealed class UdsLogAnalysisViewModelTests
         vm.SelectedConclusion.Should().Contain("未闭合");
     }
 
+    // ========================================================================
+    // 结论 / 明细里的编号必须能落到事务表的具体一行
+    //
+    // 用户的原始质疑：结论栏的 `#xxx`、校验失败明细的「证据 #xxx」，
+    // 到底怎么帮他找到对应的数据块？改前答案是「找不到」——表里没有序号列，
+    // 证据号更是帧级下标。下面三条锁住新的关联链。
+    // ========================================================================
+
+    private static ReplayFrame[] TwoTransactionsOneNegative() => new[]
+    {
+        Frame(0x7E0, 0x02, 0x10, 0x01),
+        Frame(0x7E8, 0x06, 0x50, 0x01, 0x00, 0x32, 0x01, 0xF4),
+        Frame(0x7E0, 0x03, 0x22, 0xF1, 0x90),
+        Frame(0x7E8, 0x03, 0x7F, 0x22, 0x22),
+    };
+
+    /// <summary>
+    /// 结论里的 <c>#N</c> 与事务表首列必须是同一个号。
+    /// <para>
+    /// 改前事务表没有序号列，<c>#N</c> 只是分析器内部位置；一筛选，用户
+    /// 数出来的「第 N 行」还和它对不上。现在编号挂在事务对象上，筛选不重编号。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Conclusion_number_matches_the_transaction_row_number()
+    {
+        var vm = Vm(new FakeLoader(TwoTransactionsOneNegative()));
+        vm.FilePath = "fake.asc";
+        await vm.AnalyzeAsync();
+
+        // 序号按请求时间固定，与结论 / 导出同源。
+        vm.Report!.Transactions.Select(t => t.Index).Should().Equal(1, 2);
+
+        var row = vm.FindingRows.Should().ContainSingle().Subject;
+        row.TransactionNumber.Should().Be(2, "被拒绝的是第 2 条事务");
+        row.NumberText.Should().Be("#2");
+        row.BodyText.Should().NotStartWith("#",
+            "号码改由可点徽标显示，正文里不再出现第二遍");
+        vm.Report.Findings.Single().Message.Should().StartWith("#2 ",
+            "导出与 AI prompt 仍用带号原文，界面只是把号提出来做徽标");
+
+        // 筛选不会重编号：这是 #N 可用的前提。
+        vm.FilterText = "0x22";
+        vm.VisibleTransactions.Should().ContainSingle().Which.Index.Should().Be(2);
+    }
+
+    /// <summary>
+    /// 定位命令必须真的选中那一行——即使当前筛选把它藏起来了。
+    /// 藏起来时「选中了」用户也看不见，等于没定位。
+    /// </summary>
+    [Fact]
+    public async Task Locate_selects_the_row_even_when_the_filter_hides_it()
+    {
+        var vm = Vm(new FakeLoader(TwoTransactionsOneNegative()));
+        vm.FilePath = "fake.asc";
+        await vm.AnalyzeAsync();
+
+        vm.FilterText = "正响应";
+        vm.VisibleTransactions.Should().ContainSingle();
+
+        UdsOfflineTransaction? located = null;
+        vm.LocateRequested += t => located = t;
+
+        vm.LocateTransactionCommand.Execute(2);
+
+        vm.SelectedTransaction.Should().BeSameAs(vm.Report!.Transactions[1]);
+        located.Should().BeSameAs(vm.SelectedTransaction,
+            "视图靠这个事件把目标行滚进可视区，光改选中项不会滚动");
+        vm.FilterText.Should().BeEmpty("筛选把目标藏起来时必须先清筛选");
+        vm.VisibleTransactions.Should().HaveCount(2);
+    }
+
+    /// <summary>
+    /// 证据号是帧序号：能找回所属事务就选中它；孤立帧必须如实说明跳不过去，
+    /// 不能悄悄什么都不做。
+    /// </summary>
+    [Fact]
+    public async Task Locate_by_evidence_finds_the_owner_or_explains_why_it_cannot()
+    {
+        var vm = Vm(new FakeLoader(TwoTransactionsOneNegative()));
+        vm.FilePath = "fake.asc";
+        await vm.AnalyzeAsync();
+
+        var evidenceIndex = vm.Report!.Transactions[1].Request.Evidence[0];
+        vm.LocateEvidenceCommand.Execute(evidenceIndex);
+        vm.SelectedTransaction.Should().BeSameAs(vm.Report.Transactions[1],
+            "证据帧属于第二条事务，定位必须落到它");
+
+        vm.LocateEvidenceCommand.Execute(999_999);
+        vm.Status.Should().Contain("不属于任何已闭合事务",
+            "没有归属的帧要直说，不能假装定位成功");
+    }
+
+    /// <summary>
+    /// 校验失败明细里必须写明「事务 #N」，证据号才有落点。
+    /// <c>UdsResponseValidationFailure</c> 自带 <c>TransactionRequestEvidenceIndex</c>。
+    /// </summary>
+    [Fact]
+    public void Validation_failure_rows_name_the_transaction_they_belong_to()
+    {
+        var requestEvidence = new[] { 5 };
+        var request = new UdsOfflinePdu(
+            UdsDirectionRole.Request, new byte[] { 0x22, 0xF1, 0x90 },
+            0.0, 0.0, 5, 5, requestEvidence, false, true, Array.Empty<string>());
+        var transaction = new UdsOfflineTransaction(
+            request, Array.Empty<UdsOfflinePdu>(), UdsFinalKind.None, 0, null,
+            false, false, false, Array.Empty<string>())
+        {
+            Index = 7,
+        };
+        var evidence = new[]
+        {
+            new UdsFrameEvidence(5, 0.1, 1, 0x7E0, false, true,
+                UdsFrameClass.MatchedDiagnostic, null, "SingleFrame", 3, new byte[] { 0x22, 0xF1, 0x90 }),
+            new UdsFrameEvidence(6, 0.2, 1, 0x7E8, false, false,
+                UdsFrameClass.Noise, UdsNoiseReason.ResponseValidationFailed, "SingleFrame", 3,
+                new byte[] { 0x62, 0xF1, 0x91 }),
+        };
+        var failures = new[] { new UdsResponseValidationFailure("DidEcho", 6, 5) };
+        var report = Services.UdsOfflineFixtures.BuildForTest(transaction) with
+        {
+            ValidationFailures = failures,
+            Evidence = evidence,
+        };
+
+        var vm = Vm(new FakeLoader(ThreeFrameLog()));
+        vm.Report = report;
+
+        vm.ValidationFailureRows.Should().ContainSingle()
+            .Which.Display.Should().Contain("事务 #7").And.Contain("证据 #6");
+
+        // 失败响应不在事务的 Evidence 里（校验没过就不会挂上）。定位走事务号，
+        // 右栏则要能真的看到那条失败帧——否则「点过去看看」仍然落空。
+        vm.LocateTransactionCommand.Execute(7);
+        vm.SelectedTransaction.Should().BeSameAs(transaction);
+        vm.SelectedEvidence.Select(e => e.Index).Should().Contain(6,
+            "明细行的 ToolTip 承诺右栏原始证据里有这条失败响应，必须补进来");
+
+        // 兜底：只拿得到证据号时（如传输警告行）也要能经失败明细找回所属事务。
+        vm.SelectedTransaction = null;
+        vm.LocateEvidenceCommand.Execute(6);
+        vm.SelectedTransaction.Should().BeSameAs(transaction);
+    }
+
+    /// <summary>
+    /// 传输警告行给出首帧身份（时间 / CAN ID）：这类帧大多不属于任何事务，
+    /// 只给裸证据号用户在几十万条帧里找不回来。
+    /// </summary>
+    [Fact]
+    public void Transfer_warning_rows_carry_the_frame_identity_when_available()
+    {
+        var evidence = new UdsFrameEvidence(
+            3, 1.25, 1, 0x7E8, false, false,
+            UdsFrameClass.Noise, UdsNoiseReason.SequenceError,
+            "ConsecutiveFrame", 8, new byte[] { 0x21 });
+        var report = Services.UdsOfflineFixtures.BuildForTest() with
+        {
+            Evidence = new[] { evidence },
+        };
+
+        var vm = Vm(new FakeLoader(ThreeFrameLog()));
+        vm.Report = report;
+
+        vm.WarningRows.Should().ContainSingle().Which.Display
+            .Should().Contain("证据 #3").And.Contain("t=1.250s").And.Contain("0x7E8");
+    }
+
     private sealed class StagedLoader : IUdsOfflineTraceLoader
     {
         private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);

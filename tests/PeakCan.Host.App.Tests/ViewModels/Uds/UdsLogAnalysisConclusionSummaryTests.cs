@@ -141,7 +141,7 @@ public sealed class UdsLogAnalysisConclusionSummaryTests
         await vm.AnalyzeAsync();
 
         vm.FindingRows.Should().ContainSingle();
-        vm.FindingRows[0].Message.Should().Contain("DID F190");
+        vm.FindingRows[0].BodyText.Should().Contain("DID F190");
         vm.FindingRows[0].SuspectText.Should().StartWith("优先排查：");
         vm.NoFindingsHint.Should().BeNull();
     }
@@ -159,7 +159,7 @@ public sealed class UdsLogAnalysisConclusionSummaryTests
 
         await vm.AnalyzeAsync();
 
-        var message = vm.FindingRows.Single().Message;
+        var message = vm.FindingRows.Single().BodyText;
         message.Should().NotContain("通常是");
         message.Should().NotContain("根因");
     }

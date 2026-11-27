@@ -179,6 +179,65 @@ public sealed class UdsLogAnalysisViewLayoutTests
             "按钮固定在右侧，文字换行不会把它挤出可视区");
     }
 
+    /// <summary>
+    /// 事务表首列必须是报告序号（<c>UdsOfflineTransaction.Index</c>）。
+    /// <para>
+    /// 结论里的 <c>#N</c> 原来指向一个界面上不存在的编号：表里没有这一列，
+    /// 用户数到第 N 行也无从下手，一筛选还彻底错位。序号必须绑在事务对象上
+    /// （<c>{Binding Index}</c>），不能取可视行号。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Transaction_grid_shows_the_number_the_conclusions_refer_to()
+    {
+        var doc = LoadXaml("src", "PeakCan.Host.App", "Views", "UdsLogAnalysisView.xaml");
+        var grid = doc.Descendants(P + "DataGrid")
+            .Single(d => ((string?)d.Attribute("ItemsSource"))?.Contains("VisibleTransactions") == true);
+
+        var numberColumn = grid.Descendants(P + "DataGridTextColumn")
+            .SingleOrDefault(c => (string?)c.Attribute("Header") == "#");
+
+        numberColumn.Should().NotBeNull("结论里的 #N 必须在事务表里有同一列可对");
+        ((string?)numberColumn!.Attribute("Binding")).Should().Be("{Binding Index}",
+            "序号来自事务对象；取可视行号会在筛选后与结论对不上");
+    }
+
+    /// <summary>
+    /// 结论徽标与明细行必须真的可点：命令、参数、可见性都绑对，
+    /// 绑错时 WPF 静默失败——用户点了没反应，而这一整个功能就是「点了能跳」。
+    /// </summary>
+    [Fact]
+    public void Conclusion_badge_and_evidence_rows_are_clickable_locators()
+    {
+        var doc = LoadXaml("src", "PeakCan.Host.App", "Views", "UdsLogAnalysisView.xaml");
+
+        // 两个入口都要能定位：结论徽标、校验失败明细整行（失败响应不在事务
+        // 的 Evidence 里，按证据号反查会落空，所以明细行必须绑事务号）。
+        var locateButtons = doc.Descendants(P + "Button")
+            .Where(b => (((string?)b.Attribute("Command")) ?? "")
+                .Contains("LocateTransactionCommand", System.StringComparison.Ordinal))
+            .ToList();
+
+        locateButtons.Should().HaveCountGreaterThanOrEqualTo(2);
+        locateButtons.Should().Contain(b =>
+            (string?)b.Attribute("CommandParameter") == "{Binding TransactionNumber}",
+            "明细行与徽标都必须把事务号传给命令");
+
+        var badge = locateButtons
+            .SingleOrDefault(b => (string?)b.Attribute("Content") == "{Binding NumberText}");
+
+        badge.Should().NotBeNull("结论里的 #N 徽标必须可点击定位");
+        ((string?)badge!.Attribute("Content")).Should().Be("{Binding NumberText}");
+        ((string?)badge.Attribute("CommandParameter")).Should().Be("{Binding TransactionNumber}");
+        ((string?)badge.Attribute("Command")).Should().Contain("RelativeSource",
+            "按钮在 DataTemplate 里，命令必须回指 UserControl 的 DataContext");
+
+        doc.Descendants(P + "Button").Should().Contain(b =>
+            (((string?)b.Attribute("Command")) ?? "").Contains("LocateEvidenceCommand",
+                System.StringComparison.Ordinal),
+            "证据号是帧序号，明细行必须能跳到所属事务");
+    }
+
     [Fact]
     public void Analysis_view_exposes_required_commands()
     {

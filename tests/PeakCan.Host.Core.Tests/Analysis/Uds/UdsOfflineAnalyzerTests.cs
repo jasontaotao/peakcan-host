@@ -48,6 +48,34 @@ public sealed class UdsOfflineAnalyzerTests
         report.IsPartial.Should().BeFalse();
     }
 
+    /// <summary>
+    /// 结论里的 <c>#N</c> 必须就是 <see cref="UdsOfflineTransaction.Index"/>。
+    /// <para>
+    /// 分析器在 <c>interpret</c> 阶段统一编号，`UdsFindingGenerator` 内部再按时间
+    /// 排一次序——两条路径一旦分叉，用户点结论里的号码就会落到别的事务上。
+    /// 这里用「先负响应、后正响应」的日志把两者钉死。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Finding_numbers_are_the_transaction_indexes_the_ui_shows()
+    {
+        var report = new UdsOfflineAnalyzer().Analyze(Request(
+            FrameAt(0.0, 0x7E0, 0x03, 0x22, 0xF1, 0x90),
+            FrameAt(0.01, 0x7E8, 0x03, 0x7F, 0x22, 0x22),   // 第 1 条：被拒绝
+            FrameAt(1.0, 0x7E0, 0x02, 0x10, 0x01),
+            FrameAt(1.01, 0x7E8, 0x06, 0x50, 0x01, 0x00, 0x32, 0x01, 0xF4)));
+
+        report.Transactions.Select(t => t.Index).Should().Equal(1, 2);
+
+        var finding = report.Findings.Should().ContainSingle().Subject;
+        finding.Message.Should().StartWith("#1 ");
+
+        var observation = report.Observations[finding.ObservationIndexes[0]];
+        observation.TransactionIndex.Should().Be(0, "观测事实记录的是列表位置（0 基）");
+        report.Transactions[observation.TransactionIndex!.Value].Index
+            .Should().Be(1, "界面靠这条链把结论徽标映射到表格行");
+    }
+
     [Fact]
     public void Pre_cancelled_token_returns_partial_report_with_completed_stages()
     {

@@ -119,7 +119,7 @@ public static class UdsOfflineReportWriter
         {
             var t = report.Transactions[i];
             sb.AppendLine(CultureInfo.InvariantCulture,
-                $"| {i + 1} | {t.Interpretation?.ServiceDisplay ?? "?"} | {t.FinalKindDisplay} | {t.PendingCount} | " +
+                $"| {NumberOf(t, i)} | {t.Interpretation?.ServiceDisplay ?? "?"} | {t.FinalKindDisplay} | {t.PendingCount} | " +
                 $"{(t.FinalNrc is { } n ? $"0x{n:X2}" : "—")} | {FormatMs(t.FirstResponseMs)} | {FormatMs(t.TotalMs)} | " +
                 $"{t.EchoCheckDisplay} | " +
                 $"{(t.IsAmbiguous ? "是" : "—")} | {(t.HasDuplicateFinalResponse ? "是" : "—")} | " +
@@ -131,7 +131,7 @@ public static class UdsOfflineReportWriter
         for (var i = 0; i < report.Transactions.Count; i++)
         {
             var t = report.Transactions[i];
-            sb.AppendLine(CultureInfo.InvariantCulture, $"### {i + 1}. {t.Interpretation?.ServiceDisplay ?? "?"}");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"### {NumberOf(t, i)}. {t.Interpretation?.ServiceDisplay ?? "?"}");
             sb.AppendLine(CultureInfo.InvariantCulture,
                 $"- final={t.FinalKindDisplay} pending={t.PendingCount} nrc={(t.FinalNrc is { } n ? $"0x{n:X2}" : "—")} " +
                 $"first_ms={FormatMs(t.FirstResponseMs)} total_ms={FormatMs(t.TotalMs)} timing={t.TimingSource}");
@@ -248,7 +248,7 @@ public static class UdsOfflineReportWriter
             var t = report.Transactions[i];
             var evidence = t.Request.Evidence;
             sb.AppendLine(CultureInfo.InvariantCulture,
-                $"{i + 1},{t.Interpretation?.ServiceDisplay},{t.FinalKind},{t.PendingCount}," +
+                $"{NumberOf(t, i)},{t.Interpretation?.ServiceDisplay},{t.FinalKind},{t.PendingCount}," +
                 $"{(t.FinalNrc is { } n ? "0x" + n.ToString("X2", CultureInfo.InvariantCulture) : "")}," +
                 $"{FormatMs(t.FirstResponseMs)},{FormatMs(t.TotalMs)}," +
                 $"{(evidence.Count > 0 ? evidence[0] : -1)},{(evidence.Count > 0 ? evidence[^1] : -1)}," +
@@ -259,6 +259,13 @@ public static class UdsOfflineReportWriter
         }
         return sb.ToString();
     }
+
+    /// <summary>
+    /// 事务号：与结论里的 <c>#N</c>、界面事务表首列同源（<see cref="UdsOfflineTransaction.Index"/>）。
+    /// 没有编号的报告（测试构造）退回列表位置，保证导出永远有号可对。
+    /// </summary>
+    private static int NumberOf(UdsOfflineTransaction transaction, int position)
+        => transaction.Index > 0 ? transaction.Index : position + 1;
 
     /// <summary>
     /// 结论 / 会话时间线 / 刷写流程。导出与界面必须说同一件事——

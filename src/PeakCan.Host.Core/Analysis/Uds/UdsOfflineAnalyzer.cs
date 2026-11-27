@@ -53,9 +53,16 @@ public sealed class UdsOfflineAnalyzer
             })
             .ToArray();
 
+        // 报告序号在这里一次定死：`withP2` 已经过 TimingTracker 按请求时间稳定排序，
+        // 与 UdsFindingGenerator 内部再排一次的顺序一致。结论文案里的 `#N` 就是它，
+        // 界面事务表首列也取它——用户点结论里的编号才能落到同一行。
         var interpreter = new UdsServiceInterpreter();
         var interpreted = withP2
-            .Select(t => t with { Interpretation = interpreter.Interpret(t, request.Diagnostics) })
+            .Select((t, i) => t with
+            {
+                Index = i + 1,
+                Interpretation = interpreter.Interpret(t, request.Diagnostics),
+            })
             .ToArray();
         stages.Add("interpret");
 

@@ -40,6 +40,10 @@ public sealed record UdsFrameEvidence(
         _ => "非诊断",
     };
 
+    /// <summary>
+    /// 行首写 <c>证据 #N</c>，与报告明细（校验失败 / 传输警告）用同一词表——
+    /// 两边都是同一个帧级序号，用户照着报告里的号能在这一列找回原帧。
+    /// </summary>
     public string Display =>
-        $"{Index}  {Timestamp:F6}  ch{Channel}  {DirectionText}  0x{Id:X3}  {ClassText}  {FrameKind}  {Convert.ToHexString(Data)}";
+        $"证据 #{Index}  {Timestamp:F6}  ch{Channel}  {DirectionText}  0x{Id:X3}  {ClassText}  {FrameKind}  {Convert.ToHexString(Data)}";
 }

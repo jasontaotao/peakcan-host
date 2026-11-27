@@ -15,13 +15,29 @@ namespace PeakCan.Host.App.ViewModels.Uds;
 /// </summary>
 public sealed class WarningSummaryRow
 {
-    public WarningSummaryRow(string reason, int count, int firstEvidenceIndex, int lastEvidenceIndex)
+    public WarningSummaryRow(
+        string reason,
+        int count,
+        int firstEvidenceIndex,
+        int lastEvidenceIndex,
+        string? firstFrameText = null)
     {
         Reason = reason;
         Count = count;
         FirstEvidenceIndex = firstEvidenceIndex;
         LastEvidenceIndex = lastEvidenceIndex;
+        FirstFrameText = firstFrameText;
     }
+
+    /// <summary>
+    /// 首条证据帧的身份（时间 / 通道 / CAN ID / 方向）。
+    /// <para>
+    /// <b>为什么必须给：</b>传输警告的证据帧大多不属于任何事务（孤立连续帧、
+    /// 序号错误的续帧），跳到事务表也无行可选。只给一个裸的证据号，用户在
+    /// 几十万条帧里根本找不回来；给出时间与 CAN ID 才能在 ASC/CANoe 里定位。
+    /// </para>
+    /// </summary>
+    public string? FirstFrameText { get; }
 
     /// <summary>原始原因码（<c>SequenceError</c> / <c>OrphanConsecutiveFrame</c> …）。</summary>
     public string Reason { get; }
@@ -43,9 +59,16 @@ public sealed class WarningSummaryRow
         _ => Reason,
     };
 
-    public string Display => Count == 1
-        ? string.Create(CultureInfo.InvariantCulture,
-            $"证据 #{FirstEvidenceIndex}：{Description}")
-        : string.Create(CultureInfo.InvariantCulture,
-            $"{Description} × {Count}（证据 #{FirstEvidenceIndex}–#{LastEvidenceIndex}）");
+    public string Display
+    {
+        get
+        {
+            var frame = FirstFrameText is null ? "" : $"（{FirstFrameText}）";
+            return Count == 1
+                ? string.Create(CultureInfo.InvariantCulture,
+                    $"证据 #{FirstEvidenceIndex}{frame}：{Description}")
+                : string.Create(CultureInfo.InvariantCulture,
+                    $"{Description} × {Count}（证据 #{FirstEvidenceIndex}–#{LastEvidenceIndex}）{frame}");
+        }
+    }
 }

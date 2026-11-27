@@ -217,6 +217,13 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         _ => null,
     };
 
+    /// <summary>
+    /// 选中事务的序号行。定位跳转后用户用它确认「落到的是结论里说的那一条」——
+    /// 光看服务名，同一 DID 的多条失败分不出是哪条。
+    /// </summary>
+    public string? SelectedIndexLine => SelectedTransaction is { Index: > 0 } t
+        ? $"事务序号：#{t.Index}" : null;
+
     // ── 右栏详情行 ────────────────────────────────────────────────────
     //
     // 每条都**自带标签**，且**值为空时返回 null**。
@@ -336,7 +343,7 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     /// </summary>
     public IReadOnlyList<UdsFindingRow> FindingRows =>
         Report is null ? Array.Empty<UdsFindingRow>()
-            : Report.Findings.Select(UdsFindingRow.From).ToArray();
+            : Report.Findings.Select(f => UdsFindingRow.From(f, Report)).ToArray();
 
     /// <summary>
     /// 选中事务发生时的会话。用户问「会话模式」时，光有摘要行不够——
@@ -398,8 +405,28 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         Report is null
             ? Array.Empty<ValidationFailureRow>()
             : Report.ValidationFailures
-                .Select(f => new ValidationFailureRow(f.FailedCheck, f.ResponseEvidenceIndex))
+                .Select(f => new ValidationFailureRow(
+                    f.FailedCheck,
+                    f.ResponseEvidenceIndex,
+                    TransactionNumberForRequestEvidence(f.TransactionRequestEvidenceIndex)))
                 .ToArray();
+
+    /// <summary>
+    /// 按请求的证据序号反查事务号。<see cref="UdsResponseValidationFailure"/>
+    /// 自带 <c>TransactionRequestEvidenceIndex</c>，是失败明细唯一还能挂回事务的线索。
+    /// </summary>
+    private int? TransactionNumberForRequestEvidence(int requestEvidenceIndex)
+    {
+        if (Report is null) return null;
+
+        foreach (var transaction in Report.Transactions)
+        {
+            if (transaction.Request.Evidence.Contains(requestEvidenceIndex))
+                return transaction.Index > 0 ? transaction.Index : null;
+        }
+
+        return null;
+    }
 
     public bool HasValidationFailures => ValidationFailureRows.Count > 0;
 
@@ -424,6 +451,12 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     public bool HasDuplicateFinalResponses => DuplicateFinalResponseRows.Count > 0;
 
     /// <summary>
+    /// 警告行按报告缓存：构建要扫一遍证据表（大日志六十多万条），
+    /// 而 <see cref="HasWarnings"/> 与绑定会反复取这个属性——每次重扫等于白烧几十毫秒。
+    /// </summary>
+    private IReadOnlyList<WarningSummaryRow>? _warningRowsCache;
+
+    /// <summary>
     /// 传输警告，<b>按原因聚合</b>。
     /// <para>
     /// 逐帧列出是错的：一次刷写中断会产生几十条 <c>OrphanConsecutiveFrame</c>，
@@ -431,18 +464,51 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
     /// 「多帧传输在哪个区间断了」。
     /// </para>
     /// </summary>
-    public IReadOnlyList<WarningSummaryRow> WarningRows =>
-        Report is null
-            ? Array.Empty<WarningSummaryRow>()
-            : Report.Warnings
+    public IReadOnlyList<WarningSummaryRow> WarningRows
+    {
+        get
+        {
+            if (_warningRowsCache is not null) return _warningRowsCache;
+            if (Report is null) return Array.Empty<WarningSummaryRow>();
+
+            // 无警告是最常见的情况：此时不必为查首帧去扫 60 万条证据。
+            if (Report.Warnings.Count == 0)
+                return _warningRowsCache = Array.Empty<WarningSummaryRow>();
+
+            var groups = Report.Warnings
                 .GroupBy(w => w.Reason)
-                .Select(g => new WarningSummaryRow(
-                    g.Key, g.Count(),
-                    g.Min(w => w.EvidenceIndex),
-                    g.Max(w => w.EvidenceIndex)))
+                .Select(g => new
+                {
+                    Reason = g.Key,
+                    Count = g.Count(),
+                    First = g.Min(w => w.EvidenceIndex),
+                    Last = g.Max(w => w.EvidenceIndex),
+                })
+                .ToArray();
+
+            // 只回查这几十个序号（单遍扫描 + 集合过滤），不为整表建字典——
+            // 大日志的证据表有六十多万条，建全量字典是白烧时间。
+            var wanted = groups.Select(x => x.First).ToHashSet();
+            var frames = new Dictionary<int, UdsFrameEvidence>();
+            foreach (var evidence in Report.Evidence)
+            {
+                if (wanted.Contains(evidence.Index)) frames[evidence.Index] = evidence;
+            }
+
+            _warningRowsCache = groups
+                .Select(x => new WarningSummaryRow(
+                    x.Reason, x.Count, x.First, x.Last,
+                    frames.TryGetValue(x.First, out var frame) ? DescribeFrame(frame) : null))
                 .OrderByDescending(r => r.Count)
                 .ThenBy(r => r.Reason, StringComparer.Ordinal)
                 .ToArray();
+            return _warningRowsCache;
+        }
+    }
+
+    /// <summary>证据帧的一行身份：时间 / 通道 / CAN ID / 方向。用于在原始日志里找回这一帧。</summary>
+    private static string DescribeFrame(UdsFrameEvidence frame)
+        => $"t={frame.Timestamp:F3}s ch{frame.Channel} 0x{frame.Id:X3}{(frame.IsExtended ? "x" : "")} {frame.DirectionText}";
 
     public bool HasWarnings => WarningRows.Count > 0;
 
@@ -546,6 +612,80 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
 
     [RelayCommand]
     private Task Export() => ExportAsync();
+
+    // ── 从结论 / 证据行定位到事务 ────────────────────────────────────────
+    //
+    // 结论里的 `#N` 和明细里的「证据 #N」原来都是界面上不存在的编号：
+    // 事务表没有序号列，证据号更是帧级下标，用户拿着数字哪也去不了。
+    // 现在两边都能点，落到同一张表、同一行。
+
+    /// <summary>
+    /// 视图侧监听：把目标事务滚进可视区。
+    /// <para>
+    /// 纯 VM 改 <see cref="SelectedTransaction"/> 只会换右栏内容；表格不会自己
+    /// 滚动到那一行——用户还是看不见「跳过去了」。滚动属于视图职责。
+    /// </para>
+    /// </summary>
+    public event Action<UdsOfflineTransaction>? LocateRequested;
+
+    /// <summary>结论徽标 / 校验失败明细：按事务序号定位。</summary>
+    [RelayCommand]
+    private void LocateTransaction(int? number)
+    {
+        if (Report is null || number is not { } value) return;
+
+        var target = Report.Transactions.FirstOrDefault(t => t.Index == value);
+        if (target is null)
+        {
+            Status = $"找不到事务 #{value}（报告已更新？请重新分析）";
+            return;
+        }
+
+        RevealTransaction(target);
+    }
+
+    /// <summary>证据序号定位：先找回所属事务，再选中并滚动。</summary>
+    [RelayCommand]
+    private void LocateEvidence(int? evidenceIndex)
+    {
+        if (Report is null || evidenceIndex is not { } index) return;
+
+        var target = Report.Transactions.FirstOrDefault(t =>
+            t.Request.Evidence.Contains(index)
+            || t.Responses.Any(r => r.Evidence.Contains(index)));
+
+        // 校验失败/重组不完整的响应不会挂到事务上（详见 UdsTransactionBuilder），
+        // 按 Evidence 反查会落空。经失败明细的所属请求兜底，否则明细行的定位是死点击。
+        if (target is null)
+        {
+            var failure = Report.ValidationFailures
+                .FirstOrDefault(f => f.ResponseEvidenceIndex == index);
+            if (failure is not null)
+            {
+                target = Report.Transactions.FirstOrDefault(t =>
+                    t.Request.Evidence.Contains(failure.TransactionRequestEvidenceIndex));
+            }
+        }
+
+        if (target is null)
+        {
+            // 孤立帧 / 噪声帧不属于任何事务。诚实说明，不要假装跳得过去。
+            Status = $"证据 #{index} 不属于任何已闭合事务（孤立帧或噪声），事务表中无法定位";
+            return;
+        }
+
+        RevealTransaction(target);
+    }
+
+    private void RevealTransaction(UdsOfflineTransaction transaction)
+    {
+        // 目标被筛选隐藏时先清筛选：否则选中了，用户眼前仍是一张没有它的表。
+        if (FilterText.Length > 0 && !MatchesFilter(transaction))
+            FilterText = "";
+
+        SelectedTransaction = transaction;
+        LocateRequested?.Invoke(transaction);
+    }
 
     public async Task AnalyzeAsync(CancellationToken externalToken = default)
     {
@@ -712,6 +852,8 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
 
     partial void OnReportChanged(UdsOfflineReport? value)
     {
+        // 警告行依赖报告内容（含证据帧身份），换报告必须重建缓存。
+        _warningRowsCache = null;
         OnPropertyChanged(nameof(Noise));
         OnPropertyChanged(nameof(HasReport));
         OnPropertyChanged(nameof(IsOdxLoaded));
@@ -754,6 +896,7 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         RefreshSelectedEvidence();
         OnPropertyChanged(nameof(SelectedConclusion));
         OnPropertyChanged(nameof(SelectedSessionAtTime));
+        OnPropertyChanged(nameof(SelectedIndexLine));
         // 右栏详情行。漏一条就会显示上一条事务的值——比空白更危险。
         OnPropertyChanged(nameof(SelectedNrcLine));
         OnPropertyChanged(nameof(SelectedNrcNameLine));
@@ -772,6 +915,16 @@ public sealed partial class UdsLogAnalysisViewModel : ObservableObject
         var indices = SelectedTransaction.Request.Evidence
             .Concat(SelectedTransaction.Responses.SelectMany(r => r.Evidence))
             .ToHashSet();
+
+        // 校验失败的响应帧不属于事务（校验没过就不会被挂上），但明细行的定位承诺
+        // 「右栏原始证据里有这一帧」。按失败明细的所属请求把它补进来，
+        // 用户点过去才能真的看到那条回显不符的响应。
+        foreach (var failure in Report.ValidationFailures)
+        {
+            if (indices.Contains(failure.TransactionRequestEvidenceIndex))
+                indices.Add(failure.ResponseEvidenceIndex);
+        }
+
         foreach (var evidence in Report.Evidence.Where(e => indices.Contains(e.Index)))
             SelectedEvidence.Add(evidence);
     }

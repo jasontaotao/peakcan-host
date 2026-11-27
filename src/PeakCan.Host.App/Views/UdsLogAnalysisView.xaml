@@ -27,6 +27,27 @@
             <Setter Property="TextWrapping" Value="Wrap"/>
             <Setter Property="FontSize" Value="11"/>
         </Style>
+
+        <!-- 序号徽标：结论里的 `#N` 与事务表首列同号，点一下定位到那一行。
+             它不是装饰——用户拿着结论里的号码必须能在表里找到同一个。 -->
+        <Style x:Key="NumberBadge" TargetType="Button">
+            <Setter Property="Padding" Value="4,0"/>
+            <Setter Property="Margin" Value="0,1,6,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+        </Style>
+
+        <!-- 明细行可点：证据号本身不是任何表里的行，必须能跳到所属事务。 -->
+        <Style x:Key="LocateRowButton" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,1"/>
+        </Style>
     </UserControl.Resources>
 
     <DockPanel Margin="8">
@@ -162,11 +183,26 @@
                                     <Border Margin="0,2" Padding="6,4"
                                             BorderBrush="{StaticResource Divider}" BorderThickness="0,0,0,1">
                                         <StackPanel>
-                                            <TextBlock TextWrapping="Wrap">
-                                                <Run Text="{Binding Severity, Mode=OneWay}" FontWeight="SemiBold"/>
-                                                <Run Text="  "/>
-                                                <Run Text="{Binding Message, Mode=OneWay}"/>
-                                            </TextBlock>
+                                            <!-- 序号徽标 + 正文分成两列：徽标可点、正文照常换行。 -->
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Button Grid.Column="0"
+                                                        Content="{Binding NumberText}"
+                                                        Style="{StaticResource NumberBadge}"
+                                                        ToolTip="定位到事务表对应行"
+                                                        Visibility="{Binding NumberText, Converter={StaticResource NullToVisibilityConverter}}"
+                                                        Command="{Binding DataContext.LocateTransactionCommand,
+                                                                  RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding TransactionNumber}"/>
+                                                <TextBlock Grid.Column="1" TextWrapping="Wrap" VerticalAlignment="Center">
+                                                    <Run Text="{Binding Severity, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                    <Run Text="  "/>
+                                                    <Run Text="{Binding BodyText, Mode=OneWay}"/>
+                                                </TextBlock>
+                                            </Grid>
                                             <!-- 「错误方是谁」由这一行回答：只陈述观测到的动作 -->
                                             <TextBlock Text="{Binding ObservedActionText, StringFormat='直接动作：{0}'}"
                                                        TextWrapping="Wrap"
@@ -220,7 +256,8 @@
 
             <!-- 大日志动辄上千行；Standard 虚拟化滚动时会反复创建/销毁行，
                  回收模式让行容器被复用，列也做虚拟化，滚动才跟手。 -->
-            <DataGrid ItemsSource="{Binding VisibleTransactions}"
+            <DataGrid x:Name="TransactionGrid"
+                      ItemsSource="{Binding VisibleTransactions}"
                       SelectedItem="{Binding SelectedTransaction}"
                       AutoGenerateColumns="False" IsReadOnly="True"
                       EnableRowVirtualization="True"
@@ -234,15 +271,18 @@
                      超了会把「服务」列压到 MinWidth，最关键的一列反而不可读。
                      DID / 降级原因 / 未知服务 不在这里重复——右栏「选中事务」已有完整信息。 -->
                 <DataGrid.Columns>
+                    <!-- 序号：结论徽标 / 校验失败明细里的 #N 就是这一列，按报告顺序固定，
+                         筛选后也不重新编号（行对象自带 Index，与可视行号无关）。 -->
+                    <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="40"/>
                     <DataGridTextColumn Header="时间(s)" Binding="{Binding FirstTimestamp, StringFormat=F3}" Width="64"/>
                     <DataGridTextColumn Header="服务" Binding="{Binding Interpretation.ServiceDisplay}"
                                         Width="*" MinWidth="90"/>
-                    <DataGridTextColumn Header="对象" Binding="{Binding TargetDisplay}" Width="80"/>
+                    <DataGridTextColumn Header="对象" Binding="{Binding TargetDisplay}" Width="74"/>
                     <DataGridTextColumn Header="结果" Binding="{Binding FinalKindDisplay}" Width="72"/>
                     <DataGridTextColumn Header="pending" Binding="{Binding PendingCount}" Width="52"/>
                     <DataGridTextColumn Header="NRC" Binding="{Binding FinalNrc, StringFormat=0x{0:X2}}" Width="44"/>
                     <!-- NRC 含义：光有 hex 用户不知道 0x33 和 0x22 的区别 -->
-                    <DataGridTextColumn Header="NRC 含义" Binding="{Binding NrcName}" Width="130"/>
+                    <DataGridTextColumn Header="NRC 含义" Binding="{Binding NrcName}" Width="118"/>
                     <DataGridTextColumn Header="首次(ms)" Binding="{Binding FirstResponseMs, StringFormat=F3}" Width="64"/>
                     <DataGridTextColumn Header="总(ms)" Binding="{Binding TotalMs, StringFormat=F3}" Width="60"/>
                     <!-- 三个布尔标记合成一列短码 + ToolTip：省宽度且不丢信息 -->
@@ -254,7 +294,7 @@
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
                     <!-- 未知服务 ≠ 异常（服务表不全），但必须能一眼分辨，否则会被当成失败 -->
-                    <DataGridTextColumn Header="未知服务" Binding="{Binding Interpretation.IsUnknownService}" Width="58"/>
+                    <DataGridTextColumn Header="未知服务" Binding="{Binding Interpretation.IsUnknownService}" Width="50"/>
                 </DataGrid.Columns>
             </DataGrid>
 
@@ -279,6 +319,9 @@
                             <StackPanel Margin="8">
                                 <TextBlock Text="{Binding SelectedTransaction.Interpretation.ServiceDisplay}"
                                            FontWeight="SemiBold" FontSize="14" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding SelectedIndexLine}"
+                                           Foreground="{StaticResource TextSecondary}"
+                                           Visibility="{Binding SelectedIndexLine, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 <TextBlock Text="{Binding SelectedTransaction.TargetDisplay, StringFormat='对象：{0}'}"
                                            TextWrapping="Wrap" Margin="0,2,0,0"/>
                                 <TextBlock Text="{Binding SelectedConclusion}" TextWrapping="Wrap"
@@ -482,7 +525,16 @@
                                           Visibility="{Binding HasValidationFailures, Converter={StaticResource BoolToVis}}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding Display}" TextWrapping="Wrap" FontSize="11"/>
+                                        <!-- 点整行跳到所属事务。行里已经算好事务号，
+                                             直接用它——失败响应不在任何事务的 Evidence 列表里
+                                             （校验没过就不会挂到事务上），按证据号反查会落空。 -->
+                                        <Button Style="{StaticResource LocateRowButton}"
+                                                ToolTip="定位到所属事务：右栏「原始证据」里有这条失败响应帧"
+                                                Command="{Binding DataContext.LocateTransactionCommand,
+                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding TransactionNumber}">
+                                            <TextBlock Text="{Binding Display}" TextWrapping="Wrap" FontSize="11"/>
+                                        </Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -495,8 +547,15 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <!-- 必须绑 Display。绑 {Binding} 会对对象调 ToString()，
-                                             WarningSummaryRow 没重写它 → 用户看到的是类名重复 N 行。 -->
-                                        <TextBlock Text="{Binding Display}" TextWrapping="Wrap" FontSize="11"/>
+                                             WarningSummaryRow 没重写它 → 用户看到的是类名重复 N 行。
+                                             行内已给出首帧的时间/ID；能挂到事务上的还能点击定位。 -->
+                                        <Button Style="{StaticResource LocateRowButton}"
+                                                ToolTip="定位到所属事务；孤立帧无归属时会在状态栏说明"
+                                                Command="{Binding DataContext.LocateEvidenceCommand,
+                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding FirstEvidenceIndex}">
+                                            <TextBlock Text="{Binding Display}" TextWrapping="Wrap" FontSize="11"/>
+                                        </Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
