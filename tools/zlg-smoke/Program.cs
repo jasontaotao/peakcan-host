@@ -35,6 +35,7 @@ internal static class Program
         {
             PrintEnvironment();
             PrintAbi();
+            PrintDllSearchDiagnostics();
             var found = EnumerateDevices();
             if (options.Listen is { } listen)
                 return Listen(options, listen);
@@ -83,6 +84,110 @@ internal static class Program
         Console.WriteLine(FormattableString.Invariant(
             $"can_frame={Marshal.SizeOf<ZcanCanFrame>()} canfd_frame={Marshal.SizeOf<ZcanCanFdFrame>()} receive={Marshal.SizeOf<ZcanReceiveData>()} receivefd={Marshal.SizeOf<ZcanReceiveFdData>()} initcfg={Marshal.SizeOf<ZcanChannelInitConfig>()} devinfo={Marshal.SizeOf<ZcanDeviceInfo>()}"));
     }
+
+    /// <summary>
+    /// ZCAN_OpenDevice 返回 0 时，最常见的原因不是驱动缺失，而是 zlgcan.dll
+    /// 按裸名 LoadLibraryA("USBCANFD.dll") 加载插件时命中了 System32/PATH 里的
+    /// 旧版本，忽略了随包 kerneldlls。这里按同一顺序复现一次加载路径，
+    /// 把"最终用的是哪个文件"变成可回传的事实。加载的模块故意不释放：
+    /// Windows 会复用已加载的模块名，后续 zlgcan.dll 自己的 LoadLibraryA 拿到的
+    /// 就是这里记录的那份。
+    /// </summary>
+    [SuppressMessage(
+        "Design",
+        "CA1031:Do not catch general exception types",
+        Justification = "Diagnostic probe must keep reporting after any loader failure.")]
+    private static void PrintDllSearchDiagnostics()
+    {
+        Console.WriteLine("\n== DLL search diagnosis ==");
+
+        var exeDir = AppContext.BaseDirectory;
+        var kernelDir = Path.Combine(exeDir, "kerneldlls");
+        Console.WriteLine($"ExeDir={exeDir}");
+        Console.WriteLine($"CurrentDirectory={Directory.GetCurrentDirectory()}");
+        Console.WriteLine(FormattableString.Invariant(
+            $"kerneldlls dir={kernelDir} exists={Directory.Exists(kernelDir)} dll_cfg.ini={File.Exists(Path.Combine(kernelDir, "dll_cfg.ini"))} usbcanfd={File.Exists(Path.Combine(kernelDir, "USBCANFD.dll"))}"));
+
+        var sys32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        var sysWow64 = Environment.GetFolderPath(Environment.SpecialFolder.SystemX86);
+        foreach (var name in new[] { "USBCANFD.dll", "USBCANFD800U.dll" })
+        {
+            Console.WriteLine(
+                $"  System32\\{name} exists={File.Exists(Path.Combine(sys32, name))} " +
+                $"SysWOW64\\{name} exists={File.Exists(Path.Combine(sysWow64, name))}");
+        }
+
+        // 1) zlgcan.dll 自身的实际加载位置（P/Invoke 惰性绑定，先显式加载才能查到）。
+        var zlgcanHandle = LoadLibraryA(Path.Combine(exeDir, "zlgcan.dll"));
+        Console.WriteLine(
+            $"  LoadLibraryA(zlgcan.dll) handle=0x{zlgcanHandle.ToInt64():X} " +
+            $"err={Marshal.GetLastWin32Error()} path={ModulePath(zlgcanHandle)}");
+
+        // 2) 复现 zlgcan.dll 的插件搜索顺序：先裸名。exe 同目录里没有
+        //    USBCANFD.dll（它在 kerneldlls 子目录），所以裸名只能命中
+        //    System32/PATH 里的版本，或者直接失败。
+        var bareHandle = LoadLibraryA("USBCANFD.dll");
+        var barePath = ModulePath(bareHandle);
+        Console.WriteLine(
+            $"  LoadLibraryA(\"USBCANFD.dll\") handle=0x{bareHandle.ToInt64():X} " +
+            $"err={Marshal.GetLastWin32Error()} path={barePath}");
+
+        // 3) 裸名命中了随包目录以外的文件 = 版本被遮蔽。卸载它，改加载随包那份；
+        //    否则 zlgcan.dll 之后自己调 LoadLibraryA("USBCANFD.dll") 仍会拿到旧版本。
+        var bundledPath = Path.Combine(kernelDir, "USBCANFD.dll");
+        if (bareHandle != IntPtr.Zero
+            && !barePath.StartsWith(kernelDir, StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("  [SHADOWED] bare-name load picked a file outside kerneldlls");
+            FreeLibrary(bareHandle);
+        }
+
+        if (GetModuleHandle("USBCANFD.dll") == IntPtr.Zero)
+        {
+            var bundled = LoadLibraryA(bundledPath);
+            Console.WriteLine(
+                $"  LoadLibraryA(kerneldlls\\USBCANFD.dll) handle=0x{bundled.ToInt64():X} " +
+                $"err={Marshal.GetLastWin32Error()} path={ModulePath(bundled)}");
+        }
+
+        var resolvedByZlgcan = GetModuleHandle("USBCANFD.dll");
+        Console.WriteLine(
+            "  => plugin actually visible to zlgcan.dll: " +
+            (resolvedByZlgcan == IntPtr.Zero ? "(none loaded)" : ModulePath(resolvedByZlgcan)));
+    }
+
+    private static string ModulePath(IntPtr module)
+    {
+        if (module == IntPtr.Zero) return "(null)";
+        var buffer = new char[1024];
+        var length = GetModuleFileName(module, buffer, (uint)buffer.Length);
+        return length == 0 ? "(unknown)" : new string(buffer, 0, (int)length);
+    }
+
+    // 诊断用 kernel32 绑定；smoke 工具单独声明，不进入生产程序集。
+    [SuppressMessage(
+        "Interoperability",
+        "CA2101:Specify marshaling for P/Invoke string arguments",
+        Justification = "Module names are ASCII.")]
+    [DllImport("kernel32", CharSet = CharSet.Ansi, SetLastError = true)]
+    private static extern IntPtr LoadLibraryA([MarshalAs(UnmanagedType.LPStr)] string fileName);
+
+    [SuppressMessage(
+        "Interoperability",
+        "CA2101:Specify marshaling for P/Invoke string arguments",
+        Justification = "Module names are ASCII.")]
+    [DllImport("kernel32", CharSet = CharSet.Ansi, SetLastError = true)]
+    private static extern IntPtr GetModuleHandle([MarshalAs(UnmanagedType.LPStr)] string moduleName);
+
+    [DllImport("kernel32", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FreeLibrary(IntPtr module);
+
+    [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetModuleFileName(
+        IntPtr module,
+        [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] char[] path,
+        uint size);
 
     private static bool EnumerateDevices()
     {
